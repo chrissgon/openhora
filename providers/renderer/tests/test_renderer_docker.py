@@ -493,6 +493,8 @@ def test_block_params_checks_a_blocks_parameters_on_the_host_and_never_echoes_th
     rc, out, err = world.host("block-params", "--block", "hf:demo-pop", "--params", K.write_json(tmp_path / "p.json", {"text": "x"}), "--vocabulary", K.VOCABULARY)
     assert rc == 1 and err.startswith("refused: block_unknown block")
     rc, out, err = world.host("block-params", "--block", "oh:keyword", "--params", K.write_json(tmp_path / "q.json", {"text": "x" * 25}), "--vocabulary", K.VOCABULARY)
+    assert rc == 0, err                      # a text over the block's max is advice at render time, not a refusal (video P0b)
+    rc, out, err = world.host("block-params", "--block", "oh:keyword", "--params", K.write_json(tmp_path / "r.json", {"text": "x" * 241}), "--vocabulary", K.VOCABULARY)
     assert rc == 1 and err.startswith("refused: text_too_long")
     assert world.runs() == []
 

@@ -95,15 +95,16 @@ PICK = re.compile(r"[a-z][a-z0-9]{1,30}:(?:[A-Za-z0-9_-]{1,64}|q-[0-9a-f]{12})")
 STOCK_SLOTS_MAX = 6            # the slots of one video that take a picture or a clip from the media set
 THEME_CHOICES = ("identity", "default")   # the colours and fonts of the project's identity (runtime/theme.py), or the renderer's own default
 LAYOUT_KEYS = {"asset_param", "pic_kind", "show", "search", "want"}      # the keys an added layout (a picture block) carries beyond an overlay's
-ANIMATIONS_MAX = 12            # the animations one review may add
-BEATS_MAX = 12                 # = shared/references/video-presets.json limits.beats_max: overlays and layouts in one beats.json (a test compares)
+ANIMATIONS_MAX = 99            # validity ceiling: the animations one review may add, ids a1 to a99 (the usual count is BEATS_MAX: a video past it is drawn and the render reports advice)
+BEATS_MAX = 12                 # = shared/references/video-presets.json limits.beats_max: the usual number of overlays and layouts in one beats.json, a default (a test compares)
+BEATS_CEILING = 99             # validity ceiling: overlays and layouts in one beats.json, and the script punches p1 to p99 (= providers/renderer/_edl.py BEATS_CEILING; a test compares)
 EFFECT_KINDS = ("punch", "flash", "dip", "mono", "tint")      # = providers/renderer/_edl.py EFFECT_KINDS (a test compares)
 GRADE_KINDS = ("flash", "dip", "mono", "tint")
 OVERLAY_GRADES = ("flash", "dip", "tint")      # = providers/renderer/_edl.py OVERLAY_GRADES (a test compares): the grades drawn on one colour layer
 EFFECTS_MAX = 99               # validity: the review effects one review may add (= _edl.py EFFECTS_MAX; the script's own punches are counted apart)
 EFFECT_ID = re.compile(r"e[1-9][0-9]?")      # = _edl.py EFFECT_ID
 PUNCH_ID = re.compile(r"p([1-9][0-9]?)")      # the id of the script's punch of beat N
-ANIMATION_ID = re.compile(r"a([1-9]|1[0-2])")
+ANIMATION_ID = re.compile(r"a([1-9][0-9]?)")
 ANIMATION_BEAT_BASE = 1000     # an added animation's `beat` in beats.json is 1000 + its number: never a script beat's number
 BLOCK_NAME = re.compile(r"(oh|hf):[a-z][a-z0-9-]{0,39}")      # = providers/renderer/_blocks.py NAME (a test reads that file as text and compares)
 PRESET_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")             # = _blocks.py PRESET
@@ -212,7 +213,7 @@ def _check_stock(searches, assets) -> None:
 def _check_effects(items, dropped) -> None:
     """The stored effects and the script punches the person dropped, closed, or CaptionError("review_unreadable", "effects")."""
     bad = CaptionError("review_unreadable", "effects")
-    if not isinstance(items, list) or len(items) > EFFECTS_MAX or not isinstance(dropped, list) or len(dropped) > BEATS_MAX:
+    if not isinstance(items, list) or len(items) > EFFECTS_MAX or not isinstance(dropped, list) or len(dropped) > BEATS_CEILING:
         raise bad
     seen = set()
     for item in items:
@@ -223,7 +224,7 @@ def _check_effects(items, dropped) -> None:
         seen.add(item["id"])
         if not (_is_int(item["from"]) and _is_int(item["to"]) and 0 <= item["from"] <= item["to"]):
             raise bad
-    if not all(_is_int(beat) and 0 < beat <= BEATS_MAX for beat in dropped) or len(set(dropped)) != len(dropped):
+    if not all(_is_int(beat) and 0 < beat <= BEATS_CEILING for beat in dropped) or len(set(dropped)) != len(dropped):
         raise bad
 
 
@@ -396,7 +397,7 @@ def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict,
                 parameters as the renderer's checker accepted them) or raises a CaptionError; None refuses every `animation`
                 edit (`animation_unavailable`)
     punches     the beat numbers the script asked a punch for (an `effect` edit that drops `p<beat>` names one of these); None accepts any beat
-                number from 1 to BEATS_MAX (the step ignores a drop that names no punch)
+                number from 1 to BEATS_CEILING (the step ignores a drop that names no punch)
     stock       {slot id: the picks (`<source>:<item>`) of the media set's candidates for that slot} (V9b-3a): a `slot_asset` edit names one of them; None means no
                 set was found, so every pick is refused (`asset_not_found`)
     counts      {"edited", "split", "merged", "deleted"}: how many words each kind of edit touched; never a text."""
@@ -587,7 +588,7 @@ def _decide_effect(edit: dict, where: str, words: list, review: dict, punches) -
         script = PUNCH_ID.fullmatch(rid)
         if script:      # the script's punch of that beat: dropped, and kept dropped
             beat = int(script.group(1))
-            if beat > BEATS_MAX or (punches is not None and beat not in punches):
+            if beat > BEATS_CEILING or (punches is not None and beat not in punches):
                 raise CaptionError("unknown_effect", f"{where}.id")
             review["dropped_punches"] = sorted(set(review["dropped_punches"]) | {beat})
             return
@@ -639,7 +640,7 @@ def _decide_animation(edit: dict, where: str, words: list, review: dict, beats, 
     if first > last:
         raise CaptionError("bad_index", f"{where}.word_to")
     stored = review["animations"]
-    if len(stored) >= ANIMATIONS_MAX or len(stored) + len(set(beats) - set(review["dropped_beats"])) >= BEATS_MAX:
+    if len(stored) >= ANIMATIONS_MAX or len(stored) + len(set(beats) - set(review["dropped_beats"])) >= BEATS_CEILING:
         raise CaptionError("too_many_animations", where)
     checked = animate(edit["block"], edit["params"], where)
     used = {a["id"] for a in stored}

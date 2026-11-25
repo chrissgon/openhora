@@ -34,8 +34,8 @@ import re
 WORD = "deliver"
 VERSION = 1
 KEYS = ("blocks", "cover", "effect", "platform", "post", "preview", "recording", "task", "verify", "version", "video")
-OPTIONAL_KEYS = ("assets", "credits", "left_out", "web")      # V9b-3a: present only when the video uses pictures from the media set; `left_out` (V9b-3f) only when the render left something out
-LEFT_OUT_MAX = 123      # = captions.EFFECTS_MAX + 2 × captions.BEATS_MAX (a test compares)
+OPTIONAL_KEYS = ("advice", "assets", "credits", "left_out", "web")      # V9b-3a: present only when the video uses pictures from the media set; `left_out` (V9b-3f) only when the render left something out; `advice` (video P0b) only when an edit went past a default
+LEFT_OUT_MAX = 297      # = captions.EFFECTS_MAX + 2 × captions.BEATS_CEILING (a test compares)
 LEFT_OUT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 # V9b-3f: what the render left out of the video, as closed words. A row is {id, kind, reason}; the words below are the English body's, and each pair is a phrase key
 # `CARD_VIDEO_LEFT_OUT_<KIND>_<REASON>` of runtime/phrases_parts/v9b-3f.*.json (a test compares them), so a phone says it in the project's language.
@@ -44,6 +44,29 @@ LEFT_OUT_BEAT_REASON_WORDS = {"overlap": "another scene starts at the same time"
                               "pip_no_room": "no room beside the face", "split_no_room": "no room beside the face"}
 LEFT_OUT_EFFECT_REASON_WORDS = {"punch_short": "the zoom is too short", "punch_capped": "the zoom would not get any closer than the shot already is",
                                 "grade_short": "the colour change is too short", "grade_overlap": "another colour change covers it"}
+# Video P0b: where an edit went past a default, as rows {code, value, default, count, ids?} of the renderer's closed codes (providers/renderer/_advice.py CODES; a test compares).
+# The container returns the code and the numbers and never the sentence: these are the English sentences (`{value}` and `{default}` formatted by `advice_number`, `{count}` an
+# integer), and each code is a phrase key `CARD_VIDEO_ADVICE_<CODE>` of runtime/phrases_parts/p0b.*.json (a test compares them), so a phone says it in the project's language.
+ADVICE_MAX = 24
+ADVICE_IDS_MAX = 12
+ADVICE_WORDS = {
+    "card_room_small": "Cards have {value} px above the face, less than the usual {default} px, so they may cover the face.",
+    "caption_room_small": "Captions have {value} px below the face, less than the usual {default} px, so they may cover the face.",
+    "caption_below_line": "Captions reach {value} px, below the usual line at {default} px, where the app's buttons may cover them.",
+    "drawn_below_line": "An animation draws below its line on {value} frames ({count} times).",
+    "block_not_drawn": "An animation drew nothing for {value} frames ({count} times).",
+    "caption_not_drawn": "A caption drew no words for {value} frames ({count} times).",
+    "face_pixels_changed": "Something drawn changes the face: {value} dB against the usual check of {default} dB.",
+    "beats_over_default": "The video has {value} scenes, more than the usual {default}.",
+    "punches_over_default": "The script has {value} zoom punches, more than the usual {default}.",
+    "aside_repeated": "The video has {value} asides, more than the usual {default}.",
+    "aside_with_punch": "{value} zoom punches fall on an aside, which usually has none.",
+    "text_over_default": "A text has {value} characters, more than the {default} its animation was made for; it may be cut or shrink.",
+    "beat_shorter_than_default": "A scene shows for {value} s, less than its usual {default} s, because a picture covers the rest.",
+    "punch_short": "A zoom punch lasts {value} s, less than the usual {default} s.",
+    "pip_card_over_face": "A picture card has {value} px below the face, less than the usual {default} px, so it is drawn over the face.",
+    "split_band_over_face": "A split leaves {value} px of caption band clear of the face, less than the usual {default} px, so the captions go over it.",
+}
 ASSETS_MAX = 12
 SLOT = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 SOURCE = re.compile(r"[a-z][a-z0-9]{1,30}")
@@ -157,6 +180,7 @@ def check(doc) -> dict:
             raise ValueError("preview.size")
     _check_assets(doc)
     _check_left_out(doc)
+    _check_advice(doc)
     return doc
 
 
@@ -190,6 +214,59 @@ def _check_left_out(doc: dict) -> None:
         if previous is not None and found <= previous:
             raise ValueError("left_out")
         previous = found
+
+
+def advice_number(x) -> str:
+    """A number of an advice row as the sentence writes it: an integer when whole, else one decimal."""
+    return str(int(x)) if x == int(x) else f"{x:.1f}"
+
+
+def advice_key(row: dict) -> str:
+    """The phrase key that says one advice row."""
+    return f"CARD_VIDEO_ADVICE_{row['code'].upper()}"
+
+
+def advice_fields(row: dict) -> dict:
+    """The values a row's sentence can use, as the card says them (every one a text)."""
+    return {"value": advice_number(row["value"]), "default": advice_number(row["default"]), "count": str(row["count"])}
+
+
+def advice_placeholders(code: str) -> set:
+    """The fields the English sentence of `code` has: a card line carries exactly those (`phrases.card_valid`)."""
+    return set(re.findall(r"\{(\w+)\}", ADVICE_WORDS[code]))
+
+
+def advice_sentence(row: dict) -> str:
+    """The English sentence of one advice row, with its `Advice: ` start."""
+    return "Advice: " + ADVICE_WORDS[row["code"]].format(value=advice_number(row["value"]), default=advice_number(row["default"]), count=row["count"])
+
+
+def _check_advice(doc: dict) -> None:
+    """`advice`, present only when it holds something: rows {code, value, default, count[, ids]} of the closed codes, sorted by code, none twice, at most ADVICE_MAX; value and default finite
+    numbers, count an integer of 1 or more, ids at most ADVICE_IDS_MAX of the closed id pattern."""
+    if "advice" not in doc:
+        return
+    rows = doc["advice"]
+    if not isinstance(rows, list) or not rows or len(rows) > ADVICE_MAX:
+        raise ValueError("advice")
+    previous = None
+    for row in rows:
+        if not isinstance(row, dict) or not {"code", "value", "default", "count"} <= set(row) or set(row) - {"code", "value", "default", "count", "ids"}:
+            raise ValueError("advice")
+        if row["code"] not in ADVICE_WORDS:
+            raise ValueError("advice.code")
+        if previous is not None and row["code"] <= previous:
+            raise ValueError("advice")
+        previous = row["code"]
+        for key in ("value", "default"):
+            n = row[key]
+            if type(n) not in (int, float) or n != n or n in (float("inf"), float("-inf")):
+                raise ValueError(f"advice.{key}")
+        if not _int(row["count"], 1):
+            raise ValueError("advice.count")
+        ids = row.get("ids", [])
+        if not isinstance(ids, list) or len(ids) > ADVICE_IDS_MAX or not all(isinstance(i, str) and LEFT_OUT_ID.fullmatch(i) for i in ids):
+            raise ValueError("advice.ids")
 
 
 def _check_assets(doc: dict) -> None:
@@ -228,7 +305,7 @@ def _check_assets(doc: dict) -> None:
             raise ValueError("credits")
 
 
-def build(*, task, recording, platform, post, video, cover, verify_platform, blocks=(), preview=None, assets=(), web=(), credits=None, left_out=()) -> dict:
+def build(*, task, recording, platform, post, video, cover, verify_platform, blocks=(), preview=None, assets=(), web=(), credits=None, left_out=(), advice=()) -> dict:
     """The document, already passed through `check`. `video` is `{name, sha256, size, duration_ms}`, `cover` is `{name, sha256, size}` or
     None, `blocks` a sequence of `{id, sha256}` and `preview` None or `{sha256, size, from_sha256}`. `assets`, `web` and `credits` (V9b-3a) are added as keys only
     when they hold something: `assets` `{slot, sha256, source, item, licence}`, `web` `{slot, sha256, page_host, page_sha256}`, `credits` `{count, sha256}`: the number of credit lines and the sha256 of the list (the text is never in the document)."""
@@ -245,6 +322,8 @@ def build(*, task, recording, platform, post, video, cover, verify_platform, blo
         doc["credits"] = dict(credits)
     if left_out:      # V9b-3f: `{id, kind, reason}` rows of what the render left out; a video that left nothing out keeps the document and the hash it had
         doc["left_out"] = [dict(r) if isinstance(r, dict) else r for r in left_out]
+    if advice:      # video P0b: where an edit went past a default; a video that did not keeps the document and the hash it had
+        doc["advice"] = [dict(r, ids=list(r["ids"])) if isinstance(r, dict) and isinstance(r.get("ids"), list) else (dict(r) if isinstance(r, dict) else r) for r in advice]
     return check(doc)
 
 
@@ -282,6 +361,8 @@ def summary(doc: dict) -> dict:
         found.update(assets=len(doc["assets"]), web=len(doc.get("web") or []), credits=doc["credits"]["count"] if doc.get("credits") else 0)
     if doc.get("left_out"):
         found["left_out"] = len(doc["left_out"])
+    if doc.get("advice"):
+        found["advice"] = len(doc["advice"])
     return found
 
 
@@ -303,6 +384,7 @@ def card_lines(doc: dict, digest: str) -> list:
     lines.append(["CARD_VIDEO_PREVIEW", {"sha": preview["sha256"], "origin": preview["from_sha256"]}] if preview else ["CARD_VIDEO_NO_PREVIEW", {}])
     lines.extend(_asset_card_lines(doc))
     lines.extend([left_out_key(r), {"id": r["id"]}] for r in doc.get("left_out") or [])
+    lines.extend([advice_key(r), {k: v for k, v in advice_fields(r).items() if k in advice_placeholders(r["code"])}] for r in doc.get("advice") or [])
     lines.append(["CARD_VIDEO_DIGEST", {"digest": digest}])
     lines.append(["CARD_VIDEO_CLOSING", {}])
     return lines
@@ -341,6 +423,7 @@ def body(doc: dict, digest: str) -> str:
         lines.append(f"Found on the web, licence not checked: {w['page_host']}")
     for r in doc.get("left_out") or []:
         lines.append(f"Left out of the video: {r['id']}, {LEFT_OUT_KIND_WORDS[r['kind']]}, {left_out_reasons(r['kind'])[r['reason']]}")
+    lines.extend(advice_sentence(r) for r in doc.get("advice") or [])
     lines.append(f"Delivery document sha256 {digest}")
     lines.append(CLOSING)
     return "\n".join(lines)

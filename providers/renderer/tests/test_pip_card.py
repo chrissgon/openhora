@@ -98,10 +98,13 @@ def test_a_caption_during_a_pip_gets_the_lower_part_of_the_card_and_one_outside_
         assert tl["captions"][1]["band"][0] >= card["y"] and tl["captions"][1]["band"][0] > UPPER_FACE["y"] + UPPER_FACE["h"]
 
 
-def test_a_pip_with_no_room_is_dropped_with_its_reason_and_its_id_stays_in_the_list_of_ids():
+def test_a_pip_with_no_room_is_drawn_over_the_face_with_advice_and_is_not_dropped():
     tl = timeline_of({"x": 240, "y": 800, "w": 600, "h": 540})
-    assert _layout.pip_cards(DATA, tl, ASSETS) == [{"id": "b1", "reason": "pip_no_room"}]
-    assert tl["beats"] == [] and tl["dropped"] == ["b1"] and not any("band" in c for c in tl["captions"])
+    advice = []
+    assert _layout.pip_cards(DATA, tl, ASSETS, advice=advice) == []
+    card = tl["beats"][0]["card"]
+    assert tl["dropped"] == [] and card["y"] + card["h"] == Z["caption_bottom"] and card["h"] <= DATA["pip"]["card_min_height"]
+    assert [(r["code"], r["default"]) for r in advice] == [("pip_card_over_face", 240)]
     low = timeline_of(LOW_FACE)
     assert _layout.pip_cards(DATA, low, ASSETS) == [] and low["beats"][0]["card"]["h"] > 300 and low["dropped"] == []
 
@@ -318,16 +321,16 @@ def test_the_same_inputs_give_the_same_bytes_whatever_the_worker_count(world):
 
 
 @needs_all
-def test_a_pip_with_no_room_is_reported_with_its_reason_and_the_render_still_succeeds(world, tmp_path):
+def test_a_pip_with_no_room_is_drawn_over_the_face_with_advice_and_the_render_succeeds(world, tmp_path):
     files = world["files"]
     low = dict(files, edl=tmp_path / "low-edl.json")
     Path(low["edl"]).write_text(Path(files["edl"]).read_text())
     edit_json(low["edl"], lambda d: d.update(face_box={"x": 240, "y": 800, "w": 600, "h": 560}))
     result = render_it(low, tmp_path / "low")
-    assert result["beats_dropped"] == ["b4"] and result["beats_dropped_reasons"] == [{"id": "b4", "reason": "pip_no_room"}]
-    assert all(b["preset"] != "pip" for b in result["beats_drawn"])
+    assert result["beats_dropped"] == [] and any(b["preset"] == "pip" for b in result["beats_drawn"])
+    assert [r["code"] for r in result["advice"]] == ["pip_card_over_face"]
     clean = _docker.sanitise(result, _docker.RESULT_SCHEMAS["render"], "render")
-    assert clean["beats_dropped_reasons"] == [{"id": "b4", "reason": "pip_no_room"}]
+    assert clean["advice"][0]["ids"] == ["b4"]
     assert "beats_dropped_reasons" not in world["out"]["pip"]          # a render with no dropped pip writes the result it always wrote
 
 

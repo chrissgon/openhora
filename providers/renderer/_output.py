@@ -9,6 +9,7 @@ import shutil
 import struct
 import tempfile
 
+import _advice
 import _edl
 import _media
 from _text import Refusal
@@ -101,7 +102,7 @@ def time_limit_for(data: dict, out_seconds: float, requested=None) -> int:
 
 
 def check_documents(data, edl, beats, platform, vocab, allow) -> dict:
-    """Check the edit list and the beats. Returns {mentions}; raises the first Refusal. `platform` None is for the callers that have no
+    """Check the edit list and the beats. Returns {mentions}, and `advice` when a choice goes past a default; raises the first Refusal. `platform` None is for the callers that have no
     platform on purpose (`check` without a file, the storyboard); `render` and `verify` read theirs with `read_platform`."""
     first = _edl.check_edl(edl, data, vocab, allow, platform)
     second = _edl.check_beats(beats, edl, vocab)
@@ -109,7 +110,10 @@ def check_documents(data, edl, beats, platform, vocab, allow) -> dict:
     for key, ok in (("fps_min", lambda v: edl["fps"] >= v), ("fps_max", lambda v: edl["fps"] <= v)):
         if frame.get(key) is not None and not ok(frame[key]):
             raise Refusal("fps_outside_platform", "edl.fps")
-    return {"mentions": sorted(set(first["mentions"]) | set(second["mentions"]))}
+    out = {"mentions": sorted(set(first["mentions"]) | set(second["mentions"]))}
+    if first.get("advice") or second.get("advice"):
+        out["advice"] = _advice.merge(first.get("advice"), second.get("advice"))
+    return out
 
 
 def check_recording(ffprobe, src: str, edl: dict, limits: dict) -> dict:

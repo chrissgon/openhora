@@ -270,7 +270,7 @@
   "caption_margin": 14,
   "card_min_height": 80,
   "caption_min_height": 120,
-  "note": "The face box splits the frame: cards (keyword, list, number, quote) live in the band above it, from card_top down to the face box (as the zoom leaves it) less gap; captions live in the band below it, from the face box plus gap down to caption_bottom. The render fails when a drawn card or caption touches the face box. 1560 clears the apps' interface (VD12); a drawn caption below it fails the render."
+  "note": "The face box splits the frame: by default cards (keyword, list, number, quote) are placed in the band above it, from card_top down to the face box (as the zoom leaves it) less gap; captions in the band below it, from the face box plus gap down to caption_bottom. These are where things go by default, not limits: a band the face leaves under card_min_height or caption_min_height is clamped to that minimum and the render reports advice (card_room_small, caption_room_small), and a caption drawn below caption_bottom (1560 clears the apps' interface, VD12) is reported as advice (caption_below_line). Nothing refuses a render for where a card or a caption is drawn (the maintainer's principle of 2026-11-24)."
  },
  "face_box_default": {
   "x": 240,
@@ -286,6 +286,7 @@
   "default_mode": "alternate",
   "factor": 1.1,
   "push_in": 0.02,
+  "push_min_seconds": 5.0,
   "anchor_y": 0.25,
   "audio_fade_seconds": 0.015
  },

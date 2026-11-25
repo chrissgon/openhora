@@ -1,8 +1,9 @@
 """The exact pixel gates of an admitted page (the second contract, R3-1).
 
 A page of the second contract can draw anywhere, so the gates are on what it drew: every frame it wrote is an 8-bit RGBA PNG of the frame's size,
-and in every frame no pixel with any alpha at all lies on or below the line (a card's is the top of the caption band, a caption's is its bottom). There is no
-threshold: an alpha of 1/255 is a hit. A layer that draws nothing in all its frames is refused too (`block_not_drawn`). There is no gate on the speaker's
+and every frame holds pixels with any alpha at all on or below the line (a card's is the top of the caption band, a caption's is its bottom): that is advice (`drawn_below_line`),
+not a refusal (the maintainer's principle of 2026-11-24). There is no threshold: an alpha of 1/255 is a hit. A layer that draws nothing in all its frames is advice too
+(`block_not_drawn`). The only refusal left is a frame that is not an 8-bit RGBA PNG of the frame's size (`frame_not_rgba`). There is no gate on the speaker's
 face: the maintainer removed that rule on 2026-11-24 (it was R3-2's alpha face gate), so an overlay may be drawn over the face; the face box stays a
 placement input (the bands the zones are made from) and is never a refusal.
 
@@ -19,6 +20,7 @@ import struct
 import subprocess
 import tempfile
 
+import _advice
 from _text import Refusal
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -47,14 +49,16 @@ def _read_max(path: str) -> list:
     return [int(v) for _f, v in YMAX.findall(text)]
 
 
-def check_range(frames_dir: str, start: int, end: int, line_y, w: int, h: int, ffmpeg: str = "ffmpeg", prefix: str = "beat", require_drawn: bool = True) -> None:
-    """The gates on frames [start, end) of one range. Refusals: `frame_not_rgba`, `caption_below_line`, `block_not_drawn` (the field is `frame N`, the first
-    frame found). There is no face gate: an overlay may be drawn over the speaker's face (the maintainer's decisions of 2026-11-24; the face box is a placement
+def check_range(frames_dir: str, start: int, end: int, line_y, w: int, h: int, ffmpeg: str = "ffmpeg", prefix: str = "beat", require_drawn: bool = True, aid=None) -> list:
+    """The gates on frames [start, end) of one range. The one refusal is `frame_not_rgba` (the field is `frame N`, the first frame found). Returns the advice rows
+    (a list of `_advice`, `[]` for none): `drawn_below_line` (the frames that draw on or below the line) and `block_not_drawn` (the range's frames, when it draws nothing),
+    each with `aid`, the id of the entry. There is no face gate: an overlay may be drawn over the speaker's face (the maintainer's decisions of 2026-11-24; the face box is a placement
     input, never a refusal). `line_y` is the line the layer must stay on one side of: a card's is its band's top and a caption's is its band's bottom, and no
     pixel with any alpha at all may lie on or below it. `require_drawn` false (a caption chunk too short to be read) leaves the last one out."""
     count = end - start
+    found = []
     if count <= 0:
-        return
+        return found
     for n in range(start, end):
         head = png_header(os.path.join(frames_dir, "%s_%06d.png" % (prefix, n)))
         if head is None or head != (w, h, 8, 6):
@@ -84,14 +88,17 @@ def check_range(frames_dir: str, start: int, end: int, line_y, w: int, h: int, f
         shutil.rmtree(work, ignore_errors=True)
     if len(all_max) != count:
         raise Refusal("frame_not_rgba", "frame %d" % start)
-    for k, v in enumerate(line_max):
-        if v > 0:
-            raise Refusal("caption_below_line", "frame %d" % (start + k))
+    below = sum(1 for v in line_max if v > 0)
+    if below:
+        _advice.add(found, "drawn_below_line", below, 0, aid)
     if require_drawn and max(all_max) == 0:
-        raise Refusal("block_not_drawn", "frame %d" % start)
+        _advice.add(found, "block_not_drawn", count, 0, aid)
+    return found
 
 
-def check_layer(frames_dir: str, ranges: list, w: int, h: int, ffmpeg: str = "ffmpeg", prefix: str = "beat") -> None:
-    """The gates on every range of one layer. `ranges` rows are {start, end, line_y[, require_drawn]}: the line of a row is the render's real one for that range."""
+def check_layer(frames_dir: str, ranges: list, w: int, h: int, ffmpeg: str = "ffmpeg", prefix: str = "beat") -> list:
+    """The gates on every range of one layer; returns their advice rows, merged. `ranges` rows are {start, end, line_y[, require_drawn, id]}: the line of a row is the render's real one for that range."""
+    found = []
     for row in ranges:
-        check_range(frames_dir, row["start"], row["end"], row.get("line_y"), w, h, ffmpeg, prefix, row.get("require_drawn", True))
+        found = _advice.merge(found, check_range(frames_dir, row["start"], row["end"], row.get("line_y"), w, h, ffmpeg, prefix, row.get("require_drawn", True), row.get("id")))
+    return found

@@ -173,7 +173,7 @@ def test_the_listing_says_for_each_block_whether_it_can_be_added_and_why_not(tmp
     assert (rows["oh:pip"]["addable"], rows["oh:pip"]["why"]) == (True, None)      # the ffmpeg engine draws the preset pip
     assert rows["oh:caption"]["why"] == "kind"
     assert rows["oh:bare"]["why"] == "no_preset" and rows["oh:pic"]["why"] is None and rows["oh:only-hf"]["why"] == "engine"
-    assert shown["engine"] == "ffmpeg" and shown["presets"]["keyword"] == "oh:keyword" and (shown["animations_max"], shown["beats_max"]) == (12, 12)
+    assert shown["engine"] == "ffmpeg" and shown["presets"]["keyword"] == "oh:keyword" and (shown["animations_max"], shown["beats_max"]) == (99, 99)
     monkeypatch.setattr(animation, "engine_name", lambda r, i=None: None)
     none = animation.listing(root)
     whys = {b["name"]: b["why"] for b in none["blocks"]}

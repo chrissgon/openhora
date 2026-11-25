@@ -298,12 +298,20 @@ def test_a_page_that_draws_from_math_random_is_refused_by_the_comparator(tmp_pat
 
 
 @needs_all
-@pytest.mark.parametrize("variant,code", [("below_default_line", "caption_below_line"), ("nothing", "block_not_drawn"),
-                                          ("computed_fetch", "blocked_request"), ("system_font", "font_not_allowed"), ("fontface", "block_lint")])
-def test_every_gate_of_the_second_contract_stops_an_admission_with_its_own_code(tmp_path, variant, code):
+@pytest.mark.parametrize("variant,code", [("computed_fetch", "blocked_request"), ("system_font", "font_not_allowed"), ("fontface", "block_lint")])
+def test_every_remaining_gate_of_the_second_contract_stops_an_admission_with_its_own_code(tmp_path, variant, code):
     args, env, _ = check_args(tmp_path, variant, samples=[{"text": "Go"}])
     rc, out, err = K.run_verb(*args, env=env)
     assert rc == 1 and err.startswith("refused: %s" % code), err
+
+
+@needs_all
+@pytest.mark.parametrize("variant", ["nothing"])      # `below_default_line` draws a mark that appears at frame 4 and so differs between the two runs: it is not a deterministic page
+def test_a_page_that_draws_nothing_is_admitted_it_is_advice_not_a_refusal(tmp_path, variant):
+    """Video P0b: `caption_below_line` and `block_not_drawn` of the exact gates are advice (`drawn_below_line`, `block_not_drawn`), never an admission refusal."""
+    args, env, _ = check_args(tmp_path, variant, samples=[{"text": "Go"}])
+    rc, out, err = K.run_verb(*args, env=env)
+    assert rc == 0, err
 
 
 @needs_all

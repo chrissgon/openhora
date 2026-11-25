@@ -457,13 +457,15 @@ def test_f4_the_proxy_of_the_recording_is_one_sha256_at_two_and_at_four_cpus(lab
 
 # ---------------------------------------------------------------- F5, F6 planted blocks
 
-def planted_leg(lab, engine, which, code):
+def planted_advice_leg(lab, engine, which, code):
+    """Video P0b: the planted block renders (rc 0, one file) and the answer reports `code` as advice; nothing is refused."""
     lab.need(engine)
     rec, edl, beats, doc = lab.short()
     folder = C.planted_renderat(lab.folder, which)
     run = lab.render(engine, "planted-%s-%s" % (which, engine), rec, edl, beats, blocks=folder)
-    assert run.rc == 1 and run.code == code, (run.rc, run.out, run.err[-2000:])
-    assert_clean(run.out_dir)
+    assert run.rc == 0, (run.rc, run.out, run.err[-2000:])
+    assert code in [row["code"] for row in run.out.get("advice") or []], (run.out.get("advice"), run.err[-1000:])
+    return run
 
 
 def image_runtime_sha256(lab, folder: Path) -> str:
@@ -508,11 +510,12 @@ def test_f10_the_second_page_contract_draws_the_clean_control_twice_identically_
     assert one.out["sha256"] == two.out["sha256"] and one.out["hf_proofs"][S.NAME]["runtime_sha256"] == runtime_sha
     # `opaque` (a full-frame layer, the 1-pixel corner cut so that it is RGBA) now proves the line gate: it is below the line from frame 3 (it was the face gate's
     # until 2026-11-24, when the face rule was removed); `face_dot` (alpha 1/255 in the face box) is no longer refused: it is drawn twice, one sha256
-    expected = {"below_line": ("caption_below_line", start + 4), "nothing": ("block_not_drawn", start), "opaque": ("caption_below_line", start + 3)}
-    for variant, (code, frame) in expected.items():
+    # video P0b: the line and the drawn floor of the exact gates are advice, so these variants are drawn and reported (rc 0, one file, the advice row)
+    expected = {"below_line": "drawn_below_line", "nothing": "block_not_drawn", "opaque": "drawn_below_line"}
+    for variant, code in expected.items():
         r = run(variant)
-        assert (r.rc, r.code) == (1, code), (variant, r.err[-400:])
-        assert "frame %d" % frame in r.err, (variant, r.err[-200:])
+        assert r.rc == 0, (variant, r.err[-400:])
+        assert code in [row["code"] for row in r.out.get("advice") or []], (variant, r.out.get("advice"))
     for variant, code in (("opaque_no_clip", "frame_not_rgba"), ("computed_fetch", "blocked_request"), ("system_font", "font_not_allowed"),
                           ("fontface", "block_lint"), ("lint_storage", "block_lint")):
         r = run(variant)
@@ -527,7 +530,7 @@ def test_f10_the_second_page_contract_draws_the_clean_control_twice_identically_
 @legs("F11", ("ffmpeg",))
 def test_f11_one_of_our_own_ports_is_drawn_under_the_second_contract_by_the_real_runtime_twice_identically(engine, lab):
     """PF-a4a. A FICTIONAL tier-B card port and caption port (hf_port_kit) in a test blocks folder, each with a provisional determinism record at the image's own
-    runtime hash. No file is requested at mount (a request would be `blocked_request`), the pages draw, every gate passes (the line, the RGBA check, drawn) and the
+    runtime hash. No file is requested at mount (a request would be `blocked_request`), the pages draw, every gate passes (the line and drawn as advice, the RGBA check) and the
     render twice is one sha256; the caption chunks are written as `cap_*` frames by the same path. The five real ports are PF-a4b's records."""
     transcript = K.build_transcript(K.SHORT_SENTENCES[:2])
     rec = lab.recording("pfa4", transcript)
@@ -546,21 +549,22 @@ def test_f11_one_of_our_own_ports_is_drawn_under_the_second_contract_by_the_real
 
 
 @legs("F5")
-def test_f5_a_card_over_the_face_box_is_drawn_on_ffmpeg_and_is_a_pixel_change_of_the_face_region_on_the_old_engine(engine, lab):
+def test_f5_a_card_over_the_face_box_is_drawn_on_ffmpeg_and_is_advice_for_a_pixel_change_of_the_face_region_on_the_old_engine(engine, lab):
     """The face rule was removed on 2026-11-24 (nothing is refused for touching the face): the ffmpeg engine draws the card. The old engine's pixel check
-    (the face region against the undrawn base) is still there until the engine is deleted (PF-b), so it refuses the same card as `face_pixels_changed`."""
+    (the face region against the undrawn base) is still there until the engine is deleted (PF-b), so it reports the same card as advice `face_pixels_changed` (video P0b: advice, not a refusal)."""
     if engine == "ffmpeg":
         lab.need(engine)
         rec, edl, beats, doc = lab.short()
         run = lab.render(engine, "planted-cover-%s" % engine, rec, edl, beats, blocks=C.planted_renderat(lab.folder, "cover"))
         assert run.rc == 0, (run.rc, run.out, run.err[-2000:])
     else:
-        planted_leg(lab, engine, "cover", "face_pixels_changed")
+        planted_advice_leg(lab, engine, "cover", "face_pixels_changed")
 
 
 @legs("F6")
-def test_f6_a_caption_below_the_line_at_1560_is_refused_and_leaves_nothing(engine, lab):
-    planted_leg(lab, engine, "low", "caption_below_line")
+def test_f6_a_caption_below_the_line_at_1560_renders_and_is_reported_as_advice(engine, lab):
+    run = planted_advice_leg(lab, engine, "low", "caption_below_line")
+    assert [row for row in run.out["advice"] if row["code"] == "caption_below_line"][0]["value"] > 1560
 
 
 # ---------------------------------------------------------------- F7 refusals
@@ -608,14 +612,15 @@ def test_f7_what_the_engine_cannot_draw_and_a_recording_that_is_not_the_list_are
 # ---------------------------------------------------------------- F8 glyphs (HyperFrames)
 
 @legs("F8", ("hyperframes",))
-def test_f8_a_caption_whose_words_draw_no_glyph_is_refused_and_the_clean_render_passes_the_rule(engine, lab):
+def test_f8_a_caption_whose_words_draw_no_glyph_is_reported_as_advice_and_the_clean_render_has_none(engine, lab):
     lab.need(engine)
     clean = lab.f1(engine, "a")
     assert clean.rc == 0 and clean.out["captions_drawn"] > 0 and clean.out["gate"]["lowest_caption_bottom"] is not None, (clean.out, clean.err[-1000:])
+    assert "caption_not_drawn" not in [row["code"] for row in clean.out.get("advice") or []]
     rec, edl, beats, doc = lab.short()
     run = lab.render(engine, "f8-blank", rec, edl, beats, blocks=C.planted_blank(lab.folder))
-    assert run.rc == 1 and run.code == "caption_not_drawn", (run.rc, run.out, run.err[-2000:])
-    assert_clean(run.out_dir)
+    assert run.rc == 0, (run.rc, run.out, run.err[-2000:])
+    assert "caption_not_drawn" in [row["code"] for row in run.out.get("advice") or []], run.out.get("advice")
 
 
 # ---------------------------------------------------------------- the machine legs (the maintainer's Mac)

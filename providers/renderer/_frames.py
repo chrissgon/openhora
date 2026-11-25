@@ -14,6 +14,7 @@ import re
 import threading
 import time
 
+import _advice
 import _blocks
 import _cdp
 import _layout
@@ -169,6 +170,7 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
         with open(blank, "wb") as fh:
             fh.write(png_blank(w, h))
     stats = {"rendered": 0, "reused": 0}
+    low = {}          # (track, entry number) -> (the lowest bottom of a caption box over its frames, the band's bottom): advice `caption_below_line`, never a refusal
     lock = threading.Lock()
     errors = []
     colors = edl["theme"]["colors"]
@@ -241,7 +243,10 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                     band = _layout.entry_zones(data, entry)
                     for box in result["boxes"]:
                         if box["zone"] == "caption" and box["w"] > 0 and box["h"] > 0 and caption_hit(box, band):
-                            raise Refusal("caption_below_line", "frame %d bottom %g" % (f, box["y"] + box["h"]))
+                            with lock:
+                                bottom = box["y"] + box["h"]
+                                if (track, k) not in low or bottom > low[(track, k)][0]:
+                                    low[(track, k)] = (bottom, band["caption"][1])
                     if only is not None and (track, f) not in only:
                         continue                                           # checked, not drawn
                     if backdrop and preset == "pip":
@@ -296,4 +301,9 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                     os.link(blank, os.path.join(frames_dir, "%s_%06d.png" % (prefix, f)))
     layers = {t for t in tracks if present[t]}
     facts.update({"frames_rendered": stats["rendered"], "frames_reused": stats["reused"], "frame_jobs": len(jobs), "layers": sorted(layers)})
+    found = []
+    for (track, k), (bottom, line) in sorted(low.items()):
+        _advice.add(found, "caption_below_line", bottom, line, "c%d" % k if track == "caption" else tracks[track][k]["id"])
+    if found:
+        facts["advice"] = found
     return layers, facts

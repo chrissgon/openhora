@@ -45,6 +45,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import _advice  # noqa: E402
 import _align  # noqa: E402
 import _asset_sheet  # noqa: E402
 import _assets  # noqa: E402
@@ -149,11 +150,12 @@ def verb_base(args) -> dict:
         font_id, _, weight = spec.partition(":")
         font_flags[role] = (font_id, int(weight) if weight.isdigit() else data["theme"]["default_font_weight"].get(role, 500))
     face = _edl.parse_face_box(args.face_box) if args.face_box else None
+    advice = []
     edl, notes = _edl.build_base(transcript, analysis, data, allow, args.fps, args.gap, args.pad_head, args.pad_tail, args.caption_position,
                                  colors, font_flags, face, args.zoom, args.zoom_factor, args.push_in, set(args.confirm or []),
-                                 args.long_cut, args.wordless_max, args.zoom_anchor_y, set(args.keep or []), args.retakes)
+                                 args.long_cut, args.wordless_max, args.zoom_anchor_y, set(args.keep or []), args.retakes, advice)
     write_json(args.out, edl)
-    return {"ok": True, "out": os.path.abspath(args.out), "fps": edl["fps"], "kept_ranges": len(edl["kept"]),
+    return {**({"advice": _advice.rows(advice)} if advice else {}), "ok": True, "out": os.path.abspath(args.out), "fps": edl["fps"], "kept_ranges": len(edl["kept"]),
             "out_seconds": round(edl["out_frames"] / edl["fps"], 3), "source_seconds": edl["source"]["duration"],
             "words": len(edl["words"]), "caption_chunks": len(edl["captions"]["chunks"]), "normalisation": edl["normalisation"],
             "font_fallbacks": notes, "proposals": [{"id": p["id"], "kind": p["kind"], "seconds": p["seconds"], "confirmed": p["confirmed"], "default": p["default"], "reason": p["reason"]}
@@ -243,8 +245,11 @@ def verb_check_documents(args) -> dict:
     allow = _assets.font_allowlist()
     first = _edl.check_edl(edl, data, vocab, allow, platform)
     second = _edl.check_beats(beats, edl, vocab)
-    return {"ok": True, "mentions": sorted(set(first["mentions"]) | set(second["mentions"])), "out_seconds": round(edl["out_frames"] / edl["fps"], 3),
-            "words": len(edl["words"]), "overlays": len(beats["overlays"]), "layouts": len(beats["layouts"])}
+    out = {"ok": True, "mentions": sorted(set(first["mentions"]) | set(second["mentions"])), "out_seconds": round(edl["out_frames"] / edl["fps"], 3),
+           "words": len(edl["words"]), "overlays": len(beats["overlays"]), "layouts": len(beats["layouts"])}
+    if first.get("advice") or second.get("advice"):
+        out["advice"] = _advice.merge(first.get("advice"), second.get("advice"))
+    return out
 
 
 def browser_path(args) -> str:
@@ -391,7 +396,7 @@ def verb_proxy(args) -> dict:
 def encode_gate(args, edl: dict, data: dict, platform: dict, ffprobe: str):
     """The inputs of the HyperFrames engine's gates, all or none (`Usage` otherwise): None for an encode with none of them (the base-only
     path), else (the document of boxes, the kept ranges' face boxes) after the rules on the boxes have passed. Refusals: `boxes_changed`,
-    `boxes_unreadable`, `boxes_frames_differ`, `font_not_allowed`, `proxy_changed`, `proxy_truncated`, `box_zone_unknown`, `caption_below_line`, `caption_not_drawn`.
+    `boxes_unreadable`, `boxes_frames_differ`, `font_not_allowed`, `proxy_changed`, `proxy_truncated`, `box_zone_unknown` (a caption below the line or with no glyph is advice, not a refusal).
     `--blocks` and `--blocks-sha256` (both or neither) are the staged catalogue the gate reads the entries whose frames the pixel check leaves out from (`_hf_gate.crossing_spans`)."""
     flags = (args.boxes, args.boxes_sha256, args.beats, args.vocabulary, args.proxy, args.proxy_sha256)
     if bool(args.blocks) != bool(args.blocks_sha256) or (args.blocks and not any(flags)):
@@ -467,6 +472,9 @@ def verb_encode(args) -> dict:
                       pixel_ranges=pixels["pixel_ranges"], pixel_seconds=pixel_seconds)
         if gate["lowest_caption_bottom"] is not None:
             result["lowest_caption_bottom"] = gate["lowest_caption_bottom"]
+        found = _advice.merge(gate.get("advice"), pixels.get("advice"))
+        if found:
+            result["advice"] = found
     return result
 
 

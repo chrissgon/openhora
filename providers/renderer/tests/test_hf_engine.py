@@ -462,6 +462,19 @@ def test_a_composed_render_reports_the_gate_and_the_two_new_stage_seconds_and_no
     assert not {"gate_frames", "gate_boxes", "pixel_min_psnr_db", "pixel_ranges", "pixel_seconds", "lowest_caption_bottom", "boxes_sha256"} & set(result)
 
 
+def test_a_composed_render_merges_the_advice_of_the_page_and_of_the_encode_into_one_list_and_a_render_with_none_has_no_key(world, monkeypatch, test_blocks):
+    quiet, _ = run(world, monkeypatch, base_only=False)
+    assert "advice" not in quiet and "advice" not in quiet["gate"]
+    page = [{"code": "text_over_default", "value": 30, "default": 24, "count": 1, "ids": ["b1"]}, {"code": "caption_below_line", "value": 1570, "default": 1560, "count": 1, "ids": ["c0"]}]
+    gate = dict(GATE, advice=[{"code": "caption_below_line", "value": 1590, "default": 1560, "count": 1, "ids": ["c1"]}])
+    result, _ = run(world, monkeypatch, fake=FakeRun(page_extra={"advice": page}, gate=gate), base_only=False)
+    assert result["advice"] == [{"code": "caption_below_line", "value": 1590, "default": 1560, "count": 2, "ids": ["c0", "c1"]},
+                                {"code": "text_over_default", "value": 30, "default": 24, "count": 1, "ids": ["b1"]}]
+    bad = dict(GATE, advice=[{"code": "made_up", "value": 1, "default": 1, "count": 1}])
+    with pytest.raises(Refusal):
+        run(world, monkeypatch, fake=FakeRun(gate=bad), base_only=False)
+
+
 def test_a_composed_render_with_no_caption_box_has_no_lowest_caption_bottom(world, monkeypatch, test_blocks):
     gate = {k: v for k, v in GATE.items() if k != "lowest_caption_bottom"}
     result, _ = run(world, monkeypatch, fake=FakeRun(gate=gate), base_only=False)

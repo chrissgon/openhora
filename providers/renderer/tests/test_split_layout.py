@@ -174,12 +174,13 @@ def split_timeline(face=FACE, side="bottom", chunk_face=None):
             "dropped": []}
 
 
-def test_a_split_with_no_room_for_captions_is_dropped_with_its_reason():
+def test_a_split_with_no_room_for_captions_is_drawn_with_the_fallback_band_and_advice():
     low = {"x": 240, "y": 900, "w": 600, "h": 560}
     tl = split_timeline(low)
-    row = {"id": "b1", "reason": "split_no_room"}
-    assert _layout.split_layouts(DATA, tl) == [row]
-    assert tl["beats"] == [] and tl["dropped"] == ["b1"] and tl["dropped_reasons"] == [row] and not any("band" in c for c in tl["captions"])
+    advice = []
+    assert _layout.split_layouts(DATA, tl, advice=advice) == []
+    assert len(tl["beats"]) == 1 and tl["dropped"] == [] and tl["beats"][0]["split"]["band"] == [1440, 1560]
+    assert [(r["code"], r["default"]) for r in advice] == [("split_band_over_face", 120)]
     kept = split_timeline(low)
     assert _layout.split_layouts(DATA, kept, drop=False) == []
     assert len(kept["beats"]) == 1 and kept["beats"][0]["split"]["band"] is None and kept["dropped"] == []
@@ -250,12 +251,12 @@ def test_without_a_split_the_captions_are_left_as_they_were():
     assert tl["captions"][0] is first and tl["captions"] == before
 
 
-def test_a_dropped_split_cuts_no_chunk():
+def test_a_split_with_the_storyboards_way_and_no_band_is_kept_as_it_always_was():
     low = {"x": 240, "y": 900, "w": 600, "h": 560}
     tl = {"beats": [{"id": "b1", "preset": "split", "params": {"asset": "s1", "side": "bottom"}, "start_frame": 30, "end_frame": 90, "face": dict(low)}],
           "captions": [{"word_from": 0, "word_to": 2, "start_frame": 20, "end_frame": 40, "face": dict(low)}], "dropped": []}
-    _layout.split_layouts(DATA, tl)
-    assert tl["beats"] == [] and len(tl["captions"]) == 1 and tl["captions"][0]["start_frame"] == 20 and tl["captions"][0]["end_frame"] == 40
+    _layout.split_layouts(DATA, tl, drop=False)
+    assert len(tl["beats"]) == 1 and tl["beats"][0]["split"]["band"] is None and tl["dropped"] == []
 
 
 def test_a_piece_keeps_the_word_times_of_its_chunk():

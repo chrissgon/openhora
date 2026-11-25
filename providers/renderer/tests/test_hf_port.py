@@ -126,7 +126,7 @@ def test_a_caption_chunk_is_clipped_to_its_own_band_not_the_default_one(world, e
 def test_a_band_with_no_height_is_band_too_small(world):
     e = refused(_hf_port.ctx_for, DATA, dict(CHUNK, band=[900, 900]), "caption", 30)
     assert e.code == "band_too_small"
-    assert refused(_hf_port.ctx_for, DATA, dict(BEAT, face=dict(FACE, y=-50)), "card", 30).code == "band_too_small"
+    _hf_port.ctx_for(DATA, dict(BEAT, face=dict(FACE, y=-50)), "card", 30)      # a face with no room above it: the band is clamped to its minimum (video P0b), not refused
 
 
 def test_a_changed_or_unpinned_fragment_is_block_hash_and_a_missing_pin_is_template_not_pinned(world):

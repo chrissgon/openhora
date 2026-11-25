@@ -1,0 +1,21 @@
+{
+  "package": "p0b",
+  "table": {
+    "CARD_VIDEO_ADVICE_CARD_ROOM_SMALL": "Advice: Cards have {value} px above the face, less than the usual {default} px, so they may cover the face.",
+    "CARD_VIDEO_ADVICE_CAPTION_ROOM_SMALL": "Advice: Captions have {value} px below the face, less than the usual {default} px, so they may cover the face.",
+    "CARD_VIDEO_ADVICE_CAPTION_BELOW_LINE": "Advice: Captions reach {value} px, below the usual line at {default} px, where the app's buttons may cover them.",
+    "CARD_VIDEO_ADVICE_DRAWN_BELOW_LINE": "Advice: An animation draws below its line on {value} frames ({count} times).",
+    "CARD_VIDEO_ADVICE_BLOCK_NOT_DRAWN": "Advice: An animation drew nothing for {value} frames ({count} times).",
+    "CARD_VIDEO_ADVICE_CAPTION_NOT_DRAWN": "Advice: A caption drew no words for {value} frames ({count} times).",
+    "CARD_VIDEO_ADVICE_FACE_PIXELS_CHANGED": "Advice: Something drawn changes the face: {value} dB against the usual check of {default} dB.",
+    "CARD_VIDEO_ADVICE_BEATS_OVER_DEFAULT": "Advice: The video has {value} scenes, more than the usual {default}.",
+    "CARD_VIDEO_ADVICE_PUNCHES_OVER_DEFAULT": "Advice: The script has {value} zoom punches, more than the usual {default}.",
+    "CARD_VIDEO_ADVICE_ASIDE_REPEATED": "Advice: The video has {value} asides, more than the usual {default}.",
+    "CARD_VIDEO_ADVICE_ASIDE_WITH_PUNCH": "Advice: {value} zoom punches fall on an aside, which usually has none.",
+    "CARD_VIDEO_ADVICE_TEXT_OVER_DEFAULT": "Advice: A text has {value} characters, more than the {default} its animation was made for; it may be cut or shrink.",
+    "CARD_VIDEO_ADVICE_BEAT_SHORTER_THAN_DEFAULT": "Advice: A scene shows for {value} s, less than its usual {default} s, because a picture covers the rest.",
+    "CARD_VIDEO_ADVICE_PUNCH_SHORT": "Advice: A zoom punch lasts {value} s, less than the usual {default} s.",
+    "CARD_VIDEO_ADVICE_PIP_CARD_OVER_FACE": "Advice: A picture card has {value} px below the face, less than the usual {default} px, so it is drawn over the face.",
+    "CARD_VIDEO_ADVICE_SPLIT_BAND_OVER_FACE": "Advice: A split leaves {value} px of caption band clear of the face, less than the usual {default} px, so the captions go over it."
+  }
+}

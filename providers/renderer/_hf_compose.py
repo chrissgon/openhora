@@ -33,6 +33,7 @@ import hashlib
 import os
 import re
 
+import _advice
 import _assets
 import _blocks
 import _edl
@@ -224,7 +225,7 @@ def check_assets(assets) -> dict:
     return assets
 
 
-def draw_plan(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, fps: int, assets=None, clip_assets=None) -> list:
+def draw_plan(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, fps: int, assets=None, clip_assets=None, advice=None) -> list:
     """The entries the engine draws, in layer order (the frame layouts, the cards, then the captions), each {zone, key, block, runtime, band, start, end,
     payload, field}; every block resolved on this engine, its tier and band checked, its parameters and texts checked. A frame entry also names its `slot`:
     every slot a frame entry uses is one of `assets` (`asset_missing`) and every one of `assets` is used (`asset_unused`). `clip_assets` is {slot: {width, height,
@@ -252,7 +253,7 @@ def draw_plan(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict, 
         frame_band = block["band"] == "frame"
         if block["band"] != "card" and not (frame_band and is_frame_block(block)):
             fail("preset_not_on_engine", field)
-        clean = _blocks.check_params(block, e["params"], vocab, field + ".params")
+        clean = _blocks.check_params(block, e["params"], vocab, field + ".params", advice, e["id"])
         if clean != e["params"]:
             fail("text_not_clean", field + ".params")
         e["block"] = block["name"]
@@ -429,7 +430,8 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
     image checks them); `clip_assets` is {slot: {width, height, seconds, fps, tint}} of the slots that are clips, which are drawn as top-level video elements under the
     frame band's iframe (V9b-5b); with none, nothing in the files differs from a page without the argument.
     Returns {page_sha256, vars_sha256, clips, zooms, duration, fps, layers, blocks, blocks_sha256, captions_drawn, beats_drawn, runtimes,
-    fonts_used}, and, when the timeline dropped a beat, `beats_dropped` and `beats_dropped_reasons` (V9b-3f). Everything is checked before anything is written."""
+    fonts_used}, and, when the timeline dropped a beat, `beats_dropped` and `beats_dropped_reasons` (V9b-3f), and `advice` (rows of `_advice`) when a choice goes
+    past a default (the timeline's, and a block's text over its `max`). Everything is checked before anything is written."""
     frame = data["frame"]
     background = data["theme"]["colors"]["bg"]
     _hf_page.check_target(out_dir, background)
@@ -439,7 +441,8 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
     if dropped_only:
         assets = {slot: digest for slot, digest in assets.items() if slot not in dropped_only}
         clip_assets = {slot: row for slot, row in (clip_assets or {}).items() if slot not in dropped_only}
-    plan = draw_plan(data, edl, beats, vocab, catalogue, fps, assets, clip_assets)
+    block_advice = []
+    plan = draw_plan(data, edl, beats, vocab, catalogue, fps, assets, clip_assets, block_advice)
     fonts = map_fonts(edl)
     pairs = theme_pairs(edl, fonts)
     gsap_parts, suffix = gsap_scripts(plan, catalogue)
@@ -551,6 +554,7 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
     _hf_page.write_files(out_dir, dict(sorted(files.items())))
     shown = [name for name in ("captions" if any(p["zone"] == "caption" for p in plan) else None,
                                "beats" if any(p["zone"] in ("card", "frame") for p in plan) else None) if name]
+    found = _advice.merge(timeline.get("advice"), block_advice)
     return {"page_sha256": hashlib.sha256(files["index.html"]).hexdigest(), "vars_sha256": hashlib.sha256(files["vars.json"]).hexdigest(),
             "clips": len(parts["clips"]), "zooms": len(parts["zooms"]), "duration": round(parts["out_seconds"], 3), "fps": fps,
             "layers": ["cuts", "zoom"] + shown, "blocks": {name: block_pin(catalogue, catalogue["blocks"][name], rt) for name, rt in sorted(runtimes.items())},
@@ -558,4 +562,5 @@ def write_page(data: dict, edl: dict, beats: dict, vocab: dict, catalogue: dict,
             "beats_drawn": sum(1 for p in plan if p["zone"] in ("card", "frame")), "effects_dropped": timeline["effects_dropped"], "runtimes": dict(sorted(runtimes.items())),
             "fonts_used": {role: file for role, (_, _, file) in sorted(fonts.items())},
             **({"assets_dropped": sorted(dropped_only)} if dropped_only else {}),
-            **({"beats_dropped": list(timeline["dropped"]), "beats_dropped_reasons": [dict(r) for r in timeline["dropped_reasons"]]} if timeline["dropped"] else {})}      # the beats the timeline left out, each with its reason (V9b-3f)
+            **({"beats_dropped": list(timeline["dropped"]), "beats_dropped_reasons": [dict(r) for r in timeline["dropped_reasons"]]} if timeline["dropped"] else {}),
+            **({"advice": found} if found else {})}      # the beats the timeline left out, each with its reason (V9b-3f)

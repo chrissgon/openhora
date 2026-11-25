@@ -703,6 +703,9 @@ def _render(ctx: steps.Context, state: dict) -> dict:
     left_out = _left_out(done, _json(store, rid, BEATS), handed, effects)      # V9b-3f: what the render left out, in one list for the delivery and the person
     if left_out:
         record["left_out"] = left_out
+    advice = _advice(done)      # video P0b: where the edit went past a default, as closed rows; the render is not refused and the host says the sentence
+    if advice:
+        record["advice"] = advice
     _asked(store.write, rid, RENDER_JSON, _dump(record))
     result = {"sha256": digest, "size": size}
     if pictures:
@@ -713,6 +716,8 @@ def _render(ctx: steps.Context, state: dict) -> dict:
         result["effects_dropped"] = effects
     if left_out:
         result["left_out"] = left_out
+    if advice:
+        result["advice"] = advice
     return result
 
 
@@ -749,6 +754,39 @@ def _assets_dropped(done: dict, handed: dict) -> list:
     if not isinstance(rows, list) or any(not isinstance(slot, str) or slot not in handed for slot in rows) or len(set(rows)) != len(rows):
         raise steps.StepFailure("provider_output_invalid", "render")
     return sorted(rows)
+
+
+ADVICE_CODES = ("aside_repeated", "aside_with_punch", "beat_shorter_than_default", "beats_over_default", "block_not_drawn", "caption_below_line", "caption_not_drawn",
+                "caption_room_small", "card_room_small", "drawn_below_line", "face_pixels_changed", "pip_card_over_face", "punch_short", "punches_over_default",
+                "split_band_over_face", "text_over_default")      # = providers/renderer/_advice.py CODES (a test compares)
+
+
+def _advice(done: dict) -> list:
+    """The render's `advice` as closed rows {code, value, default, count[, ids]}, sorted by code: a code of ADVICE_CODES, once; value and default finite numbers; count an integer of 1 or more;
+    at most 12 ids of the closed id pattern; at most 24 rows. Anything else is `provider_output_invalid` on `render` (the host never echoes what a container wrote)."""
+    rows = done.get("advice")
+    if rows is None:
+        return []
+    bad = steps.StepFailure("provider_output_invalid", "render")
+    if not isinstance(rows, list) or len(rows) > deliver_document.ADVICE_MAX:
+        raise bad
+    found, seen = [], set()
+    for row in rows:
+        if not isinstance(row, dict) or not {"code", "value", "default", "count"} <= set(row) or set(row) - {"code", "value", "default", "count", "ids"}:
+            raise bad
+        if row["code"] not in ADVICE_CODES or row["code"] in seen:
+            raise bad
+        seen.add(row["code"])
+        if any(_num(row[k]) is None or row[k] - row[k] != 0 for k in ("value", "default")) or type(row["count"]) is not int or row["count"] < 1:
+            raise bad
+        ids = row.get("ids", [])
+        if not isinstance(ids, list) or len(ids) > deliver_document.ADVICE_IDS_MAX or not all(isinstance(i, str) and deliver_document.LEFT_OUT_ID.fullmatch(i) for i in ids):
+            raise bad
+        clean = {"code": row["code"], "value": row["value"], "default": row["default"], "count": row["count"]}
+        if ids:
+            clean["ids"] = list(ids)
+        found.append(clean)
+    return sorted(found, key=lambda r: r["code"])
 
 
 EFFECT_ID_OUT = re.compile(r"[pe][0-9]{1,2}")
@@ -846,7 +884,7 @@ def _document(ctx: steps.Context, state: dict) -> dict:
     doc = deliver_document.build(task=ctx.task_id, recording=rid, platform=_platform(state), post=ctx.args["post"],
                                  video={k: render[k] for k in ("name", "sha256", "size", "duration_ms")}, cover=held,
                                  verify_platform=verify["platform"], blocks=render.get("blocks") or [], preview=preview,
-                                 assets=assets, web=web, left_out=render.get("left_out") or [],
+                                 assets=assets, web=web, left_out=render.get("left_out") or [], advice=render.get("advice") or [],
                                  credits={"count": len(credits), "sha256": hashlib.sha256(json.dumps(credits, ensure_ascii=False).encode("utf-8")).hexdigest()} if credits else None)      # S4: the text stays out
     return {"effect_sha256": _asked(files.write, ctx.task_id, int(state.get("cycle", 0)), doc)}
 

@@ -254,12 +254,12 @@ def test_a_caption_drawn_ending_at_1560_passes_the_frame_loop(tmp_path, monkeypa
     assert layers == {"caption"} and facts["frames_rendered"] > 0
 
 
-def test_a_caption_drawn_ending_at_1561_is_refused_with_caption_below_line_and_names_the_frame_and_the_bottom(tmp_path, monkeypatch):
-    with pytest.raises(Refusal) as e:
-        draw(tmp_path, monkeypatch, 1561)
-    assert e.value.code == "caption_below_line"
-    assert e.value.field.startswith("frame ") and e.value.field.endswith(" bottom 1561")
-    assert D.FIELD.fullmatch(e.value.field)               # the host can pass it on as a closed field
+def test_a_caption_drawn_ending_at_1561_is_reported_as_caption_below_line_advice_with_the_bottom_and_the_entry(tmp_path, monkeypatch):
+    layers, facts = draw(tmp_path, monkeypatch, 1561)           # the render goes on (video P0b): the line is advice
+    assert layers == {"caption"} and facts["frames_rendered"] > 0
+    row = facts["advice"][0]
+    assert (row["code"], row["value"], row["default"]) == ("caption_below_line", 1561, 1560) and row["ids"][0] == "c0" and row["count"] >= len(row["ids"]) == 12
+    assert "advice" not in draw(tmp_path / "again", monkeypatch, 1560)[1]
 
 
 # ---------------------------------------------------------------- the payload moved to a common module (V3b-1)

@@ -423,7 +423,7 @@
         },
         "punches": {
           "type": "array",
-          "description": "The script's punches (a beat whose `emphasis` is `punch`) that `align` matched to words, one row per beat, with or without a preset. Optional; at most the vocabulary's `limits.beats_max`. The renderer draws each as a step in the zoom over its words (`punch` of renderer-presets.json).",
+          "description": "The script's punches (a beat whose `emphasis` is `punch`) that `align` matched to words, one row per beat, with or without a preset. Optional; at most 99 (the vocabulary's `limits.beats_max` is the default: a script past it is drawn and reported as advice). The renderer draws each as a step in the zoom over its words (`punch` of renderer-presets.json).",
           "items": {
             "type": "object",
             "additionalProperties": false,

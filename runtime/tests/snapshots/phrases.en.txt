@@ -283,6 +283,22 @@ CARD_TODO_LIST: List: one, two, three (Example Calendar)
 CARD_TODO_NOW_TITLE: Task: Quarterly review
 CARD_TODO_PLAIN: A task with this title only: no due date and no note.
 CARD_TODO_TITLE: Task: Quarterly review
+CARD_VIDEO_ADVICE_ASIDE_REPEATED: Advice: The video has yes asides, more than the usual <default>.
+CARD_VIDEO_ADVICE_ASIDE_WITH_PUNCH: Advice: yes zoom punches fall on an aside, which usually has none.
+CARD_VIDEO_ADVICE_BEATS_OVER_DEFAULT: Advice: The video has yes scenes, more than the usual <default>.
+CARD_VIDEO_ADVICE_BEAT_SHORTER_THAN_DEFAULT: Advice: A scene shows for yes s, less than its usual <default> s, because a picture covers the rest.
+CARD_VIDEO_ADVICE_BLOCK_NOT_DRAWN: Advice: An animation drew nothing for yes frames (3 times).
+CARD_VIDEO_ADVICE_CAPTION_BELOW_LINE: Advice: Captions reach yes px, below the usual line at <default> px, where the app's buttons may cover them.
+CARD_VIDEO_ADVICE_CAPTION_NOT_DRAWN: Advice: A caption drew no words for yes frames (3 times).
+CARD_VIDEO_ADVICE_CAPTION_ROOM_SMALL: Advice: Captions have yes px below the face, less than the usual <default> px, so they may cover the face.
+CARD_VIDEO_ADVICE_CARD_ROOM_SMALL: Advice: Cards have yes px above the face, less than the usual <default> px, so they may cover the face.
+CARD_VIDEO_ADVICE_DRAWN_BELOW_LINE: Advice: An animation draws below its line on yes frames (3 times).
+CARD_VIDEO_ADVICE_FACE_PIXELS_CHANGED: Advice: Something drawn changes the face: yes dB against the usual check of <default> dB.
+CARD_VIDEO_ADVICE_PIP_CARD_OVER_FACE: Advice: A picture card has yes px below the face, less than the usual <default> px, so it is drawn over the face.
+CARD_VIDEO_ADVICE_PUNCHES_OVER_DEFAULT: Advice: The script has yes zoom punches, more than the usual <default>.
+CARD_VIDEO_ADVICE_PUNCH_SHORT: Advice: A zoom punch lasts yes s, less than the usual <default> s.
+CARD_VIDEO_ADVICE_SPLIT_BAND_OVER_FACE: Advice: A split leaves yes px of caption band clear of the face, less than the usual <default> px, so the captions go over it.
+CARD_VIDEO_ADVICE_TEXT_OVER_DEFAULT: Advice: A text has yes characters, more than the <default> its animation was made for; it may be cut or shrink.
 CARD_VIDEO_ASSET: Picture: <slot>, notes.example, <licence>, sha256 0123456789abcdef
 CARD_VIDEO_BLOCK: Animation block: 42 0123456789abcdef
 CARD_VIDEO_CLOSING: Approving marks this exact file downloadable. Nothing is published.

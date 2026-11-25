@@ -78,6 +78,7 @@ sys.path.insert(0, HERE)
 
 sys.path.insert(0, os.path.dirname(HERE))      # providers/: _container.py lives there (as _docker.py puts it on the path)
 
+import _advice  # noqa: E402
 import _assets  # noqa: E402
 import _blocks  # noqa: E402
 import _container as box  # noqa: E402
@@ -639,6 +640,12 @@ def verb_render(args) -> dict:
                     result[key] = page[key]
             if page.get("effects_dropped") is not None:        # optional: the effects the renderer left out (V9a-3); a page result without it stays valid
                 result["effects_dropped"] = page["effects_dropped"]
+            try:
+                found = _advice.merge(page.get("advice"), result.pop("advice", None))      # optional (video P0b): what the page and the encode's gates reported past a default
+            except ValueError:
+                raise Refusal("container_result_invalid", "advice") from None
+            if found:
+                result["advice"] = found
             seconds["measure"], seconds["pixel"] = drawn["measure_seconds"], gate.pop("pixel_seconds")
             if drawn.get("measure_ready_ms") is not None:
                 result["measure_ready_ms"] = drawn["measure_ready_ms"]          # how long the page took to be ready, to size the wait from a measurement

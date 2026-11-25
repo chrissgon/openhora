@@ -161,16 +161,26 @@ def zoom_edl(factor, push, mode="alternate"):
     return edl
 
 
-def test_a_face_box_that_leaves_room_unzoomed_but_not_zoomed_is_refused():
+def test_a_face_box_that_leaves_room_unzoomed_but_not_zoomed_is_reported_as_advice():
     face = {"x": 240, "y": 500, "w": 600, "h": 850}
-    _edl.check_face(DATA, face)                                            # fits as it is
+    quiet = []
+    _edl.check_face(DATA, face, advice=quiet)                              # fits as it is
+    assert quiet == []
     zoomed = {"mode": "alternate", "factor": 1.25, "push_in": 0.03, "anchor_y": 0.25}
-    assert refused(_edl.check_face, DATA, face, "face_box", zoomed).code == "face_box_leaves_no_room"
-    _edl.check_face(DATA, face, "face_box", {"mode": "none", "factor": 1.25, "push_in": 0.0, "anchor_y": 0.25})
+    advice = []
+    _edl.check_face(DATA, face, "face_box", zoomed, advice)                # it grows past its room when zoomed: reported, never refused
+    assert [r["code"] for r in advice] and {r["code"] for r in advice} <= {"card_room_small", "caption_room_small"}
+    quiet = []
+    _edl.check_face(DATA, face, "face_box", {"mode": "none", "factor": 1.25, "push_in": 0.0, "anchor_y": 0.25}, quiet)
+    assert quiet == []
     doc = K.build_transcript()
     analysis = {"facts": {"duration": doc["duration"], "sha256": "d" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None}
-    assert refused(_edl.build_base, doc, analysis, DATA, {}, face_box=face, zoom_factor=1.25, push_in=0.03).code == "face_box_leaves_no_room"
-    _edl.check_face(DATA, CENTRE, "face_box", zoomed)                      # the default box fits the largest zoom
+    built = []
+    _edl.build_base(doc, analysis, DATA, {}, face_box=face, zoom_factor=1.25, push_in=0.03, advice=built)
+    assert built == advice
+    again = []
+    _edl.check_face(DATA, CENTRE, "face_box", zoomed, again)               # the default box fits the largest zoom
+    assert again == []
 
 
 @pytest.mark.parametrize("factor, push", [(1.1, 0.0), (1.25, 0.0), (1.25, 0.03)])

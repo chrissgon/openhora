@@ -225,7 +225,7 @@ def listing(root: str, implementation=None) -> dict:
         rows.append(dict(entry, addable=why is None, why=why))
     presets = (found["engines"].get(engine) or {}).get("presets") if engine is not None else None
     return {"engine": engine, "blocks_sha256": found["blocks_sha256"], "animations_max": captions.ANIMATIONS_MAX,
-            "beats_max": captions.BEATS_MAX, "presets": dict(presets or {}), "blocks": rows}
+            "beats_max": captions.BEATS_CEILING, "presets": dict(presets or {}), "blocks": rows}
 
 
 def engine_of(ctx: dict):
