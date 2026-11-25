@@ -46,5 +46,16 @@
  },
  "tier": "B",
  "commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
- "notice": "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hf-runtime/NOTICE.md"
+ "notice": "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hf-runtime/NOTICE.md",
+ "determinism": {
+  "served_sha256": "455bf65ad5f8221298a57f50c38000288f0a70b29b6879579a8da1276f496503",
+  "runtime_sha256": "491a22ffea0bf65cedc4389ddda9c31e2906c7adac05726333e4d4f422bf42ea",
+  "samples": 3,
+  "frames": 198,
+  "runs": 4,
+  "blocked": 0,
+  "date": "2026-11-25",
+  "image": "openhora-renderer:cf79df31dbf0",
+  "seconds": 41.96
+ }
 }
