@@ -42,6 +42,10 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
         not pass; aligns each beat's spoken line to word indices; writes beats.json with scores and the unmatched beats.
   check --edl EDL --beats BEATS --vocabulary V [--platform-file F]
         Schema, bounds, text hardening, colours and fonts, credential shapes. Exit 1 and the closed code when refused.
+  admit-block --source DIR --component PATH --entry FILE --vocabulary V [--stage] [--confirmed]
+        Admit a HyperFrames registry component to the second page contract: lint and hash it, measure its determinism in the container
+        (three forward runs and one reverse run per sample, identical frames, the exact gates), and write the registry rows, the NOTICE entry and the
+        allowlist entry (or hf-runtime/staged/<id>.json, with --stage or when the name is taken). Without --confirmed it prints the plan only.
   render --edl EDL --beats BEATS --in VIDEO --out DIR --platform-file F --vocabulary V [--asset SLOT=FILE]...
          [--asset-sha256 SLOT=HEX]... [--jobs 3] [--cpuset 0-3] [--dry-run] [--time-limit S] [--cover-out PNG --cover-offset-ms N]
         Writes DIR/render-<sha12>.mp4 (mode 0400, never rewritten) and prints its sha256, bytes and seconds. `--out` may name a path
@@ -99,6 +103,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))      # providers/: _container.py lives there (as hyperframes.py puts it on the path)
 
+import _admit  # noqa: E402
 import _assets  # noqa: E402
 import _blocks  # noqa: E402
 import _hf_host  # noqa: E402
@@ -189,6 +194,40 @@ def verb_pin_blocks(args) -> dict:
 
 def verb_block_params(args) -> dict:
     return host_block_params(args, ENGINE)
+
+
+def verb_admit_block(args) -> dict:
+    """Admit a HyperFrames registry component to the second page contract (PF-a3; `_admit.py` says what each step does). Without --confirmed it
+    reads, edits and lints the component and prints the plan: no container is started and nothing is written."""
+    planned = _admit.plan(source=os.path.abspath(args.source), component=args.component, entry_path=args.entry, stage=args.stage)
+    if not args.confirmed:
+        return dict(planned["summary"], dry_run=True, target=os.path.relpath(planned["target"], D.HERE))
+    if args.cpuset is not None:
+        try:
+            box.check_cpuset(args.cpuset)
+        except box.ContainerError:
+            raise Refusal("bad_cpuset", "cpuset") from None
+    with Job(args, 1800, "admit-check") as job:
+        entry_file = os.path.join(job.root, "entry.json")
+        with open(entry_file, "w", encoding="utf-8") as fh:
+            json.dump(planned["entry"], fh)
+        inner = ["admit-check", "--entry", job.stage("entry.json", entry_file), "--component-dir", D.MOUNT_JOB + "/component",
+                 "--vocabulary", job.stage("vocabulary.json", args.vocabulary), "--scratch", D.MOUNT_SCRATCH,
+                 "--jobs", str(max(1, min(args.jobs, 2 * max(1, job.limits()[0])))), "--time-limit", "900"]
+        for name in sorted(planned["raw"]):
+            path = os.path.join(job.root, "component-" + name)
+            with open(path, "wb") as fh:
+                fh.write(planned["raw"][name])
+            job.stage("component/" + name, path, _hf_host.MAX_COMPONENT_FILE)
+        blocks_args = stage_blocks(job, _blocks.blocks_dir())
+        inner += blocks_args
+        result = job.run(inner, "admit-check")
+        record = _admit.record_of(result, planned, job.image["tag"])
+    written = _admit.write_all(planned, record)
+    if planned["name_taken"]:
+        print("note: name_taken %s is held by another block: staged, not active" % planned["entry"]["name"], file=sys.stderr)
+    return {"ok": True, "name": planned["entry"]["name"], "staged": written["staged"], "name_taken": planned["name_taken"], "determinism": record,
+            "written": [os.path.relpath(p, D.HERE) if p.startswith(D.HERE) else p for p in written["written"]], "per_sample": result.get("per_sample", [])}
 
 
 def verb_render(args) -> dict:
@@ -343,6 +382,16 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("reap")
     sp = sub.add_parser("pin-blocks")
     sp.add_argument("--confirmed", action="store_true")
+    sp = sub.add_parser("admit-block")
+    add_limits(sp)
+    sp.add_argument("--source", required=True, help="a local clone of the registry repository, at the commit hf-runtime/registry.sha256 pins")
+    sp.add_argument("--component", required=True, help="the component's folder in the registry, for example registry/components/spring-pop")
+    sp.add_argument("--entry", required=True, help="our fields of the entry as JSON (name, preset, use_when, params, samples, natural_duration, bind, fixed, theme_vars, edits, font_map)")
+    sp.add_argument("--vocabulary", required=True, help="shared/references/video-presets.json")
+    sp.add_argument("--stage", action="store_true", help="write hf-runtime/staged/<id>.json instead of the allowlist (always so when the name is taken)")
+    sp.add_argument("--confirmed", action="store_true", help="measure and write; without it the plan is printed and nothing is written")
+    sp.add_argument("--jobs", type=int, default=3)
+    sp.add_argument("--cpuset", help="pin the container to these cores, for example 0-3")
     sp = sub.add_parser("block-params")
     sp.add_argument("--block", required=True, help="a block name, oh:<name> or hf:<name>")
     sp.add_argument("--params", required=True, help="a JSON file holding one object: the block's parameters")
@@ -379,7 +428,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 VERBS = {"build": verb_build, "pin-browser": verb_pin_browser, "reap": verb_reap, "pin-blocks": verb_pin_blocks,
-         "block-params": verb_block_params, "render": verb_render, "storyboard": verb_storyboard, **COMMON_HANDLERS}
+         "block-params": verb_block_params, "admit-block": verb_admit_block, "render": verb_render, "storyboard": verb_storyboard, **COMMON_HANDLERS}
 
 
 def main(argv=None) -> int:

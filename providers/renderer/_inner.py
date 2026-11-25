@@ -21,6 +21,8 @@ only writable mount) and /scratch (memory-backed), with no network.
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
   asset-sheet --asset ROW:COL=FILE ... --mode preview|full [--fps N] --out DIR   the pictures and clips to pick from, checked and tiled; in full mode normalised too
   still    --in VIDEO --at-ms N --out PNG                    one frame of a recording, framed as the render frames it (1080x1920)
+  admit-check --entry FILE --component-dir DIR --vocabulary V --blocks DIR --blocks-sha256 H --scratch DIR [--jobs N]   the determinism test of a candidate
+           HyperFrames block (three forward runs and one reverse run per sample, each in a fresh browser, identical frame hashes; the exact gates; the font check)
   selfcheck                                  the versions of what the image holds, and that each tool starts
 
 Every verb writes its result as one JSON object to `--result FILE` (before the verb; stdout when absent): the same object the
@@ -300,6 +302,22 @@ def verb_storyboard(args) -> dict:
     return _preview.storyboard(rows=rows, data=data, vocab=vocab, allow=allow, colors=pairs(args.color, "--color"), font_flags=font_flags, face=face,
                                tools=lambda: (tools(args)[0], browser_path(args)), jobs=args.jobs, out_dir=args.out, scratch=args.scratch,
                                blocks_dir=args.blocks, blocks_sha256=args.blocks_sha256)
+
+
+def verb_admit_check(args) -> dict:
+    """The determinism test of a candidate block of the second contract (PF-a3). The entry is the host's, files already hashed and edited on its side;
+    this verb checks them again (the host page refuses a file that is not the pinned one) and measures. It reads no recording and no transcript."""
+    import _admit_check   # the drawing part: imported only by this verb
+    if args.vendor and os.environ.get("RENDERER_TEST") != "1":
+        raise Usage("--vendor is for the tests: the image's folder is the only one a measurement reads")
+    ffmpeg, _ffprobe = tools(args)
+    entry = read_json(args.entry, 1 << 20)
+    if not isinstance(entry, dict) or not isinstance(entry.get("samples"), list) or not isinstance(entry.get("files"), dict) \
+            or not isinstance(entry.get("served_sha256"), str):
+        raise Refusal("admit_entry", "entry")
+    return _admit_check.admit_check(entry=entry, component_dir=args.component_dir, vocabulary=args.vocabulary, blocks=args.blocks,
+                                    blocks_sha256=args.blocks_sha256, scratch=args.scratch or tempfile.gettempdir(), browser=browser_path(args), ffmpeg=ffmpeg,
+                                    vendor=args.vendor, jobs=max(1, min(args.jobs, 8)), time_limit=args.time_limit)
 
 
 def verb_asset_sheet(args) -> dict:
@@ -675,6 +693,17 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--blocks-sha256", help="the sha256 of the staged pins.json, computed by the host on its copy")
     sp.add_argument("--vendor", help="the folder of the runtime and GSAP of an admitted block (the image's; another folder only when RENDERER_TEST=1)")
     sp.add_argument("--hf-registry", help="the folder of the registry files of an admitted block (the image's; another folder only when RENDERER_TEST=1)")
+    sp = sub.add_parser("admit-check")
+    common(sp, browser=True)
+    sp.add_argument("--entry", required=True, help="the candidate allowlist entry as JSON, with `samples` and `served_sha256`, no `determinism`")
+    sp.add_argument("--component-dir", required=True, help="the folder holding the component's files, named as the entry's `files`")
+    sp.add_argument("--vocabulary", required=True)
+    sp.add_argument("--blocks", required=True, help="the staged blocks folder")
+    sp.add_argument("--blocks-sha256", required=True, help="the sha256 of the staged pins.json, computed by the host on its copy")
+    sp.add_argument("--scratch", help="where the work files go (memory-backed in the container)")
+    sp.add_argument("--jobs", type=int, default=3)
+    sp.add_argument("--time-limit", type=int, default=900)
+    sp.add_argument("--vendor", help="the folder of the runtime and GSAP (the image's; another folder only when RENDERER_TEST=1)")
     sp = sub.add_parser("storyboard")
     common(sp, browser=True)
     sp.add_argument("--post")
@@ -752,7 +781,8 @@ def parser() -> argparse.ArgumentParser:
 
 VERBS = {"verify": verb_verify, "selfcheck": verb_selfcheck, "analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents,
          "render": verb_render, "storyboard": verb_storyboard, "cover": verb_cover, "still": verb_still,
-         "proxy": verb_proxy, "encode": verb_encode, "preview": verb_preview, "hf-page": verb_hf_page, "asset-sheet": verb_asset_sheet}
+         "proxy": verb_proxy, "encode": verb_encode, "preview": verb_preview, "hf-page": verb_hf_page, "asset-sheet": verb_asset_sheet,
+         "admit-check": verb_admit_check}
 
 
 def write_result(path, obj) -> None:

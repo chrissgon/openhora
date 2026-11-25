@@ -7,6 +7,7 @@
 !edl.schema.json
 !_fetch_browser.py
 !_inner.py
+!_admit_check.py
 !_alpha_gate.py
 !_align.py
 !_asset_sheet.py

@@ -39,7 +39,7 @@ STATE_ENV = "OPENHORA_STATE_DIR"
 STATE_FOLDER, BUILD_RECORD, WORK_FOLDER, JOB_PREFIX = "renderer", "image.json", "work", ".job-"
 
 # What the image's definition covers is _image.py's: the files image-manifest.json lists, and only those.
-HOST_ONLY = ("_docker.py", "_browser.py", "_image.py", "_host.py", "hyperframes.py")      # modules that only the host side uses: not in the image
+HOST_ONLY = ("_docker.py", "_browser.py", "_image.py", "_host.py", "hyperframes.py", "_admit.py")      # modules that only the host side uses: not in the image
 
 # The limits of one container.
 PIDS_LIMIT = 512
@@ -548,6 +548,7 @@ RESULT_SCHEMAS = {
     "hf-page": dct(ok=B, page_sha256=S, vars_sha256=S, clips=I, zooms=I, duration=N, fps=I, layers=lst(S, 4), blocks=opt(mp(S)), blocks_sha256=opt(S),
                    captions_drawn=opt(I), beats_drawn=opt(I), effects_dropped=opt(lst(dct(id=S, reason=S), 111)), beats_dropped=opt(lst(S, 100)), beats_dropped_reasons=opt(lst(dct(id=S, reason=S), 100)), assets_dropped=opt(lst(S, 36)), runtimes=opt(mp(S)), fonts_used=opt(mp(S))),
     "asset-sheet": dct(ok=B, assets=lst(dct(row=S, col=I, file=opt(S), sha256=S, width=I, height=I, source_sha256=S, kind=S, seconds=N), 36), sheet=S, sheet_sha256=S, rows=lst(S, 36)),
+    "admit-check": dct(ok=B, served_sha256=S, runtime_sha256=S, samples=I, frames=I, runs=I, blocked=I, seconds=N, browser=S, per_sample=lst(dct(frames=I, digest=S), 20)),
     "render": dct(ok=B, dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),
                   beats_drawn=lst(dct(id=S, preset=S, block=opt(S), start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), assets_dropped=opt(lst(S, 36)), beats_dropped_reasons=opt(lst(dct(id=S, reason=S), 100)), effects_dropped=opt(lst(dct(id=S, reason=S), 111)), unmatched_beats=lst(I, 100),
                   mentions=lst(S, 500), fonts=mp(S), blocks=mp(S), blocks_sha256=S, estimated_bytes=I, sha256=S, bytes=I, output=OUTPUT, seconds=mp(N),

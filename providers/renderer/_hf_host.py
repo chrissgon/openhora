@@ -210,7 +210,7 @@ def declared_variables(files: dict, block: dict) -> list:
 
 def values_for(block: dict, files: dict, params: dict, colors: dict, fonts: dict) -> tuple:
     """(variables {id: value}, css {--prop: value}) of one beat: every declared variable has a value from `bind` or `fixed`, a theme variable maps to
-    a theme role, `--bg` is never mapped. `admitted_unbound` for a declared variable left without a value, a name that is not declared or the `--bg` map;
+    a theme role (the default of a property that no parameter is bound to), `--bg` is never mapped. `admitted_unbound` for a declared variable left without a value, a name that is not declared or the `--bg` map;
     `param_out_of_bounds` for a number outside the component's own declared range or of the wrong type."""
     declared = {r["id"]: r for r in declared_variables(files, block)}
     variables, css = {}, {}
@@ -228,7 +228,7 @@ def values_for(block: dict, files: dict, params: dict, colors: dict, fonts: dict
             value = str(params[pname])
             if not CSS_VALUE.fullmatch(value):
                 raise Refusal("param_out_of_bounds", pname[:40])
-            css[name] = value
+            css[name] = colors.get(value, value)       # a palette token (`accent`) is the theme's colour; a hex value stays as it is
     for name, value in block["fixed"].items():
         if name not in declared:
             raise Refusal("admitted_unbound", name[:40])
@@ -250,6 +250,8 @@ def values_for(block: dict, files: dict, params: dict, colors: dict, fonts: dict
     for prop, role in block["theme_vars"].items():
         if not CSS_PROP.fullmatch(prop) or prop == "--bg":
             raise Refusal("admitted_unbound", str(prop)[:40])
+        if prop in css:
+            continue                               # a parameter bound to the same property wins over the theme's default for it
         m = THEME_FONT_VARS.fullmatch(role)
         if m:
             css[prop] = fonts[m.group(1)]

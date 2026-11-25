@@ -88,9 +88,16 @@ TEMPLATE = """<!doctype html>
 # each variant: what it adds to the clean component. `k` is the first frame of the entry's range the planted pixels appear on.
 VARIANTS = {
     "clean": {},
+    # the clean control as an admission measures it: the badge is its own compositor layer for the whole page (as a real component's `will-change` makes it), so that what
+    # is drawn does not depend on the frames drawn before it. Without it (`clean`) Chrome rasterises the frames after a fade differently from the same frames sought first.
+    "stable": {"badge_css": "will-change: opacity;"},
     # a 1-pixel mark with alpha 1/255 at the face box's centre on frames 5, 6 and 7 of the entry: the exact face gate refuses it, frame k = 5
     "face_dot": {"mark_css": "left: 540px; top: 540px; width: 1px; height: 1px; background: rgba(255,255,255,0.004);",
                  "script": 'tl.set(mark, { opacity: 1 }, 5 / 30); tl.set(mark, { opacity: 0 }, 8 / 30);'},
+    # the same two planted pixels at the DEFAULT face box (240,620,600,560 at 1080x1920: the box an admission measures at) and below its caption line (1198)
+    "face_dot_default": {"mark_css": "left: 540px; top: 900px; width: 1px; height: 1px; background: rgba(255,255,255,0.004);",
+                         "script": 'tl.set(mark, { opacity: 1 }, 5 / 30); tl.set(mark, { opacity: 0 }, 8 / 30);'},
+    "below_default_line": {"mark_css": "left: 300px; top: 1250px; width: 60px; height: 60px; background: #ffffff;", "script": 'tl.set(mark, { opacity: 1 }, 4 / 30);'},
     # a box that starts below the line the captions begin at
     "below_line": {"mark_css": "left: 300px; top: 830px; width: 60px; height: 60px; background: #ffffff;",
                    "script": 'tl.set(mark, { opacity: 1 }, 4 / 30);'},
@@ -107,6 +114,8 @@ VARIANTS = {
     # the same, and the page removes the corner cut: Chrome then writes an RGB frame
     "opaque_no_clip": {"mark_css": "left: 0; top: 0; width: 1080px; height: 1920px; background: #101820;",
                        "script": 'tl.set(mark, { opacity: 1 }, 3 / 30); tl.call(function () { document.documentElement.style.clipPath = "none"; }, [], 3 / 30);'},
+    # the badge sits where a random number puts it: nothing in the page's own clock or the shims is involved, so the frames differ from run to run
+    "math_random": {"script": 'badge.style.left = (30 + Math.random() * 40) + "%";'},
     # a text the lint refuses by its category
     "lint_storage": {"script": 'window.localStorage.setItem("a", "b");'},
 }
@@ -134,6 +143,7 @@ FAKE_GSAP = """(function () {
           if (x.call) { if (t >= x.pos) x.fn(); return; }
           if (x.set) { if (t >= x.pos) setv(x.el, x.to); return; }
           var p = x.dur > 0 ? Math.min(1, Math.max(0, (t - x.pos) / x.dur)) : (t >= x.pos ? 1 : 0);
+          p = Math.round(p * 1e6) / 1e6;      // a tween that has reached its end is exactly at it, whatever float the frame's time came as
           var v = {};
           for (var k in x.to) { if (k === "duration" || k === "ease") continue; v[k] = x.from[k] + (x.to[k] - x.from[k]) * p; }
           setv(x.el, t >= x.pos ? v : x.from);

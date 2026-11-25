@@ -410,3 +410,23 @@ def test_the_hyperframes_engine_cannot_draw_an_entry_that_runs_on_the_second_con
     folder = hf_folder(tmp_path)
     edit_json(folder, "engines/hyperframes.json", lambda d: d["presets"].update(keyword=H.NAME))
     assert refused(_blocks.load_catalogue, folder).code == "block_schema"
+
+
+def test_a_staged_entry_validates_and_the_catalogue_never_loads_it(tmp_path):
+    import hf_second_kit as H
+    import _admit
+    entry = H.entry({H.FILE: "a" * 64}, "b" * 64, "c" * 64)
+    staged = tmp_path / "hf-runtime" / "staged"
+    staged.mkdir(parents=True)
+    path = staged / "oh-test-pop.json"
+    path.write_text(json.dumps(entry))
+    assert _admit.read_staged(str(path), H.COMMIT)["name"] == H.NAME
+    assert refused(_admit.read_staged, str(path), "d" * 40).code == "block_schema"                  # another registry commit than the one the file's own `commit` names
+    path.write_text(json.dumps(dict(entry, bind={})))
+    assert refused(_admit.read_staged, str(path), H.COMMIT).code == "block_schema"
+    cat = _blocks.load_catalogue(str(K.BLOCKS))
+    assert H.NAME not in cat["blocks"]                                                              # the committed folders hold no staged file, and the catalogue reads blocks/ only
+    folder = tmp_path / "blocks"
+    shutil.copytree(K.BLOCKS, folder)
+    (folder / "hf" / "oh-test-pop.json").write_text(json.dumps(entry))
+    assert refused(_blocks.write_pins, str(folder)).code == "block_file_unknown"                    # a staged file put among the pinned ones is refused, not pinned
