@@ -815,7 +815,7 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "a0d281df2c9e8d6074cb86cee57ab216391fb9785941fa2763a39e0c1a0552c9",
+ "blocks_sha256": "0a1bc8e5c3978f8fcafb22324525e9e7bd91eee472d4c568e335c3a5addc8d48",
  "engines": {
   "ffmpeg": {
    "presets": {
