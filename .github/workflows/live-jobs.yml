@@ -1,0 +1,178 @@
+# The jobs that run in real containers, and the Go program (CI-1, docs/decisions/ ci-1a-selection-everywhere): container, converter, renderer,
+# hyperframes and go, moved here unchanged from checks.yml so that two workflows can start them without writing them twice. checks.yml
+# calls this file with what its job `changes` found (a pull request: the jobs whose paths changed; a manual run and the label full-suite:
+# all of them); nightly.yml calls it with every input true. A job is skipped when its input is false. Read-only, no secret, no write
+# permission. No job is named like a required check (validate, tests). The two live steps print every test's duration (-rA --durations=0).
+name: live-jobs
+
+on:
+  workflow_call:
+    inputs:
+      container:
+        type: boolean
+        required: true
+      converter:
+        type: boolean
+        required: true
+      renderer:
+        type: boolean
+        required: true
+      hyperframes:
+        type: boolean
+        required: true
+      go:
+        type: boolean
+        required: true
+      ref:
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  container:
+    name: container
+    if: inputs.container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.12.19"
+          python-version: "3.11"
+      # The images built first, by the executor's own `ensure` (the same tags, the same build), and tried again when the build
+      # fails: the Debian snapshot archive answers a build now and then with a transient error (a 504 on 2026-11-05, which
+      # apt's own retries did not outlast; apt exits 100) that a try a few minutes later does not meet. The tests' fixtures then
+      # find the images built and build nothing.
+      # When evals/image-lock.json names the image of this checkout's definition (the published image, decision D39), the setup
+      # step is the one a person runs: `scripts/image_lock.py pull` verifies its provenance with `gh attestation verify` (the
+      # run's read-only token, GH_TOKEN) and only then pulls it by digest; the package is public, so no registry login is needed.
+      # A pull request that changes evals/container/ has a definition the lock does not name yet: the step is skipped and the
+      # next one builds the images, as before. `ensure` then finds the published image present and builds nothing of it.
+      - name: The published eval image, pulled after its provenance is verified (when the lock names this definition)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          definition="$(python3 scripts/image_lock.py --print-definition-hash)"
+          if grep -q "\"$definition\"" evals/image-lock.json; then
+            python3 scripts/ci_retry.py --attempts 3 --delay 30 --attempt-timeout 900 -- python3 scripts/image_lock.py pull --source-repo "$GITHUB_REPOSITORY"
+          else
+            echo "the lock names no published image for definition $definition: the images are built in the next step"
+          fi
+      - name: The eval images, built (tried again on a transient failure of the snapshot archive)
+        run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 720 -- python3 evals/executor.py ensure
+      - name: The eval container, built and exercised (no model call)
+        run: WB_EVAL_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q -rA --durations=0 evals/tests/test_executor_docker.py evals/tests/test_keyproxy_docker.py
+
+  # The document converter of the sources (providers/converter/): its image built from the pinned definition, and each format converted in a
+  # real container with no network (poppler, pandoc from the dated Debian snapshot; openpyxl and python-pptx from the hash-checked lock); and the exporter's twin image (providers/exporter/),
+  # each output format made in a real container, the formula guard read back from the real files. No model call.
+  converter:
+    name: converter
+    if: inputs.converter
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.12.19"
+          python-version: "3.11"
+      # As in the container job: each image built first by its provider's own `build --confirmed`, tried again when the
+      # snapshot archive fails it, so that the tests' fixtures find it built.
+      - name: The converter image, built (tried again on a transient failure of the snapshot archive)
+        run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 600 -- python3 providers/converter/container.py build --confirmed
+      - name: The exporter image, built (tried again on a transient failure of the snapshot archive)
+        run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 600 -- python3 providers/exporter/container.py build --confirmed
+      - name: The converter image, built and exercised
+        run: WB_CONVERTER_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q -rA --durations=0 providers/converter/tests/test_converter_docker.py providers/exporter/tests/test_exporter_docker.py
+
+  # The ffmpeg engine of renderer:video (providers/renderer/) and the speech transcriber (providers/transcriber/): each image built from its pinned
+  # definition by its provider's own `build --confirmed` on the runner (the Debian base by digest, packages from the dated snapshot, the pinned browser
+  # archive, whisper.cpp at its commit), then the gated live tests: the renderer's `--check` and one render of a synthetic recording in a real container
+  # with no network, and the transcriber's image accepted. No model is downloaded and no model call is made.
+  renderer:
+    name: renderer
+    if: inputs.renderer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      # One named state folder for both builds and the tests: the root conftest moves XDG_STATE_HOME before the live tests read it, and
+      # OPENHORA_STATE_DIR is the one variable it leaves alone. (Set in a step: the runner context is not allowed in a job's env.)
+      - name: One named state folder for the builds and the live tests
+        run: echo "OPENHORA_STATE_DIR=$RUNNER_TEMP/openhora-state" >> "$GITHUB_ENV"
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.12.19"
+          python-version: "3.11"
+      # As in the converter job: each image built first by its provider's own `build --confirmed`, tried again when the
+      # snapshot archive fails it, so that the tests' fixtures find it built.
+      - name: The transcriber image, built (tried again on a transient failure of the snapshot archive)
+        run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 600 -- python3 providers/transcriber/whispercpp.py build --confirmed
+      - name: The renderer image, built (tried again on a transient failure of the snapshot archive)
+        run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 900 -- python3 providers/renderer/ffmpeg.py build --confirmed --platform linux64
+      - name: The renderer and the transcriber images, exercised
+        run: WB_RENDERER_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q -rA --durations=0 providers/renderer/tests/test_renderer_docker_live.py providers/renderer/tests/test_engine_contract_live.py providers/transcriber/tests/test_transcriber_docker_live.py
+
+  # The HyperFrames engine of renderer:video (providers/renderer/hyperframes-image/): its image built from its pinned definition by the provider's own
+  # `build --confirmed` on the runner (V3c-2). The first run is the first amd64 build of that image: it downloads the amd64 static ffmpeg, the Debian and
+  # npm packages and the linux64 headless shell, each checked against the sha256 its pin file holds (a mismatch stops the build; nothing is re-pinned).
+  # The common image is built first because a HyperFrames render encodes and verifies in it. Then the amd64 `--check` (the image's selfcheck) and the
+  # gated live tests of both engines on small synthetic recordings. test_hf_tier_a_live.py is not run: it needs survey variables this job does not set.
+  hyperframes:
+    name: hyperframes
+    if: inputs.hyperframes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      # One named state folder for the builds and the tests, as in the renderer job (set in a step: the runner context is not allowed in a job's env).
+      - name: One named state folder for the builds and the live tests
+        run: echo "OPENHORA_STATE_DIR=$RUNNER_TEMP/openhora-state" >> "$GITHUB_ENV"
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.12.19"
+          python-version: "3.11"
+      - name: The common renderer image, built (tried again on a transient failure of the snapshot archive)
+        run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 900 -- python3 providers/renderer/ffmpeg.py build --confirmed --platform linux64
+      - name: The HyperFrames image, built (tried again on a transient failure of the snapshot archive)
+        run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 1800 -- python3 providers/renderer/hyperframes.py build --confirmed
+      - name: The HyperFrames image, checked (its selfcheck on amd64)
+        run: python3 providers/renderer/hyperframes.py --check
+      - name: Both engines, exercised on synthetic recordings
+        run: WB_HYPERFRAMES_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q -rA --durations=0 providers/renderer/tests/test_engine_contract_live.py providers/renderer/tests/test_hf_docker_live.py
+
+  # The WhatsApp program (providers/messenger/whatsapp/): vet and tests, offline once the modules are fetched. The runner's
+  # own Go downloads the toolchain go.mod names (verified by the checksum database); modules are checked against go.sum.
+  go:
+    name: go
+    if: inputs.go
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: go mod verify, go vet and go test, modules read-only
+        working-directory: providers/messenger/whatsapp
+        env:
+          GOFLAGS: -mod=readonly
+        run: go mod verify && go vet ./... && go test -count=1 ./...

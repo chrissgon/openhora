@@ -50,8 +50,10 @@ def test_every_test_folder_of_this_repository_is_in_the_list_ci_runs():
     assert "$(python3 scripts/test_dirs.py)" in workflow
 
 
+DOCKER_JOBS = ("container", "converter", "renderer", "hyperframes", "go")  # the live jobs of live-jobs.yml; PF-b takes "hyperframes" out of here and out of each row
 WORKFLOWS = sorted((REPO / ".github" / "workflows").glob("*.y*ml"))
 NIGHTLY = REPO / ".github" / "workflows" / "nightly.yml"
+LIVE = REPO / ".github" / "workflows" / "live-jobs.yml"
 NIGHTLY_WHOLE = "The whole suite with the full fuzz, a failure run again"
 NIGHTLY_PY39 = "The python39 list in full, a failure run again"
 PY39_LIST = "scripts/python39_tests.txt"
@@ -110,20 +112,46 @@ def test_every_path_a_workflow_names_exists():
     assert total >= 10  # the extractor found the paths; an empty list would pass for the wrong reason
 
 
+def caller_target(block):
+    """The workflow a job block calls (`uses: ./.github/workflows/<file>`), or None: GitHub refuses `timeout-minutes` on such a job, so its called jobs carry the timeouts."""
+    match = re.search(r"^    uses: \./\.github/workflows/([\w.-]+\.ya?ml)\s*$", block, re.M)
+    return match.group(1) if match else None
+
+
+def timeout_problems(text, workflows_dir=None):
+    """The jobs of a workflow text without a timeout, as a list; a caller job is exempt and its target must exist."""
+    workflows_dir = Path(workflows_dir) if workflows_dir else REPO / ".github" / "workflows"
+    found = []
+    jobs = text[re.search(r"^jobs:\s*$", text, re.M).end():]
+    names = re.findall(r"^  ([\w-]+):\s*$", jobs, re.M)
+    blocks = re.split(r"^  [\w-]+:\s*$", jobs, flags=re.M)[1:]
+    assert names and len(names) == len(blocks)
+    for name, block in zip(names, blocks):
+        target = caller_target(block)
+        if target is not None:
+            if not (workflows_dir / target).exists():
+                found.append("job %s calls %s, which does not exist" % (name, target))
+            continue
+        if not re.search(r"^    timeout-minutes: [1-9]\d*\s*$", block, re.M):
+            found.append("job " + name)
+    return found
+
+
 def test_every_job_of_every_workflow_has_a_timeout():
-    """Without `timeout-minutes` a stuck job runs for the host's default of six hours."""
+    """Without `timeout-minutes` a stuck job runs for the host's default of six hours. A caller job (`uses:` a reusable workflow) cannot have one:
+    the jobs of the file it calls do, and that file is one of WORKFLOWS, checked here like the others."""
     for workflow in WORKFLOWS:
-        text = workflow.read_text()
-        jobs = text[re.search(r"^jobs:\s*$", text, re.M).end():]
-        names = re.findall(r"^  ([\w-]+):\s*$", jobs, re.M)
-        blocks = re.split(r"^  [\w-]+:\s*$", jobs, flags=re.M)[1:]
-        assert names and len(names) == len(blocks)
-        for name, block in zip(names, blocks):
-            assert re.search(r"^    timeout-minutes: [1-9]\d*\s*$", block, re.M), f"{workflow.name}: job {name}"
+        assert timeout_problems(workflow.read_text()) == [], workflow.name
 
 
-# What the hook used to map by folder, now chosen by scripts/select_tests.py: a path and the test folder that must still be covered
-# (a whole folder, or at least one test file inside it; None: nothing but the guards). Written out here, never read from the selector.
+def test_vacuity_a_job_without_a_timeout_or_a_caller_of_a_missing_file_is_caught():
+    caller = "jobs:\n  live:\n    name: live\n    uses: ./.github/workflows/live-jobs.yml\n"
+    assert timeout_problems(caller) == []  # a caller is exempt
+    assert timeout_problems(caller.replace("live-jobs.yml", "gone.yml")), "a caller of a missing file"
+    assert timeout_problems("jobs:\n  a:\n    runs-on: ubuntu-24.04\n"), "a job without a timeout"
+    assert timeout_problems("jobs:\n  a:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 5\n") == []
+
+
 HOOK_CASES = [
     (".githooks/pre-commit", "scripts/tests"), (".github/workflows/checks.yml", "scripts/tests"),
     ("packs/default.txt", "scripts/tests"), ("templates/agent.md", "scripts/tests"),
@@ -240,6 +268,7 @@ def walk(node, names):
 
 EVENTS = {
     "a push to main": dict(event_name="push"),
+    "a push to main whose base is unknown": dict(event_name="push"),  # the same event: the scripts read the base, the conditions do not
     "a pull request into main": dict(event_name="pull_request", action="synchronize", base_ref="main"),
     "a manual run": dict(event_name="workflow_dispatch"),
     "a pull request labelled full-suite, a new commit": dict(event_name="pull_request", action="synchronize", base_ref="feature/x", labels=["full-suite"]),
@@ -278,10 +307,10 @@ def modes(job_if, whole_if, selected_if):
     return out
 
 
-WANTED_MODES = {
-    "a push to main": "whole", "a pull request into main": "whole", "a manual run": "whole",
+WANTED_MODES = {  # CI-1: the selection on every pull request and every push; the whole suite only on a manual run and with the label full-suite
+    "a push to main": "selected", "a push to main whose base is unknown": "selected", "a pull request into main": "selected", "a manual run": "whole",
     "a pull request labelled full-suite, a new commit": "whole", "the label full-suite just added": "whole",
-    "a pull request into an integration branch": "selected", "another label just added": "selected", "another label added to a pull request into main": "whole",
+    "a pull request into an integration branch": "selected", "another label just added": "selected", "another label added to a pull request into main": "selected",
     "a draft pull request into an integration branch": None, "a draft pull request into main": None, "a draft marked ready": "selected",
 }
 
@@ -305,8 +334,8 @@ def step_text(block, name):
 
 def test_the_shards_run_the_selection_or_the_whole_list_and_the_tests_job_gates_them():
     """The required check of the main ruleset is `tests`: it runs no test, on a pull request into main it must run, and it must fail unless every
-    shard succeeded. The shards run on every event, in the mode the event asks for: the whole list (every test folder) at the end of a delivery,
-    the selection otherwise."""
+    shard succeeded. The shards run on every event, in the mode the event asks for: the whole list (every test folder) on a manual run and with the
+    label full-suite, the selection otherwise (CI-1)."""
     got = modes(job_condition(SHARDS), step_condition(SHARDS, WHOLE), step_condition(SHARDS, SELECTED))
     assert got == WANTED_MODES
     assert step_condition(SHARDS, CHOOSE) == step_condition(SHARDS, SELECTED)  # the selector runs exactly when its targets are used
@@ -417,20 +446,21 @@ def matrix_of(shard_block):
     return [int(x) for x in match.group(1).split(",")] if match else None
 
 
-def test_the_required_jobs_are_never_skipped_and_a_pull_request_into_main_never_runs_the_selection():
+def test_the_required_jobs_are_never_skipped_and_a_pull_request_into_main_runs_the_selection():
     """`validate` and `tests` are the required checks of the main ruleset. A job skipped by its `if:` counts as passing on the same commit,
     so a label added to a pull request must not be able to skip either (`tests` has only `if: always()`, the condition that never skips);
-    on a pull request into main every event runs the whole suite."""
+    on a pull request into main every event runs the selection (CI-1), and only a manual run or the label full-suite runs the whole suite."""
     assert job_condition("tests") in (None, "always()") and job_condition("validate") is None
-    selected = step_condition(SHARDS, SELECTED)
-    for name, event in EVENTS.items():
-        if event.get("event_name") == "pull_request" and event.get("base_ref") == "main":
-            assert evaluate(selected, **event) is False, name
+    selected, whole = step_condition(SHARDS, SELECTED), step_condition(SHARDS, WHOLE)
     for action in ("opened", "synchronize", "reopened", "labeled", "ready_for_review"):
         event = dict(event_name="pull_request", action=action, base_ref="main", labels=["docs"], label="docs" if action == "labeled" else None, draft=False)
-        assert evaluate(step_condition("tests", GATE), **event) is True and evaluate(selected, **event) is False, action
+        assert evaluate(step_condition("tests", GATE), **event) is True, action
+        assert evaluate(selected, **event) is True and evaluate(whole, **event) is False, action
         assert evaluate(job_condition(SHARDS), **event) is True, action  # and the shards run, so the gate has something to wait for
-    # no other job takes the name of a required check: a shard is named `tests shard <k> of 3`, which is never `tests`
+    assert evaluate(selected, **EVENTS["a push to main"]) is True and evaluate(whole, **EVENTS["a push to main"]) is False
+    for name in ("a manual run", "a pull request labelled full-suite, a new commit", "the label full-suite just added"):
+        assert evaluate(whole, **EVENTS[name]) is True and evaluate(selected, **EVENTS[name]) is False, name
+    # no other job takes the name of a required check: a shard is named `tests shard <k> of 6`, which is never `tests`
     text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
     jobs = text[re.search(r"^jobs:\s*$", text, re.M).end():]
     for name, block in zip(re.findall(r"^  ([\w-]+):\s*$", jobs, re.M), re.split(r"^  [\w-]+:\s*$", jobs, flags=re.M)[1:]):
@@ -438,29 +468,39 @@ def test_the_required_jobs_are_never_skipped_and_a_pull_request_into_main_never_
             continue  # the required jobs: each holds its own name (the first assertion of the next test of this file)
         match = re.search(r"^    name:\s*(.*?)\s*$", block, re.M)
         assert match is None or match.group(1) not in REQUIRED_CHECKS, name
-    assert re.search(r"^    name: tests shard \$\{\{ matrix\.shard \}\} of \d+\s*$", job_block(text, SHARDS), re.M)
+    assert re.search(r"^    name: tests shard \$\{\{ matrix\.shard \}\} of 6\s*$", job_block(text, SHARDS), re.M)
     for required in REQUIRED_CHECKS:
         assert re.search(r"^    name: %s\s*$" % re.escape(required), job_block(text, required), re.M), required
 
 
-def test_planted_workflows_that_skip_tests_or_select_on_a_pull_request_into_main_are_caught_by_the_oracle():
+def test_planted_workflows_with_the_old_rule_or_a_skipped_gate_are_caught_by_the_oracle():
     whole, selected = step_condition(SHARDS, WHOLE), step_condition(SHARDS, SELECTED)
+    assert modes(job_condition(SHARDS), whole, selected) == WANTED_MODES
     # the design of the previous head: the job is skipped on a label other than full-suite (a skipped required check passes)
     skips_on_a_label = "github.event.action != 'labeled' || github.event.label.name == 'full-suite'"
     assert modes(skips_on_a_label, whole, selected) != WANTED_MODES
     # the first design of this package: the job is skipped for a pull request into main
     skipped_into_main = "github.event.action != 'labeled' && github.base_ref != 'main'"
     assert modes(skipped_into_main, whole, selected) != WANTED_MODES
-    # a whole-suite step that forgets the base: a pull request into main would run neither step, which the helper refuses
-    forgets_base = "github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-suite')"
+    # the rule before CI-1: the whole suite on a push and on a pull request into main (and its negation for the selection)
+    old_whole = "github.event_name != 'pull_request' || github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'full-suite')"
+    assert modes(None, old_whole, "!(" + old_whole + ")") != WANTED_MODES
+    # a whole condition that forgets the label, one that forgets the manual run, one that also runs the whole suite on a push
+    no_label = "github.event_name == 'workflow_dispatch'"
+    assert modes(None, no_label, "!(" + no_label + ")") != WANTED_MODES
+    no_manual = "contains(github.event.pull_request.labels.*.name, 'full-suite')"
+    assert modes(None, no_manual, "!(" + no_manual + ")") != WANTED_MODES
+    on_a_push = "github.event_name == 'push' || github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'full-suite')"
+    assert modes(None, on_a_push, "!(" + on_a_push + ")") != WANTED_MODES
+    # a whole-suite step that forgets the label next to a correct selected step: on the label event neither runs, which the helper refuses
     with pytest.raises(AssertionError):
-        modes(None, forgets_base, selected)
-    # a selected step that forgets the base: a pull request into main would run both
+        modes(None, no_label, selected)
+    # a selected step that forgets the label: the label event would run both
     with pytest.raises(AssertionError):
-        modes(None, whole, "github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-suite')")
-    # shards that also run on a draft: the draft step of the aggregator fails, and these would have run the whole suite for nothing
+        modes(None, whole, "github.event_name != 'workflow_dispatch'")
+    # shards that also run on a draft: the draft step of the aggregator fails, and these would have run the selection for nothing
     runs_on_a_draft = modes(None, whole, selected)
-    assert runs_on_a_draft != WANTED_MODES and runs_on_a_draft["a draft pull request into main"] == "whole"
+    assert runs_on_a_draft != WANTED_MODES and runs_on_a_draft["a draft pull request into main"] == "selected"
 
 
 def draft_step_fails_closed(text):
@@ -489,8 +529,8 @@ def gate_holds(text):
         return False
     if squash(step_condition("tests", GATE, text) or "") != squash(job_condition(SHARDS, text) or ""):
         return False
-    count = re.search(r'python scripts/shard_tests\.py --shard "\$SHARD/(\d+)"', shard_block)
-    return bool(count) and matrix_of(shard_block) == list(range(1, int(count.group(1)) + 1))
+    counts = re.findall(r'python scripts/shard_tests\.py --shard "\$SHARD/(\d+)"', shard_block)
+    return len(counts) >= 2 and len(set(counts)) == 1 and matrix_of(shard_block) == list(range(1, int(counts[0]) + 1))  # every launcher of the job names the matrix's N
 
 
 def test_planted_gates_that_let_a_failed_or_missing_shard_pass_are_caught_by_the_oracle():
@@ -500,7 +540,8 @@ def test_planted_gates_that_let_a_failed_or_missing_shard_pass_are_caught_by_the
     gate_if = "        if: github.event_name != 'pull_request' || !github.event.pull_request.draft\n"
     plants = {
         "the aggregator is skipped when a shard fails": real.replace("    needs: tests-shard\n    if: always()\n", "    needs: tests-shard\n", 1),
-        "a shard is left out of the matrix": real.replace("[1, 2, 3]", "[1, 2]", 1),
+        "a shard is left out of the matrix": real.replace("[1, 2, 3, 4, 5, 6]", "[1, 2, 3, 4, 5]", 1),
+        "the selected launcher still says 3": (lambda i: real[:i] + real[i:].replace('--shard "$SHARD/6"', '--shard "$SHARD/3"', 1))(real.index("- name: " + SELECTED)),
         "the gate does not compare the result": real.replace('test "$SHARDS" = "success"', "true", 1),
         "the gate step is skipped on some event, which counts as a pass": real.replace(gate_if, "        if: github.event_name != 'pull_request'\n", 1),
         "the shards run on fewer events than the gate waits for": real.replace(shard_if, "    if: github.event_name != 'pull_request'\n", 1),
@@ -527,21 +568,67 @@ def test_an_unrelated_label_skips_the_optional_jobs_runs_the_shards_the_gate_nee
     assert evaluate(step_condition(SHARDS, WHOLE), **full) is True and evaluate(step_condition(SHARDS, SELECTED), **full) is False
 
 
-def test_the_docker_and_go_jobs_wait_for_the_job_that_says_whether_their_paths_changed():
-    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
-    for name in ("container", "converter", "renderer", "hyperframes", "go"):
-        block = job_block(text, name)
-        assert re.search(r"^    needs: changes\s*$", block, re.M), name
-        assert "needs.changes.outputs.%s == 'true'" % name in block, name
-    changes = job_block(text, "changes")
-    assert 'everything=true' in changes and '"$BASE_REF" = "main"' in changes and '"$FULL_LABEL" = "true"' in changes and '"$ACTION" = "labeled"' in changes
+def live_inputs(text):
+    """The inputs of `on: workflow_call` of the live jobs file: {name: (type, required)}."""
+    block = text.split("  workflow_call:\n    inputs:\n", 1)[1].split("\npermissions:", 1)[0]
+    out = {}
+    for name, body in re.findall(r"^      (\w+):\n((?:        .*\n)+)", block, re.M):
+        out[name] = (re.search(r"type: (\w+)", body).group(1), re.search(r"required: (\w+)", body).group(1))
+    return out
+
+
+def live_call_problems(checks, live):
+    """What is wrong with the way checks.yml calls the live jobs file and with the file's own conditions, as a list."""
+    found = []
+    caller = job_block(checks, "live")
+    if not re.search(r"^    needs: changes\s*$", caller, re.M):
+        found.append("the caller does not wait for `changes`")
+    if not re.search(r"^    uses: \./\.github/workflows/live-jobs\.yml\s*$", caller, re.M):
+        found.append("the caller does not call live-jobs.yml")
+    for name in DOCKER_JOBS:
+        if "      %s: ${{ needs.changes.outputs.%s == 'true' }}\n" % (name, name) not in caller:
+            found.append("the caller does not pass %s as the output of changes" % name)
+    if '      ref: ""\n' not in caller:
+        found.append("the caller does not pass an empty ref")
+    jobs = re.findall(r"^  ([\w-]+):\s*$", checks[re.search(r"^jobs:\s*$", checks, re.M).end():], re.M)
+    found += ["checks.yml still has the job " + name for name in DOCKER_JOBS if name in jobs]
+    inputs = live_inputs(live)
+    if inputs != {**{name: ("boolean", "true") for name in DOCKER_JOBS}, "ref": ("string", "false")}:
+        found.append("the inputs of the live jobs file are %r" % inputs)
+    for name in DOCKER_JOBS:
+        if job_condition(name, live) != "inputs.%s" % name:
+            found.append("the job %s does not run exactly when its input is true: %r" % (name, job_condition(name, live)))
+    return found
+
+
+def test_the_live_jobs_are_called_with_what_changes_found_and_each_waits_for_its_input():
+    checks = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    live = LIVE.read_text()
+    assert live_call_problems(checks, live) == []
+    changes = job_block(checks, "changes")
+    assert 'everything=true' in changes and '"$FULL_LABEL" = "true"' in changes and '"$ACTION" = "labeled"' in changes and '"$EVENT" = "workflow_dispatch"' in changes
+    assert '"$BASE_REF" = "main"' not in changes  # a pull request into main is read by path like any pull request (CI-1)
+
+
+def test_vacuity_a_caller_or_a_live_file_that_breaks_the_wiring_is_caught():
+    checks = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    live = LIVE.read_text()
+    for old, new in (("    needs: changes\n    uses:", "    uses:"), ("go: ${{ needs.changes.outputs.go == 'true' }}", "go: true"), ('      ref: ""\n', "")):
+        planted = checks.replace(old, new, 1)
+        assert planted != checks, old
+        assert live_call_problems(planted, live), old
+    assert live_call_problems(checks + "\n  go:\n    name: go\n", live)  # a job of the live set back in checks.yml
+    for old, new in (("    if: inputs.go\n", "    if: inputs.go || inputs.renderer\n"), ("      go:\n        type: boolean\n        required: true\n", "      go:\n        type: boolean\n        required: false\n")):
+        planted = live.replace(old, new, 1)
+        assert planted != live, old
+        assert live_call_problems(checks, planted), old
 
 
 def test_each_image_is_built_through_the_bounded_retry_before_the_tests_that_would_build_it():
     """The snapshot archive fails a build now and then (a 504 on 2026-11-05): each docker job builds its images first through
     scripts/ci_retry.py, with the same command the tests' fixtures would run, so that the fixtures find them built. A retry with no
     bound, or one with no timeout per attempt, would hold the job up to its own timeout."""
-    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    text = (LIVE).read_text()
     for name, builds, tests in (("container", ["python3 evals/executor.py ensure"], "WB_EVAL_DOCKER_TESTS=1"),
                                 ("converter", ["python3 providers/converter/container.py build --confirmed",
                                                "python3 providers/exporter/container.py build --confirmed"], "WB_CONVERTER_DOCKER_TESTS=1"),
@@ -559,7 +646,7 @@ def test_each_image_is_built_through_the_bounded_retry_before_the_tests_that_wou
 def test_the_renderer_and_hyperframes_jobs_name_one_state_folder_for_their_builds_and_their_live_tests():
     """The root conftest moves XDG_STATE_HOME before the live tests read it, so a step before the builds writes OPENHORA_STATE_DIR to
     $GITHUB_ENV. The runner context is not allowed in a job's env (GitHub rejects the whole file), so none appears before `steps:`."""
-    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    text = (LIVE).read_text()
     for name in ("renderer", "hyperframes"):
         block = job_block(text, name)
         assert "runner." not in block.split("    steps:")[0], name
@@ -570,7 +657,7 @@ def test_the_renderer_and_hyperframes_jobs_name_one_state_folder_for_their_build
 def test_the_hyperframes_job_builds_both_images_checks_the_hf_one_and_never_runs_the_survey_test():
     """V3c-2: its first run is the first amd64 build of the HyperFrames image. Build order, the 90-minute bound, the selfcheck before the
     tests, no --arch (the daemon's own architecture), and not test_hf_tier_a_live.py (it fails without its survey variables)."""
-    block = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "hyperframes")
+    block = job_block((LIVE).read_text(), "hyperframes")
     assert "timeout-minutes: 90" in block and "runs-on: ubuntu-24.04" in block
     assert "--attempt-timeout 900 -- python3 providers/renderer/ffmpeg.py build --confirmed --platform linux64" in block
     assert "--attempt-timeout 1800 -- python3 providers/renderer/hyperframes.py build --confirmed\n" in block
@@ -630,41 +717,66 @@ def run_changes(tmp_path, files, **env):
 PR = dict(EVENT="pull_request", ACTION="synchronize", BASE_REF="feature/x", FULL_LABEL="false", DRAFT="false")
 
 
+ALL = set(DOCKER_JOBS)
+PUSH = {"EVENT": "push", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}
+MANUAL = {"EVENT": "workflow_dispatch", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}
+DRAFT_BASE = {"DRAFT": "true", "BASE_SHA": "0" * 40}  # a draft reads no diff: the base below is no commit
+
+
+def expected_live(jobs):
+    """{job: "true"|"false"} over DOCKER_JOBS for the set of jobs that run; a name outside DOCKER_JOBS fails (so a job taken out later is caught here)."""
+    unknown = set(jobs) - set(DOCKER_JOBS)
+    assert not unknown, "a row names a job that is not in DOCKER_JOBS: %s" % sorted(unknown)
+    return {name: "true" if name in jobs else "false" for name in DOCKER_JOBS}
+
+
 def test_the_docker_and_go_jobs_run_when_their_paths_changed_and_in_the_cases_of_the_whole_suite(tmp_path):
     for i, (files, env, want) in enumerate([
-        (["providers/messenger/whatsapp/bridge.go"], PR, {"container": "false", "converter": "false", "renderer": "false", "hyperframes": "false", "go": "true"}),
-        (["providers/converter/Dockerfile"], PR, {"container": "false", "converter": "true", "renderer": "false", "hyperframes": "false", "go": "false"}),
-        (["evals/container/Dockerfile"], PR, {"container": "true", "converter": "false", "renderer": "false", "hyperframes": "false", "go": "false"}),
-        (["skills/mkt-publish/evals/evals.json"], PR, {"container": "true", "converter": "false", "renderer": "false", "hyperframes": "false", "go": "false"}),  # the eval container stages skills
-        (["providers/secrets/resolver.py"], PR, {"container": "true", "converter": "false", "renderer": "false", "hyperframes": "false", "go": "false"}),
-        (["scripts/ci_retry.py"], PR, {"container": "true", "converter": "true", "renderer": "true", "hyperframes": "true", "go": "false"}),  # the retry both image builds go through
-        (["providers/renderer/_image.py"], PR, {"container": "false", "converter": "false", "renderer": "true", "hyperframes": "true", "go": "false"}),  # the ffmpeg engine's image
-        (["providers/renderer/hyperframes-image/Dockerfile"], PR, {"container": "false", "converter": "false", "renderer": "false", "hyperframes": "true", "go": "false"}),  # V3c-2: the HyperFrames image has its own job, the ffmpeg one is not built for it
-        (["providers/renderer/hyperframes.py"], PR, {"container": "false", "converter": "false", "renderer": "true", "hyperframes": "true", "go": "false"}),
-        (["shared/references/video-presets.json"], PR, {"container": "true", "converter": "false", "renderer": "true", "hyperframes": "true", "go": "false"}),  # every render reads the vocabulary
-        (["providers/transcriber/whispercpp.py"], PR, {"container": "false", "converter": "false", "renderer": "true", "hyperframes": "false", "go": "false"}),
-        (["providers/resolve.py"], PR, {"container": "false", "converter": "true", "renderer": "true", "hyperframes": "true", "go": "false"}),  # a top-level provider module reaches both image jobs
-        (["docs/decisions.md"], PR, {"container": "false", "converter": "false", "renderer": "false", "hyperframes": "false", "go": "false"}),
-        (["docs/decisions.md"], {**PR, "BASE_REF": "main"}, {"container": "true", "converter": "true", "renderer": "true", "hyperframes": "true", "go": "true"}),
-        (["docs/decisions.md"], {**PR, "FULL_LABEL": "true"}, {"container": "true", "converter": "true", "renderer": "true", "hyperframes": "true", "go": "true"}),
-        (["docs/decisions.md"], {**PR, "ACTION": "labeled"}, {"container": "true", "converter": "true", "renderer": "true", "hyperframes": "true", "go": "true"}),
-        (["docs/decisions.md"], {"EVENT": "push", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}, {"container": "true", "converter": "true", "renderer": "true", "hyperframes": "true", "go": "true"}),
-        (["docs/decisions.md"], {"EVENT": "workflow_dispatch", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}, {"container": "true", "converter": "true", "renderer": "true", "hyperframes": "true", "go": "true"}),
-        # a draft runs none of the four jobs, whatever changed and whatever the label or the base, and reads no diff (the base below is no commit)
-        (["providers/messenger/whatsapp/bridge.go"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40}, {"container": "false", "converter": "false", "renderer": "false", "hyperframes": "false", "go": "false"}),
-        (["evals/container/Dockerfile"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40, "BASE_REF": "main"}, {"container": "false", "converter": "false", "renderer": "false", "hyperframes": "false", "go": "false"}),
-        (["docs/decisions.md"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40, "ACTION": "labeled", "FULL_LABEL": "true"}, {"container": "false", "converter": "false", "renderer": "false", "hyperframes": "false", "go": "false"}),
-        (["providers/messenger/whatsapp/bridge.go"], {**PR, "ACTION": "ready_for_review"}, {"container": "false", "converter": "false", "renderer": "false", "hyperframes": "false", "go": "true"}),  # marked ready: read as any push
+        (["providers/messenger/whatsapp/bridge.go"], PR, {"go"}),
+        (["providers/converter/Dockerfile"], PR, {"converter"}),
+        (["evals/container/Dockerfile"], PR, {"container"}),
+        (["skills/mkt-publish/evals/evals.json"], PR, {"container"}),  # the eval container stages skills
+        (["providers/secrets/resolver.py"], PR, {"container"}),
+        (["scripts/ci_retry.py"], PR, {"container", "converter", "renderer", "hyperframes"}),  # the retry both image builds go through
+        (["providers/renderer/_image.py"], PR, {"renderer", "hyperframes"}),  # the ffmpeg engine's image
+        (["providers/renderer/hyperframes-image/Dockerfile"], PR, {"hyperframes"}),  # V3c-2: the HyperFrames image has its own job, the ffmpeg one is not built for it
+        (["providers/renderer/hyperframes.py"], PR, {"renderer", "hyperframes"}),
+        (["shared/references/video-presets.json"], PR, {"container", "renderer", "hyperframes"}),  # every render reads the vocabulary
+        (["providers/transcriber/whispercpp.py"], PR, {"renderer"}),
+        (["providers/resolve.py"], PR, {"converter", "renderer", "hyperframes"}),  # a top-level provider module reaches both image jobs
+        (["docs/decisions.md"], PR, set()),
+        (["docs/decisions.md"], {**PR, "BASE_REF": "main"}, set()),  # CI-1: a pull request into main is read by path like any other
+        (["providers/renderer/_image.py"], {**PR, "BASE_REF": "main"}, {"renderer", "hyperframes"}),
+        ([".github/workflows/live-jobs.yml"], PR, ALL),  # the file of the jobs counts for all of them
+        ([".github/workflows/checks.yml"], PR, ALL),
+        (["docs/decisions.md"], {**PR, "FULL_LABEL": "true"}, ALL),
+        (["docs/decisions.md"], {**PR, "ACTION": "labeled"}, ALL),
+        # CI-1, M1 (a): no live job on a push to main, whatever changed; the nightly run starts all of them
+        (["docs/decisions.md"], PUSH, set()),
+        (["providers/renderer/_image.py"], PUSH, set()),
+        (["providers/messenger/whatsapp/bridge.go"], {**PUSH, "BASE_SHA": "0" * 40}, set()),  # a base that is unknown reads no diff either
+        (["docs/decisions.md"], MANUAL, ALL),
+        # a draft runs none of the jobs, whatever changed and whatever the label or the base, and reads no diff
+        (["providers/messenger/whatsapp/bridge.go"], {**PR, **DRAFT_BASE}, set()),
+        (["evals/container/Dockerfile"], {**PR, **DRAFT_BASE, "BASE_REF": "main"}, set()),
+        (["docs/decisions.md"], {**PR, **DRAFT_BASE, "ACTION": "labeled", "FULL_LABEL": "true"}, set()),
+        (["providers/messenger/whatsapp/bridge.go"], {**PR, "ACTION": "ready_for_review"}, {"go"}),  # marked ready: read as any push
         # one file per decision entry (docs/decisions/): the same as the closed log, docs/decisions.md
-        (["docs/decisions/2026-10-27-pkg-a-rule.md"], PR, {"container": "false", "converter": "false", "renderer": "false", "hyperframes": "false", "go": "false"}),
-        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "BASE_REF": "main"}, {"container": "true", "converter": "true", "renderer": "true", "hyperframes": "true", "go": "true"}),
-        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "FULL_LABEL": "true"}, {"container": "true", "converter": "true", "renderer": "true", "hyperframes": "true", "go": "true"}),
-        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {"EVENT": "push", "ACTION": "", "BASE_REF": "", "FULL_LABEL": "", "DRAFT": ""}, {"container": "true", "converter": "true", "renderer": "true", "hyperframes": "true", "go": "true"}),
-        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "DRAFT": "true", "BASE_SHA": "0" * 40}, {"container": "false", "converter": "false", "renderer": "false", "hyperframes": "false", "go": "false"}),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], PR, set()),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "BASE_REF": "main"}, set()),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, "FULL_LABEL": "true"}, ALL),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], PUSH, set()),
+        (["docs/decisions/2026-10-27-pkg-a-rule.md"], {**PR, **DRAFT_BASE}, set()),
     ]):
         case = tmp_path / ("case%d" % i)
         case.mkdir()
-        assert run_changes(case, files, **env) == want, (files, env)
+        assert run_changes(case, files, **env) == expected_live(want), (files, env)
+
+
+def test_a_row_that_names_a_job_outside_the_live_set_is_refused():
+    assert expected_live({"go"})["go"] == "true" and expected_live(set()) == {name: "false" for name in DOCKER_JOBS}
+    with pytest.raises(AssertionError):
+        expected_live({"go", "hyperframes_removed"})
 
 
 def test_the_triggers_of_the_workflow_include_the_label_event_and_the_manual_run():
@@ -735,7 +847,7 @@ def nightly_problems(text):
         name = re.search(r"^    name:\s*(.*?)\s*$", block, re.M).group(1)
         if name in REQUIRED_CHECKS:
             found.append("a job named like a required check: " + name)
-    for chunk in re.split(r"^\s*- (?:name|uses):", text, flags=re.M):
+    for chunk in re.split(r"^\s*- (?:name|uses):|^  [\w-]+:\s*$", text, flags=re.M):
         run = re.search(r"^\s*run:", chunk, re.M)
         if run and "${{" in chunk[run.end():]:
             found.append("an expression in a run line: " + chunk[run.end():].strip().splitlines()[0])
@@ -826,9 +938,28 @@ def step_script(block, name):
     return "\n".join(body) + "\n"
 
 
-def test_the_python39_job_selects_under_the_condition_of_the_shards_and_runs_the_whole_list_in_every_other_case_in_three_shards():
+def py39_shard_problems(text):
+    """What is wrong with the shards of the python39 job in a text of checks.yml: the matrix, the launcher's N, the name, fail-fast."""
+    block = job_block(text, "python39")
+    found = []
+    count = re.search(r'python scripts/shard_tests\.py --shard "\$SHARD/(\d+)"', step_text(block, PY39_STEP))
+    if not count:
+        return ["the launcher has no K of N"]
+    n = int(count.group(1))
+    if n != 6:
+        found.append("the launcher says %d, not 6" % n)
+    if matrix_of(block) != list(range(1, n + 1)):
+        found.append("the matrix is %r, not 1..%d" % (matrix_of(block), n))
+    if not re.search(r"^    name: python39 shard \$\{\{ matrix\.shard \}\} of %d\s*$" % n, block, re.M):
+        found.append("the name does not say of %d" % n)
+    if not re.search(r"^      fail-fast: false\s*$", block, re.M):
+        found.append("fail-fast is not false")
+    return found
+
+
+def test_the_python39_job_selects_under_the_condition_of_the_shards_and_runs_the_whole_list_in_every_other_case_in_six_shards():
     choose = step_condition("python39", PY39_CHOOSE)
-    assert squash(choose) == squash(step_condition(SHARDS, CHOOSE))  # the same pull requests: into a branch other than main, no full-suite label
+    assert squash(choose) == squash(step_condition(SHARDS, CHOOSE))  # the same events: every one but a manual run and the label full-suite
     got = modes(job_condition("python39"), step_condition("python39", PY39_WHOLE), choose)
     wanted = dict(WANTED_MODES)
     wanted["another label just added"] = wanted["another label added to a pull request into main"] = None  # the job waits for the label full-suite
@@ -837,13 +968,18 @@ def test_the_python39_job_selects_under_the_condition_of_the_shards_and_runs_the
     assert "fetch-depth: 0" in block  # the selector reads the merge base with the pull request's base
     pytest_step = step_text(block, PY39_STEP)
     assert '$(cat "$RUNNER_TEMP/py39.txt")' in pytest_step and "--python 3.9" in pytest_step and "--with pytest==8.4.2" in pytest_step
-    assert "--with pytest-xdist==3.8.0" in pytest_step and 'WB_SKIP_JS_ONLY_TESTS: "1"' in pytest_step
-    # three shards of the list, the way tests-shard shards the selection: the launcher, K of 3, a matrix 1..3
-    count = re.search(r'python scripts/shard_tests\.py --shard "\$SHARD/(\d+)"', pytest_step)
-    assert count and "SHARD: ${{ matrix.shard }}" in pytest_step
-    assert matrix_of(block) == list(range(1, int(count.group(1)) + 1)) == [1, 2, 3] and re.search(r"^      fail-fast: false\s*$", block, re.M)
-    assert re.search(r"^    name: python39 shard \$\{\{ matrix\.shard \}\} of 3\s*$", block, re.M)  # not a required check: its name is a shard's
+    assert "--with pytest-xdist==3.8.0" in pytest_step and 'WB_SKIP_JS_ONLY_TESTS: "1"' in pytest_step and "SHARD: ${{ matrix.shard }}" in pytest_step
+    assert py39_shard_problems((REPO / ".github" / "workflows" / "checks.yml").read_text()) == []  # six shards of the list: the launcher, K of 6, a matrix 1..6
     assert "python39" not in REQUIRED_CHECKS
+
+
+def test_vacuity_python39_shards_that_disagree_are_caught():
+    text = (REPO / ".github" / "workflows" / "checks.yml").read_text()
+    block = job_block(text, "python39")
+    for old, new in (("shard: [1, 2, 3, 4, 5, 6]", "shard: [1, 2, 3]"), ('--shard "$SHARD/6"', '--shard "$SHARD/3"'), ("of 6\n", "of 3\n")):
+        planted_block = block.replace(old, new, 1)
+        assert planted_block != block, old
+        assert py39_shard_problems(text.replace(block, planted_block, 1)), old
 
 
 def py39_repo(tmp_path, changed, list_text):
@@ -883,15 +1019,15 @@ def py39_repo(tmp_path, changed, list_text):
     return repo, base, clean
 
 
-def run_py39_choose(tmp_path, changed, script=None, list_text="runtime/tests\nscripts/tests/test_runtime_python39.py\n"):
+def run_py39_choose(tmp_path, changed, script=None, list_text="runtime/tests\nscripts/tests/test_runtime_python39.py\n", base=None):
     """The shell of the step that chooses the python39 tests, as the workflow has it, on that repository: the lines it wrote to the file."""
-    repo, base, clean = py39_repo(tmp_path, changed, list_text)
+    repo, real_base, clean = py39_repo(tmp_path, changed, list_text)
     block = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "python39")
     path = tmp_path / "choose.sh"
     path.write_text(script if script is not None else step_script(block, PY39_CHOOSE))
     temp = tmp_path / "runner-temp"
     temp.mkdir()
-    done = subprocess.run(["bash", "-e", "-o", "pipefail", str(path)], cwd=repo, env={**clean, "BASE_SHA": base, "RUNNER_TEMP": str(temp)},
+    done = subprocess.run(["bash", "-e", "-o", "pipefail", str(path)], cwd=repo, env={**clean, "BASE_SHA": base or real_base, "RUNNER_TEMP": str(temp)},
                           capture_output=True, text=True, timeout=120)
     return done, (temp / "py39.txt").read_text().splitlines() if (temp / "py39.txt").exists() else None
 
@@ -924,6 +1060,25 @@ def test_the_python39_choose_step_selects_inside_the_list_and_runs_the_whole_lis
     check_py39_cases(tmp_path)
 
 
+OLD_PY39_CHOOSE = r'''changed="$(git diff --name-only "$BASE_SHA" HEAD)"
+if printf '%s\n' "$changed" | grep -Eq '^[.]github/workflows/'; then
+  grep -v -e '^#' -e '^[[:space:]]*$' scripts/python39_tests.txt | tee "$RUNNER_TEMP/py39.txt"
+else
+  python3 scripts/select_tests.py --base "$BASE_SHA" --explain --within scripts/python39_tests.txt | tee "$RUNNER_TEMP/py39.txt"
+fi
+'''
+
+
+def test_a_base_that_is_not_in_the_clone_runs_the_whole_list_and_a_script_without_the_guard_fails_there(tmp_path):
+    (tmp_path / "a").mkdir()
+    done, lines = run_py39_choose(tmp_path / "a", ["runtime/alpha.py"], base="0" * 40)
+    assert done.returncode == 0, done.stderr
+    assert lines == WHOLE_LIST and "the base is not in this clone" in done.stdout
+    (tmp_path / "b").mkdir()
+    planted, _lines = run_py39_choose(tmp_path / "b", ["runtime/alpha.py"], script=OLD_PY39_CHOOSE, base="0" * 40)
+    assert planted.returncode != 0  # vacuity: without the `git cat-file` branch, an unknown base fails the step under `-e -o pipefail`
+
+
 def test_vacuity_a_choose_step_that_never_runs_the_whole_list_or_never_selects_is_caught_by_the_cases(tmp_path):
     block = job_block((REPO / ".github" / "workflows" / "checks.yml").read_text(), "python39")
     real = step_script(block, PY39_CHOOSE)
@@ -953,6 +1108,40 @@ def test_the_whole_python39_step_writes_the_list_without_its_comments_and_blank_
     assert (temp / "py39.txt").read_text().splitlines() == WHOLE_LIST
 
 
+def nightly_live_problems(text):
+    """What is wrong with the job of the nightly that calls the live jobs: it exists, calls live-jobs.yml, passes every input true and the ref of the other jobs."""
+    found = []
+    try:
+        block = job_block(text, "nightly-live")
+    except KeyError:
+        return ["no job nightly-live"]
+    if not re.search(r"^    uses: \./\.github/workflows/live-jobs\.yml\s*$", block, re.M):
+        found.append("it does not call live-jobs.yml")
+    for name in DOCKER_JOBS:
+        if "      %s: true\n" % name not in block:
+            found.append("the input %s is not true" % name)
+    ref = re.search(r"^          ref: (.*)$", job_block(text, "nightly-shard"), re.M).group(1)
+    if "      ref: %s\n" % ref not in block or "vars.NIGHTLY_REF" not in ref:
+        found.append("the ref is not the one of the other jobs")
+    return found
+
+
+def test_the_nightly_calls_the_live_jobs_with_every_input_true_on_the_branch_it_tests():
+    text = NIGHTLY.read_text(encoding="utf-8")
+    assert nightly_live_problems(text) == []
+    assert nightly_problems(text) == []  # it also holds the nightly condition and no required name
+
+
+def test_vacuity_a_nightly_that_leaves_an_input_false_or_loses_the_ref_is_caught():
+    text = NIGHTLY.read_text(encoding="utf-8")
+    for old, new in (("      go: true\n", "      go: false\n"), ("      ref: ${{ github.event_name == 'schedule' && vars.NIGHTLY_REF || inputs.ref || '' }}\n", "      ref: ${{ inputs.ref || '' }}\n"),
+                     ("uses: ./.github/workflows/live-jobs.yml", "uses: ./.github/workflows/other.yml")):
+        planted = text.replace(old, new, 1)
+        assert planted != text, old
+        assert nightly_live_problems(planted), old
+    assert nightly_live_problems(text[:text.index("  nightly-live:")])
+
+
 def test_the_nightly_is_daily_by_hand_or_by_its_label_and_never_writes():
     text = NIGHTLY.read_text(encoding="utf-8")
     head = text.split("\npermissions:", 1)[0]
@@ -977,6 +1166,47 @@ def test_vacuity_a_nightly_with_a_write_permission_or_an_expression_in_a_run_lin
         planted = text.replace(old, new, 1)
         assert planted != text, old
         assert nightly_problems(planted), old
+
+
+def live_problems(text):
+    """What is wrong with a text of live-jobs.yml, as a list: a write permission, a secret, a checkout that keeps its credentials or takes no ref, a job with no
+    timeout, a job named like a required check, an expression `${{ }}` in the lines a shell runs (a script injection; the values go through `env:`)."""
+    found = []
+    if "permissions:\n  contents: read\n" not in text:
+        found.append("the permissions are not exactly contents: read")
+    found += ["a permission set to write: " + line.strip() for line in text.splitlines() if re.match(r"^\s*[\w-]+:\s*write\b", line)]
+    found += [word for word in ("secrets.", "upload-artifact") if word in text]
+    checkouts = text.count("actions/checkout@")
+    if not checkouts or text.count("persist-credentials: false") != checkouts or text.count("ref: ${{ inputs.ref }}") != checkouts:
+        found.append("a checkout keeps its credentials or takes no ref")
+    jobs = text[re.search(r"^jobs:\s*$", text, re.M).end():]
+    for name, block in zip(re.findall(r"^  ([\w-]+):\s*$", jobs, re.M), re.split(r"^  [\w-]+:\s*$", jobs, flags=re.M)[1:]):
+        if not re.search(r"^    timeout-minutes: [1-9]\d*\s*$", block, re.M):
+            found.append("job %s has no timeout" % name)
+        if name in REQUIRED_CHECKS or re.search(r"^    name:\s*(%s)\s*$" % "|".join(REQUIRED_CHECKS), block, re.M):
+            found.append("a job named like a required check: " + name)
+    for chunk in re.split(r"^\s*- (?:name|uses):", text, flags=re.M):
+        run = re.search(r"^\s*run:", chunk, re.M)
+        if run and "${{" in chunk[run.end():]:
+            found.append("an expression in a run line: " + chunk[run.end():].strip().splitlines()[0])
+    return found
+
+
+def test_the_live_jobs_file_reads_nothing_it_should_not():
+    text = LIVE.read_text(encoding="utf-8")
+    assert live_problems(text) == []
+    assert "-rA --durations=0" in text and text.count("pytest==9.1.1 pytest -q -rA --durations=0") == 4  # the live steps print each test's duration (CI-1a)
+
+
+def test_vacuity_a_live_file_with_a_write_permission_an_expression_in_a_run_line_or_a_checkout_that_keeps_credentials_is_caught():
+    text = LIVE.read_text(encoding="utf-8")
+    assert live_problems(text) == []
+    for old, new in (("contents: read", "contents: write"), ("pytest -q -rA --durations=0 providers/converter", "pytest -q -rA --durations=0 ${{ matrix.targets }} providers/converter"),
+                     ("persist-credentials: false", "persist-credentials: true"), ("          ref: ${{ inputs.ref }}\n", ""),
+                     ("    timeout-minutes: 15\n", ""), ("    name: go\n", "    name: tests\n")):
+        planted = text.replace(old, new, 1)
+        assert planted != text, old
+        assert live_problems(planted), old
 
 
 # ---- the generated blocks: strict on a batch, on main, on a push and in the nightly run (HOT-1; SPEC-HOTSPOTS 4.4) --------------------------------------------

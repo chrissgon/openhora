@@ -2,9 +2,8 @@
 """Print the tests that a change can reach, one pytest target per line (a test file, or a whole test folder).
 
 The repository standard (docs/decisions.md, 2026-10-20, and the entry of TEST-SPEED, 2026-10-27): CI runs the SELECTED tests of every
-pull request into an integration branch (the `tests-shard` jobs of .github/workflows/checks.yml run this script's selection in three
-shards) and the whole suite at the end of a large delivery (a pull request into main, a push to main, a manual run, a pull request
-labelled `full-suite`); the pre-commit hook runs only the `--direct` fast set below (rule 9) unless WB_HOOK_FULL=1 brings back the
+pull request and of every push to main (the `tests-shard` jobs of .github/workflows/checks.yml run this script's selection in six
+shards) and the whole suite on a manual run and with the label `full-suite`; every test runs in the nightly run (CI-1); the pre-commit hook runs only the `--direct` fast set below (rule 9) unless WB_HOOK_FULL=1 brings back the
 selection.
 
 Usage:
@@ -34,7 +33,7 @@ THE RULES (conservative: when the selector is unsure it selects more)
     references (any form, kits included) PLAIN_DEPTH = 3 steps from the changed module, and beyond that only through `from M import ...`
     at a module's top level, which is how a module re-exports another's names (ops.py re-exports the functions of its siblings).
     A module that reaches the changed one only through four or more plain `import`s is NOT reached: that is the accepted slip (rule 8
-    of SPEC-TESTSEL), caught by the whole-suite run at the end of a delivery. The depth is a measured trade (docs/decisions.md): the
+    of SPEC-TESTSEL), caught by the nightly run, within about 24 hours. The depth is a measured trade (docs/decisions.md): the
     whole closure selects about four fifths of the suite for a change to any module under ops.py. A module loaded by a name read from
     data has no import: when a data file holds its name as a whole quoted string ("natural_lang_pt_br" in natural_languages.json), rule 4
     runs for that file too; and UNLINKED_MODULES lists, by pattern, the data modules whose tests no edge finds.
