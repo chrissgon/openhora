@@ -168,7 +168,7 @@ def test_the_selected_mode_runs_what_the_selector_prints_and_never_the_full_fuzz
     run = block[block.index("- name: Selected scanner"):]
     assert 'python3 scripts/select_tests.py --base "$BASE_SHA"' in selected and "fetch-depth: 0" in block
     assert "test_dirs.py" not in selected and "WB_FULL_FUZZ" not in selected and "WB_FULL_FUZZ" not in run
-    assert 'python scripts/shard_tests.py --shard "$SHARD/3"' in run and '$(cat "$RUNNER_TEMP/selected-tests.txt")' in run
+    assert 'python scripts/shard_tests.py --shard "$SHARD/6"' in run and '$(cat "$RUNNER_TEMP/selected-tests.txt")' in run
 
 
 def test_only_the_python39_job_leaves_out_the_javascript_only_interface_tests():
