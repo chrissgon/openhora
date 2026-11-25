@@ -34,6 +34,7 @@ PORTS = {
     "testimonial-card": ("quote", "testimonial-card", "7edb7eaa573f8331a3f5c76c689d47989ccccbfb6027b7ac072de22df52f0510"),
     "spring-pop": ("keyword", "spring-pop", "542423b2d98bb48400280b621e7421b16ae026c2abc1ee8f64d5cca18fd8f51d"),
 }
+NOT_ADMITTED = {"spring-pop"}      # the ports with no determinism record yet (PF-a4b)
 DEFAULTS = {"aside": "oh:aside", "caption": "hf:caption-highlight", "cutaway": "oh:cutaway", "keyword": "hf:spring-pop", "list": "oh:list", "mark": "oh:mark", "nametag": "oh:nametag", "number": "hf:count-up",
             "quote": "hf:testimonial-card", "sticker": "oh:sticker"}
 CAPTION_PORTS = [n for n, (preset, _, _) in PORTS.items() if preset == "caption"]
@@ -95,7 +96,7 @@ def test_a_port_loads_as_a_tier_b_block_with_the_pinned_commit_and_only_a_gsap_p
     assert block["notice"] == NOTICE and len(block["notice"]) < 200 and MAKER not in block["notice"].lower()
     assert block["preset"] == preset and block["band"] == ("caption" if preset == "caption" else "card")
     assert block["natural_duration"] is None if preset == "caption" else block["natural_duration"] >= 0.2
-    assert _blocks.engines_of(catalogue, block) == ["hyperframes"]
+    assert _blocks.engines_of(catalogue, block) == (["hyperframes"] if short in NOT_ADMITTED else ["ffmpeg", "hyperframes"])      # PF-a4b: a determinism record admits a port on the ffmpeg engine too
     assert not any(k in spec["type"] for spec in block["params"].values() for k in ("image", "clip"))
 
 
@@ -251,6 +252,10 @@ def test_the_hyperframes_engine_runs_both_runtimes_and_its_defaults_are_the_port
 @pytest.mark.parametrize("short", sorted(PORTS))
 def test_an_hf_port_is_refused_on_the_ffmpeg_engine_naming_the_blocks_it_does_draw(catalogue, short):
     preset = PORTS[short][0]
+    if short not in NOT_ADMITTED:           # admitted by its determinism record: selectable by name on the ffmpeg engine, never the engine's default of its preset
+        assert _blocks.resolve(catalogue, "ffmpeg", preset, "hf:" + short, "beats.b1")["name"] == "hf:" + short
+        assert catalogue["engines"]["ffmpeg"]["presets"][preset] == "oh:" + preset
+        return
     with pytest.raises(Refusal) as caught:
         _blocks.resolve(catalogue, "ffmpeg", preset, "hf:" + short, "beats.b1")
     assert caught.value.code == "block_not_on_engine" and caught.value.field == "oh:" + preset
