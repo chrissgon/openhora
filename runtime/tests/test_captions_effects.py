@@ -65,7 +65,7 @@ def test_effects_go_up_to_the_ceiling():      # T7
     assert [e["id"] for e in full["effects"]] == ["e%d" % k for k in range(1, 100)]
     assert refusal(edited, full, [effect("punch", 7, 7)]).code == "too_many_effects"                      # the 100th, over two requests
     assert refusal(edited, review, top + [effect("punch", 7, 7)]).code == "too_many_effects"              # and in one request
-    assert cap.EFFECTS_MAX == 99 and cap.ANIMATIONS_MAX == 12 and cap.BEATS_MAX == 12                     # the other limits are not P0's
+    assert cap.EFFECTS_MAX == 99 and cap.ANIMATIONS_MAX == 99 and cap.BEATS_CEILING == 99 and cap.BEATS_MAX == 12      # the ceilings are 99 (video P0b); 12 is the usual count, a default
 
 
 def test_overlapping_grades_are_refused():      # T8
@@ -99,7 +99,7 @@ def test_a_script_punch_is_dropped_and_kept_dropped():
     assert refusal(edited, review, [{"op": "effect", "id": "p4", "remove": True}], punches={3, 5}).code == "unknown_effect"
     _, loose, _ = apply(edited, review, [{"op": "effect", "id": "p4", "remove": True}])                      # the caller gave no list: any beat number
     assert loose["dropped_punches"] == [4]
-    assert refusal(edited, review, [{"op": "effect", "id": "p13", "remove": True}]).code == "unknown_effect"
+    assert refusal(edited, review, [{"op": "effect", "id": "p100", "remove": True}]).code == "unknown_effect"
     assert refusal(edited, review, [{"op": "effect", "id": "p0", "remove": True}]).code == "unknown_effect"
     assert cap.check_review(two)["dropped_punches"] == [3, 5]
     view = cap.view(edited, two, {}, {"threshold": 0.6, "report": [], "slots": [], "punches": [{"beat": 3, "word_from": 2, "word_to": 3, "score": 1.0},
@@ -124,7 +124,7 @@ def test_an_old_review_reads_with_no_effects():
             cap.check_review(dict(good, effects=[one_item]))
         assert (caught.value.code, caught.value.field) == ("review_unreadable", "effects"), one_item
     for bad in ({"effects": [good["effects"][0], dict(good["effects"][0])]}, {"effects": "x"}, {"dropped_punches": [0]}, {"dropped_punches": [3, 3]},
-                {"dropped_punches": [13]}, {"dropped_punches": ["3"]}, {"dropped_punches": list(range(1, 14))}):
+                {"dropped_punches": [100]}, {"dropped_punches": ["3"]}, {"dropped_punches": list(range(1, 101))}):
         with pytest.raises(cap.CaptionError) as caught:
             cap.check_review(dict(good, **bad))
         assert caught.value.code == "review_unreadable"
@@ -250,10 +250,10 @@ def test_the_renders_dropped_effects_are_not_cut_and_the_left_out_bound_follows_
     rows = [{"id": "e%d" % k, "reason": "grade_short"} for k in range(1, 21)]
     assert step_media._effects_dropped({"effects_dropped": rows}) == rows                                  # 20 rows: none cut at 12
     dd = st.load("deliver_document")
-    assert dd.LEFT_OUT_MAX == cap.EFFECTS_MAX + 2 * cap.BEATS_MAX == 123
+    assert dd.LEFT_OUT_MAX == cap.EFFECTS_MAX + 2 * cap.BEATS_CEILING == 297
     left = step_media._left_out({}, {}, {}, step_media._effects_dropped({"effects_dropped": rows}))
     assert len(left) == 20 and {r["kind"] for r in left} == {"effect"}                                      # all 20 reach the left-out rows
-    ok = [{"id": "e%03d" % k, "kind": "effect", "reason": "grade_short"} for k in range(123)]
-    dd._check_left_out({"left_out": ok})                                                                    # 123 rows are accepted
+    ok = [{"id": "e%03d" % k, "kind": "effect", "reason": "grade_short"} for k in range(297)]
+    dd._check_left_out({"left_out": ok})                                                                    # 297 rows are accepted
     with pytest.raises(ValueError):
-        dd._check_left_out({"left_out": ok + [{"id": "e999", "kind": "effect", "reason": "grade_short"}]})   # 124 are refused
+        dd._check_left_out({"left_out": ok + [{"id": "e999", "kind": "effect", "reason": "grade_short"}]})   # 298 are refused

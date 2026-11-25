@@ -90,16 +90,18 @@ def test_a_dry_run_reads_proves_and_names_the_beats_without_a_browser(pipe):
 
 @needs_all
 @pytest.mark.parametrize("variant,code,offset", [
-    ("below_line", "caption_below_line", 4),
+    ("below_line", "drawn_below_line", 4),
     ("nothing", "block_not_drawn", 0),
-    ("opaque", "caption_below_line", 3),             # a full-frame layer (the corner cut keeps it RGBA): below the line from frame 3 of the entry (it was the face gate's until 2026-11-24)
+    ("opaque", "drawn_below_line", 3),             # a full-frame layer (the corner cut keeps it RGBA): below the line from frame 3 of the entry
 ])
-def test_the_exact_gates_refuse_a_pixel_where_it_must_not_be_with_the_first_frame(pipe, variant, code, offset):
+def test_the_exact_gates_report_a_pixel_where_it_should_not_be_as_advice_and_the_render_goes_on(pipe, variant, code, offset):
+    """Video P0b: the line and the drawn floor of the exact gates are advice, never a refusal (the maintainer's principle of 2026-11-24)."""
     tail, env, tmp, rt = setup(pipe, variant)
     start, end, _ = start_frame(pipe, tail, env, tmp)
     rc, out, err = render(pipe, tail, env, tmp / "o")
-    assert rc == 1 and refusal(err) == (code, "frame %d" % (start + offset)), err
-    assert not list((tmp / "o").glob("render-*.mp4"))
+    assert rc == 0, err
+    row = next(r for r in out["advice"] if r["code"] == code)
+    assert row["value"] >= 1 and row["default"] == 0 and list((tmp / "o").glob("render-*.mp4"))
 
 
 @needs_all

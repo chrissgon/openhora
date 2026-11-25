@@ -170,8 +170,9 @@ def test_a_punch_is_stretched_cut_and_never_crosses_a_range():
     timeline = resolve(edl, beats_of([punch(1, 10, 10)]))                 # 5.1 s: frame 153 to 177 in the second range
     assert [(p["start_frame"], p["range"]) for p in timeline["punches"]] == [(153, 1)]
     timeline = resolve(edl, beats_of([punch(1, 19, 19), punch(2, 18, 18)]))
-    assert [(p["id"], p["start_frame"], p["end_frame"]) for p in timeline["punches"]] == [("p2", 273, 297)]      # p1 starts where p2 ends and is left 3 frames
-    assert timeline["effects_dropped"] == [{"id": "p1", "reason": "punch_short"}]
+    assert [(p["id"], p["start_frame"], p["end_frame"]) for p in timeline["punches"]] == [("p2", 273, 297), ("p1", 297, 300)]      # p1 starts where p2 ends and is left 3 frames: drawn, with advice
+    assert timeline["effects_dropped"] == []
+    assert timeline["advice"] == [{"code": "punch_short", "value": 0.1, "default": 0.4, "count": 1, "ids": ["p1"]}]
 
 
 def test_two_punches_never_overlap():
@@ -238,7 +239,8 @@ def test_the_checks_of_the_two_new_keys():      # T2
         assert refused(_edl.check_beats, bad, edl, VOCAB).code == code, code
     assert refused(_edl.check_beats, dict(beats_of(), punches={}), edl, VOCAB).code == "not_list"
     many = beats_of([punch(k, k, k) for k in range(1, 14)])
-    assert refused(_edl.check_beats, many, edl, VOCAB).code == "too_many_punches"
+    assert _edl.check_beats(many, edl, VOCAB)["advice"] == [{"code": "punches_over_default", "value": 13, "default": VOCAB["limits"]["beats_max"], "count": 1}]
+    assert refused(_edl.check_beats, beats_of([punch(k, k % 28, k % 28) for k in range(1, 101)]), edl, VOCAB).code == "too_many_punches"
     assert _edl.check_beats(beats_of(effects=[effect("e%d" % k, "punch", k % 28, k % 28) for k in range(1, 100)]), edl, VOCAB)      # 99 review effects pass
     over = beats_of(effects=[effect("e%d" % k, "punch", 0, 0) for k in range(1, 100)] + [effect("e100", "punch", 0, 0)])
     assert refused(_edl.check_beats, over, edl, VOCAB).code == "too_many_effects"                                                 # the 100th is over the ceiling
@@ -716,12 +718,9 @@ def test_the_zoom_check_has_only_validity_bounds():      # T4
     _edl.check_zoom(DATA, dict(zoom, factor=5.0, push_in=1.0))
     doc = K.build_transcript()
     analysis = {"facts": {"duration": doc["duration"], "sha256": "d" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None}
-    try:
-        edl, _ = _edl.build_base(doc, analysis, DATA, {}, zoom_factor=1.5, push_in=0.1)
-        outcome = "list" if edl["zoom"]["factor"] == 1.5 else "wrong"
-    except Refusal as caught:
-        outcome = caught.code
-    assert outcome == "face_box_leaves_no_room"          # pinned: no taste cap, the face check refuses the box with no room
+    advice = []
+    edl, _ = _edl.build_base(doc, analysis, DATA, {}, zoom_factor=1.5, push_in=0.1, advice=advice)
+    assert edl["zoom"]["factor"] == 1.5          # pinned: no taste cap, and a face box with little room at that zoom is advice, not a refusal (video P0b)
 
 
 def test_schema_and_code_agree_and_the_taste_caps_are_gone():      # T5

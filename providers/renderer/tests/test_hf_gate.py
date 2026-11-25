@@ -206,7 +206,7 @@ def test_a_card_box_or_glyph_on_the_face_passes_nothing_is_refused_for_the_face(
     assert checked(docs, {f: [on_face, glyph]})["boxes"] == 2
 
 
-def test_a_caption_box_or_glyph_on_the_face_passes_but_the_line_still_holds(docs):
+def test_a_caption_box_or_glyph_on_the_face_passes_and_the_line_is_advice(docs):
     """The maintainer's decisions of 2026-11-24: a caption may cross the face; the 1560 line stays."""
     f, ranges, edl = first_frame_without_an_entry(docs)
     face = ranges[0][2]
@@ -215,7 +215,8 @@ def test_a_caption_box_or_glyph_on_the_face_passes_but_the_line_still_holds(docs
     for hit in (on_face, glyph):
         checked_doc = checked(docs, {f: [hit]})
         assert checked_doc["boxes"] == 1
-    assert code_of(checked, docs, {f: [box("caption", y=1540.0, h=40.0, glyph=True)]})[0] == "caption_below_line"
+    low = checked(docs, {f: [box("caption", y=1540.0, h=40.0, glyph=True)]})
+    assert [(r["code"], r["value"], r["default"]) for r in low["advice"]] == [("caption_below_line", 1580, 1560)]      # the line is advice, never a refusal (video P0b)
 
 
 def test_a_box_that_only_touches_the_faces_edge_is_not_a_hit(docs):
@@ -234,18 +235,20 @@ def test_a_box_of_the_frame_band_passes_everywhere_a_layout_may_cover_the_face(d
     assert checked(docs, {2: [box("frame", y=10.0, h=10.0, key="x")]})["boxes"] == 1
 
 
-def test_a_glyph_below_the_line_at_1560_is_caption_below_line_and_one_at_the_line_is_not(docs):
+def test_a_glyph_below_the_line_at_1560_is_caption_below_line_advice_and_one_at_the_line_is_not(docs):
     data = docs[0]
     line = data["zones"]["caption_bottom"]
     assert line == 1560
     low = box("caption", y=1530.0, h=40.0, glyph=True)                # bottom 1570
-    assert code_of(checked, docs, {9: [low]}) == ("caption_below_line", "frame 9 bottom 1570")
-    assert checked(docs, {9: [box("caption", y=1520.0, h=40.0, glyph=True)]})["lowest_caption_bottom"] == 1560.0
-    assert code_of(checked, docs, {9: [box("caption", y=1520.0, h=40.1)]})[0] == "caption_below_line"
+    got = checked(docs, {9: [low]})
+    assert [(r["code"], r["value"], r["default"]) for r in got["advice"]] == [("caption_below_line", 1570, 1560)]
+    at_line = checked(docs, {9: [box("caption", y=1520.0, h=40.0, glyph=True)]})
+    assert at_line["lowest_caption_bottom"] == 1560.0 and "advice" not in at_line
+    assert checked(docs, {9: [box("caption", y=1520.0, h=40.1)]})["advice"][0]["code"] == "caption_below_line"
 
 
-def test_a_caption_element_below_the_line_is_refused_and_a_card_below_it_is_not_this_gates_business(docs):
-    assert code_of(checked, docs, {1: [box("caption", y=1540.0, h=30.0)]}) == ("caption_below_line", "frame 1 bottom 1570")
+def test_a_caption_element_below_the_line_is_advice_and_a_card_below_it_is_not_this_gates_business(docs):
+    assert [(r["code"], r["value"]) for r in checked(docs, {1: [box("caption", y=1540.0, h=30.0)]})["advice"]] == [("caption_below_line", 1570)]
     assert checked(docs, {1: [box("card", y=1700.0, h=30.0)]})["boxes"] == 1
 
 
@@ -262,15 +265,17 @@ def test_the_ffmpeg_engines_own_arithmetic_is_what_decides(docs):
     assert _layout.caption_hit(box("caption", y=1551.0, h=10.0), _layout.zones(data, face))
 
 
-def test_the_first_violation_in_frame_order_is_the_one_raised(docs):
+def test_the_worst_caption_bottom_over_the_frames_is_the_advice_value(docs):
     data, edl, timeline, ranges = timeline_of(docs)
     faces = G.faces_by_frame(timeline, ranges, edl["out_frames"])["card"]
     late = edl["out_frames"] - 1
     face = faces[late]
     on_face = box("card", x=face["x"] + 5, y=face["y"] + 5, w=50.0, h=50.0, key="late")
     low = box("caption", y=1540.0, h=40.0, key="early")
-    assert code_of(checked, docs, {1: [low], late: [on_face]})[0] == "caption_below_line"
-    assert code_of(checked, docs, {late: [on_face, low]}) == ("caption_below_line", "frame %d bottom 1580" % late)        # the card on the face is not a refusal
+    assert checked(docs, {1: [low], late: [on_face]})["advice"][0]["value"] == 1580
+    worse = box("caption", y=1560.0, h=40.0, key="worse")
+    got = checked(docs, {1: [low], late: [on_face, worse]})["advice"]
+    assert [(r["code"], r["value"], r["count"]) for r in got] == [("caption_below_line", 1600, 2)]        # the worst bottom over the frames, and the card on the face is no refusal
 
 
 # ---------------------------------------------------------------- a caption with words draws glyphs (C12, V3c)
@@ -306,7 +311,7 @@ def test_every_caption_entry_with_a_glyph_box_of_area_passes(docs):
     assert result["boxes"] == len(timeline["captions"]) and result["lowest_caption_bottom"] is not None
 
 
-def test_a_caption_entry_with_only_zero_area_or_non_glyph_boxes_is_caption_not_drawn_and_names_the_entry(docs):
+def test_a_caption_entry_with_only_zero_area_or_non_glyph_boxes_is_caption_not_drawn_advice_that_names_the_entry(docs):
     data, edl, timeline, ranges = timeline_of(docs)
     k = 1
     e = timeline["captions"][k]
@@ -315,10 +320,8 @@ def test_a_caption_entry_with_only_zero_area_or_non_glyph_boxes_is_caption_not_d
     for bad in (glyph_in(e, w=0.0), glyph_in(e, h=0.0), glyph_in(e, glyph=False), box("card", y=300.0, h=40.0, glyph=True)):
         drawn = every_caption_drawn(docs, skip=(k,))
         drawn[k] = (2, bad)
-        with pytest.raises(Refusal) as caught:
-            glyph_check(docs, drawn)
-        assert (caught.value.code, caught.value.field) == ("caption_not_drawn", "caption %d frames %d to %d" % (k, e["start_frame"], e["end_frame"] - 1))
-        assert G.FIELD_OK.fullmatch(caught.value.field)
+        result, _ = glyph_check(docs, drawn)
+        assert result["advice"] == [{"code": "caption_not_drawn", "value": span, "default": 0, "count": 1, "ids": ["c%d" % k]}]
 
 
 def test_a_glyph_box_of_area_in_one_frame_of_the_span_is_enough_and_one_outside_it_is_not(docs):
@@ -330,16 +333,15 @@ def test_a_glyph_box_of_area_in_one_frame_of_the_span_is_enough_and_one_outside_
     drawn[k] = (last, glyph_in(e))
     glyph_check(docs, drawn)
     drawn[k] = (last + 1, glyph_in(e))                       # the next frame: another entry's, or none
-    with pytest.raises(Refusal) as caught:
-        glyph_check(docs, drawn)
-    assert caught.value.code in ("caption_not_drawn", "overlay_hits_face", "caption_below_line")
+    result, _ = glyph_check(docs, drawn)
+    assert "c%d" % k in next(r for r in result["advice"] if r["code"] == "caption_not_drawn")["ids"]
 
 
-def test_the_first_entry_in_order_that_draws_nothing_is_the_one_raised(docs):
+def test_every_entry_that_draws_nothing_is_named_in_the_advice_in_order(docs):
     drawn = every_caption_drawn(docs, skip=(1, 3))
-    with pytest.raises(Refusal) as caught:
-        glyph_check(docs, drawn)
-    assert caught.value.field.startswith("caption 1 ")
+    result, _ = glyph_check(docs, drawn)
+    row = next(r for r in result["advice"] if r["code"] == "caption_not_drawn")
+    assert row["ids"] == ["c1", "c3"] and row["count"] == 2
 
 
 def test_an_entry_of_five_frames_is_not_judged_and_one_of_six_is():
@@ -349,9 +351,7 @@ def test_an_entry_of_five_frames_is_not_judged_and_one_of_six_is():
         return {"captions": [{"start_frame": 10, "end_frame": 10 + span, "face": face}], "beats": []}
     doc = boxes_doc(40)
     assert G.check_boxes(doc, timeline(5), ranges, DATA) == {"frames": 40, "boxes": 0, "lowest_caption_bottom": None}
-    with pytest.raises(Refusal) as caught:
-        G.check_boxes(doc, timeline(6), ranges, DATA)
-    assert (caught.value.code, caught.value.field) == ("caption_not_drawn", "caption 0 frames 10 to 15")
+    assert G.check_boxes(doc, timeline(6), ranges, DATA)["advice"] == [{"code": "caption_not_drawn", "value": 6, "default": 0, "count": 1, "ids": ["c0"]}]
     doc = boxes_doc(40, {12: [box("caption", y=1450.0, glyph=True)]})
     assert G.check_boxes(doc, timeline(6), ranges, DATA)["boxes"] == 1
 
@@ -517,7 +517,7 @@ def test_the_stats_of_a_range_are_read_with_inf_capped_and_one_figure_per_frame(
     assert code_of(G.read_stats, str(tmp_path / "missing.log"), 1)[0] == "pixel_check_failed"
 
 
-def test_the_judgement_names_the_range_the_frame_and_the_figure_and_the_minimum_is_over_all(tmp_path):
+def test_the_judgement_gives_the_figure_and_the_range_as_advice_and_the_minimum_is_over_all(tmp_path):
     edl = small_edl()
 
     def fake_run(argv, timeout, cwd=None):
@@ -535,7 +535,8 @@ def test_the_judgement_names_the_range_the_frame_and_the_figure_and_the_minimum_
         (Path(cwd) / "psnr-1.log").write_text("".join("n:%d mse_avg:1 mse_y:1 mse_u:1 mse_v:1 psnr_avg:%s psnr_y:1 psnr_u:1 psnr_v:1\n" % (i + 1, v)
                                                       for i, v in enumerate(["50.0"] * 7 + ["29.94"] + ["50.0"] * 22)))
 
-    assert code_of(G.pixel_check, "ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), under) == ("face_pixels_changed", "range 1 frame 27 psnr 29.9")
+    got = G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), under)
+    assert got == {"pixel_min_psnr_db": 29.94, "pixel_ranges": 2, "advice": [{"code": "face_pixels_changed", "value": 29.94, "default": 30, "count": 1, "ids": ["r1"]}]}
 
 
 # ---------------------------------------------------------------- the pixel check on real pixels (host ffmpeg)
@@ -573,14 +574,15 @@ def test_the_undrawn_base_passes_and_the_figures_are_the_same_at_two_runs(clip, 
 
 
 @needs_ffmpeg
-def test_a_box_drawn_on_the_face_region_with_no_dom_box_is_refused_by_the_pixels(clip, tmp_path):
+def test_a_box_drawn_on_the_face_region_with_no_dom_box_is_advice_from_the_pixels(clip, tmp_path):
     folder, proxy = clip
     edl = small_edl()
     drawn = clean_intermediate(folder, proxy, edl, "drawn.mov", extra_filter="drawbox=x=400:y=900:w=120:h=120:color=red@1:t=fill:enable='gte(n,25)'")
     work = tmp_path / "w"
     work.mkdir()
-    code, field = code_of(G.pixel_check, K.FFMPEG, str(drawn), str(proxy), edl, DATA, ranges_of(edl), str(work))
-    assert code == "face_pixels_changed" and field.startswith("range 1 frame ") and float(field.rsplit(" ", 1)[1]) < 27.0
+    got = G.pixel_check(K.FFMPEG, str(drawn), str(proxy), edl, DATA, ranges_of(edl), str(work))
+    row = got["advice"][0]
+    assert row["code"] == "face_pixels_changed" and row["ids"] == ["r1"] and row["value"] < 27.0 and row["default"] == 30 and got["pixel_min_psnr_db"] == row["value"]
 
 
 @needs_ffmpeg
@@ -613,7 +615,7 @@ def test_the_reference_of_a_pushed_in_range_stays_within_30_db_of_a_smooth_zoom_
     assert min(float(line.split("psnr_avg:")[1].split()[0]) for line in (tmp_path / "s.log").read_text().splitlines()) >= 30.0
 
 
-def test_a_refusal_of_the_pixel_check_explains_the_range_the_worst_frame_the_count_the_median_the_zoom_and_what_is_drawn(tmp_path):
+def test_the_explanation_of_a_range_under_the_threshold_names_the_range_the_worst_frame_the_count_the_median_the_zoom_and_what_is_drawn(tmp_path):
     edl = small_edl(zoom={"mode": "alternate", "factor": 1.15, "push_in": 0.0, "anchor_y": 0.25})
     timeline = {"captions": [{"start_frame": 0, "end_frame": 20}], "beats": [{"start_frame": 5, "end_frame": 8, "preset": "keyword"}, {"start_frame": 6, "end_frame": 12, "preset": "quote"}]}
 
@@ -622,14 +624,15 @@ def test_a_refusal_of_the_pixel_check_explains_the_range_the_worst_frame_the_cou
         (Path(cwd) / "psnr-1.log").write_text("".join("n:%d mse_avg:1 psnr_avg:45.0 psnr_y:1 \n" % (i + 1) for i in range(30)))
         return "", ""
 
-    with pytest.raises(Refusal) as caught:
-        G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), run, timeline)
-    assert (caught.value.code, caught.value.field) == ("face_pixels_changed", "range 0 frame 6 psnr 24.6")
-    rows = {p["code"]: p["field"] for p in caught.value.problems if p["code"] != "entry"}
+    got = G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), run, timeline)
+    assert got["advice"] == [{"code": "face_pixels_changed", "value": 24.6, "default": 30, "count": 1, "ids": ["r0"]}]
+    values = [45.0] * 6 + [24.6, 29.0] + [45.0] * 12
+    problems = G.explain(0, edl, 0, 20, values, 6, timeline)
+    rows = {p["code"]: p["field"] for p in problems if p["code"] != "entry"}
     assert rows == {"range_frames": "first 0 last 19", "worst_offset": "offset 6 of 20", "frames_under": "under 2 of 20", "under_at": "under_at 6-7", "median": "median 45.0",
                     "zoom": "zoom 1.0000 to 1.0000", "drawn_at_worst": "drawn caption keyword quote"}
-    assert [p["field"] for p in caught.value.problems if p["code"] == "entry"] == ["caption 0 to 20", "keyword 5 to 8", "quote 6 to 12"]
-    assert all(p["beat"] is None and len(p["field"]) <= 80 and G.FIELD_OK.fullmatch(p["field"]) for p in caught.value.problems)
+    assert [p["field"] for p in problems if p["code"] == "entry"] == ["caption 0 to 20", "keyword 5 to 8", "quote 6 to 12"]
+    assert all(p["beat"] is None and len(p["field"]) <= 80 and G.FIELD_OK.fullmatch(p["field"]) for p in problems)
 
 
 # ---------------------------------------------------------------- the encode verb with the gates
@@ -708,7 +711,7 @@ def test_some_of_the_gates_flags_without_the_others_is_a_usage_error_and_writes_
 
 
 @needs_ffmpeg
-def test_a_box_on_the_face_does_not_stop_the_encode_the_line_does(gated, tmp_path):
+def test_neither_a_box_on_the_face_nor_the_line_stops_the_encode_the_line_is_advice(gated, tmp_path):
     folder, proxy, mov, edl = gated
     data = load_data()
     face = _edl.range_faces(edl, data)[0][2]
@@ -718,16 +721,17 @@ def test_a_box_on_the_face_does_not_stop_the_encode_the_line_does(gated, tmp_pat
     assert rc == 0, err
     low = boxes_doc(edl["out_frames"], {0: [box("caption", y=1540.0, h=40.0, key="hf-inst-1", glyph=True)]})
     rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out2", low))
-    assert rc == 1 and (out["code"], out["field"]) == ("caption_below_line", "frame 0 bottom 1580")
-    assert left_over(tmp_path / "out2") == []
+    assert rc == 0, err
+    assert ("caption_below_line", 1580) in [(r["code"], r["value"]) for r in out["advice"]] and out["lowest_caption_bottom"] == 1580.0      # the other captions draw no glyph: advice too
 
 
 @needs_ffmpeg
-def test_a_caption_below_1560_stops_the_encode(gated, tmp_path):
+def test_a_caption_below_1560_does_not_stop_the_encode_and_is_reported(gated, tmp_path):
     folder, proxy, mov, edl = gated
     doc = boxes_doc(edl["out_frames"], {3: [box("caption", y=1545.0, h=35.0, glyph=True, key="caption")]})
     rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out", doc))
-    assert rc == 1 and (out["code"], out["field"]) == ("caption_below_line", "frame 3 bottom 1580") and left_over(tmp_path / "out") == []
+    assert rc == 0, err
+    assert ("caption_below_line", 1580) in [(r["code"], r["value"]) for r in out["advice"]] and len(left_over(tmp_path / "out")) == 1
 
 
 @needs_ffmpeg
@@ -755,15 +759,15 @@ def test_boxes_for_another_length_than_the_edit_lists_stop_the_encode(gated, tmp
 
 
 @needs_ffmpeg
-def test_a_drawing_on_the_face_that_no_box_reports_stops_the_encode_and_leaves_no_file(gated, tmp_path):
+def test_a_drawing_on_the_face_that_no_box_reports_is_advice_from_the_pixels_and_the_encode_writes_its_file(gated, tmp_path):
     folder, proxy, mov, edl = gated
     face = _edl.range_faces(edl, load_data())[0][2]
     drawn = folder / "drawn.mov"
     ffmpeg("-i", mov, "-vf", "drawbox=x=%d:y=%d:w=100:h=100:color=red@1:t=fill:enable='gte(n,0)'" % (face["x"] + 40, face["y"] + 40), "-c:v", "prores_ks", "-profile:v", "3",
            "-c:a", "copy", drawn)
     rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, drawn, tmp_path / "out", clean_doc(folder, edl)[0]))
-    assert rc == 1 and out["code"] == "face_pixels_changed" and out["field"].startswith("range 0 frame ")
-    assert left_over(tmp_path / "out") == []
+    assert rc == 0, err
+    assert out["advice"][0]["code"] == "face_pixels_changed" and out["advice"][0]["ids"][0] == "r0" and len(left_over(tmp_path / "out")) == 1
 
 
 # ---------------------------------------------------------------- the planted blocks of the live tests (never committed)
@@ -859,12 +863,12 @@ def test_only_an_entry_of_the_frame_band_with_may_cross_face_opens_a_span(docs, 
     assert G.inside([(30, 61)], 30) and G.inside([(30, 61)], 60) and not G.inside([(30, 61)], 29) and not G.inside([(30, 61)], 61) and not G.inside([], 0)
 
 
-def test_a_caption_or_card_box_on_the_face_during_a_cutaway_passes_and_a_caption_below_1560_still_fails(docs, cut_catalogue):
+def test_a_caption_or_card_box_on_the_face_during_a_cutaway_passes_and_a_caption_below_1560_is_advice(docs, cut_catalogue):
     face = timeline_of(docs)[3][0][2]
     on_face = box("caption", x=face["x"] + 10, y=face["y"] + 10, w=100.0, h=100.0, key="oh:caption", glyph=True)
     assert checked_with(docs, cut_catalogue, {40: [on_face]})["boxes"] == 1
-    assert code_of(checked_with, docs, cut_catalogue, {40: [box("caption", y=1540.0, h=40.0, glyph=True)]}) == ("caption_below_line", "frame 40 bottom 1580")
-    assert code_of(checked_with, docs, cut_catalogue, {45: [frame_box(), box("caption", y=1540.0, h=40.0)]})[0] == "caption_below_line"
+    assert checked_with(docs, cut_catalogue, {40: [box("caption", y=1540.0, h=40.0, glyph=True)]})["advice"][0]["value"] == 1580
+    assert checked_with(docs, cut_catalogue, {45: [frame_box(), box("caption", y=1540.0, h=40.0)]})["advice"][0]["code"] == "caption_below_line"
     low_card = box("card", x=face["x"] + 10, y=face["y"] + 10, w=100.0, h=100.0)                # a card on the face too
     assert checked_with(docs, cut_catalogue, {40: [low_card]})["boxes"] == 1
 
@@ -893,22 +897,22 @@ def test_the_pixel_check_skips_exactly_the_frames_inside_the_entry(tmp_path):
     edl = small_edl(kept=((0, 100),))
     inside_cut = {f: 12.0 for f in range(CUT_FIRST, CUT_END)}                                     # the picture covers the face: 12 dB on every frame of the entry
     spans = [(CUT_FIRST, CUT_END)]
-    assert code_of(G.pixel_check, "ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), stats_run(edl, inside_cut))[0] == "face_pixels_changed"
+    assert G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), stats_run(edl, inside_cut))["advice"][0]["code"] == "face_pixels_changed"
     result = G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), stats_run(edl, inside_cut), crossing=spans)
     assert result == {"pixel_min_psnr_db": 40.0, "pixel_ranges": 1}
     for frame in (CUT_FIRST - 1, CUT_END):                                                         # one frame before and one after the entry are judged as ever
         values = {**inside_cut, frame: 20.0}
-        assert code_of(lambda: G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), stats_run(edl, values), crossing=spans)) \
-            == ("face_pixels_changed", "range 0 frame %d psnr 20.0" % frame)
+        got = G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), stats_run(edl, values), crossing=spans)
+        assert got["advice"] == [{"code": "face_pixels_changed", "value": 20, "default": 30, "count": 1, "ids": ["r0"]}]
 
 
-def test_with_an_entry_of_frames_30_to_60_face_changes_at_frames_29_and_61_still_fail_face_pixels_changed(tmp_path):
+def test_with_an_entry_of_frames_30_to_60_face_changes_at_frames_29_and_61_are_still_judged_and_reported(tmp_path):
     edl = small_edl(kept=((0, 100),))
     spans = [(30, 61)]
     for frame in (29, 61):
         run = stats_run(edl, {**{f: 12.0 for f in range(30, 61)}, frame: 28.0})
-        assert code_of(lambda: G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), run, crossing=spans)) \
-            == ("face_pixels_changed", "range 0 frame %d psnr 28.0" % frame)
+        got = G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), run, crossing=spans)
+        assert got["advice"] == [{"code": "face_pixels_changed", "value": 28, "default": 30, "count": 1, "ids": ["r0"]}]
     ok = G.pixel_check("ffmpeg", "a", "b", edl, DATA, ranges_of(edl), str(tmp_path), stats_run(edl, {f: 12.0 for f in range(30, 61)}), crossing=spans)
     assert ok["pixel_min_psnr_db"] == 40.0
 
@@ -981,12 +985,12 @@ def test_with_the_blocks_a_picture_over_the_face_in_exactly_the_cutaways_frames_
 
 
 @needs_ffmpeg
-def test_without_the_blocks_the_same_render_is_refused_the_gate_is_then_stricter_never_looser(gated_cutaway, tmp_path):
+def test_without_the_blocks_the_same_render_reports_the_face_pixels_the_gate_is_then_stricter_never_looser(gated_cutaway, tmp_path):
     folder, proxy, mov, edl, entry = gated_cutaway
     rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out", cutaway_doc(folder, edl, entry)))
-    assert rc == 1 and out["code"] == "face_pixels_changed" and left_over(tmp_path / "out") == []         # the box check has no face rule; the pixel check is the old engine's
+    assert rc == 0 and out["advice"][0]["code"] == "face_pixels_changed"         # the box check has no face rule; the pixel check is the old engine's, and it reports
     rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out2", cutaway_doc(folder, edl, entry, chip=False)))
-    assert rc == 1 and out["code"] == "face_pixels_changed" and left_over(tmp_path / "out2") == []
+    assert rc == 0 and out["advice"][0]["code"] == "face_pixels_changed"
 
 
 @needs_ffmpeg

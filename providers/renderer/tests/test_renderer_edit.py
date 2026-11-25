@@ -185,14 +185,16 @@ def test_end_to_end_a_pt_transcript_with_a_cut_off_and_a_repeated_sentence():
 
 # ---------------------------------------------------------------- the face box
 
-def test_the_face_box_must_be_inside_the_frame_and_leave_room_for_cards_and_captions():
+def test_the_face_box_must_be_inside_the_frame_and_room_for_cards_and_captions_is_advice():
     ok = {"x": 240, "y": 620, "w": 600, "h": 560}
     assert _edl.check_face(DATA, dict(ok)) == ok
     for bad, code in (({"x": -1, "y": 620, "w": 600, "h": 560}, "bad_face_box"), ({"x": 900, "y": 620, "w": 600, "h": 560}, "bad_face_box"),
-                      ({"x": 240, "y": 620, "w": 50, "h": 560}, "bad_face_box"), ({"x": 240, "y": 620, "w": 600.5, "h": 560}, "bad_face_box"),
-                      ({"x": 240, "y": 200, "w": 600, "h": 560}, "face_box_leaves_no_room"),      # no band above for a card
-                      ({"x": 240, "y": 1000, "w": 600, "h": 700}, "face_box_leaves_no_room")):     # no band below for captions
+                      ({"x": 240, "y": 620, "w": 50, "h": 560}, "bad_face_box"), ({"x": 240, "y": 620, "w": 600.5, "h": 560}, "bad_face_box")):
         assert refused(_edl.check_face, DATA, bad).code == code, bad
+    for high, code in (({"x": 240, "y": 200, "w": 600, "h": 560}, "card_room_small"),      # little band above for a card
+                       ({"x": 240, "y": 1000, "w": 600, "h": 700}, "caption_room_small")):     # little band below for captions
+        advice = []
+        assert _edl.check_face(DATA, dict(high), advice=advice) == high and advice[0]["code"] == code
     assert refused(_edl.check_face, DATA, {"x": 1, "y": 2, "w": 3}).code in ("missing_key", "unknown_key")
     assert _edl.parse_face_box("240,620,600,560") == ok
     assert refused(_edl.parse_face_box, "240,620,600").code == "bad_face_box"
@@ -204,7 +206,9 @@ def test_the_base_list_keeps_the_face_box_the_person_gave():
     doc = K.build_transcript()
     edl, _ = _edl.build_base(doc, analysis_for(doc), DATA, {}, face_box={"x": 300, "y": 700, "w": 500, "h": 500})
     assert edl["face_box"] == {"x": 300, "y": 700, "w": 500, "h": 500}
-    assert refused(_edl.build_base, doc, analysis_for(doc), DATA, {}, face_box={"x": 0, "y": 0, "w": 1080, "h": 1920}).code == "face_box_leaves_no_room"
+    advice = []
+    edl, _ = _edl.build_base(doc, analysis_for(doc), DATA, {}, face_box={"x": 0, "y": 0, "w": 1080, "h": 1920}, advice=advice)      # no room at all: built, and reported
+    assert edl["face_box"] == {"x": 0, "y": 0, "w": 1080, "h": 1920} and {r["code"] for r in advice} == {"card_room_small", "caption_room_small"}
 
 
 def test_there_is_no_test_of_a_drawn_box_against_the_face_box_any_more():

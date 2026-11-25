@@ -284,7 +284,7 @@ def planted_renderat(tmp, which: str) -> Path:
 
 def planted_blank(tmp) -> Path:
     """HyperFrames only: a copy of the committed blocks plus a fictional caption block, `hf:demo-blank`, whose words are drawn at
-    `font-size: 0px`, set as the engine's caption. The gates must refuse it `caption_not_drawn`."""
+    `font-size: 0px`, set as the engine's caption. The gates report it as advice `caption_not_drawn` (video P0b); it is drawn."""
     folder = Path(tmp) / "blocks-blank"
     shutil.rmtree(str(folder), ignore_errors=True)
     shutil.copytree(K.BLOCKS, folder)

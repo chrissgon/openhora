@@ -192,10 +192,10 @@ def test_an_hf_block_fits_the_schema_unchanged_and_is_refused_on_ffmpeg_naming_t
 
 CHECKER_CASES = [
     ("oh:keyword", {"text": "Name every dollar", "bogus": 1}, "undeclared_param"), ("oh:keyword", {"icon": "coin"}, "missing_param"),
-    ("oh:keyword", ["text"], "params_not_object"), ("oh:keyword", {"text": "x" * 25}, "text_too_long"),
+    ("oh:keyword", ["text"], "params_not_object"), ("oh:keyword", {"text": "x" * 241}, "text_too_long"),
     ("oh:keyword", {"text": "Name", "icon": "rocket"}, "bad_icon"), ("oh:keyword", {"text": "Name", "color": "#12345"}, "bad_color"),
     ("hf:demo-pop", {"text": "Name", "bogus": 1}, "undeclared_param"), ("hf:demo-pop", {"scale": 1}, "missing_param"),
-    ("hf:demo-pop", "text", "params_not_object"), ("hf:demo-pop", {"text": "x" * 25}, "text_too_long"),
+    ("hf:demo-pop", "text", "params_not_object"), ("hf:demo-pop", {"text": "x" * 241}, "text_too_long"),
     ("hf:demo-pop", {"text": "Name", "scale": True}, "bad_number"), ("hf:demo-pop", {"text": "Name", "scale": 3}, "bad_number"),
     ("hf:demo-pop", {"text": "Name", "scale": float("nan")}, "bad_number"),
 ]
@@ -207,6 +207,20 @@ def test_the_renderer_side_checker_holds_every_bound(tmp_path, name, params, cod
     K.write_hf_fixture(folder)
     block = _blocks.load_catalogue(folder)["blocks"][name]
     assert refused(_blocks.check_params, block, params, VOCAB).code == code
+
+
+@pytest.mark.parametrize("name", ["oh:keyword", "hf:demo-pop"])
+def test_a_text_over_the_blocks_max_passes_with_advice_up_to_240_characters(tmp_path, name):
+    folder = blocks_copy(tmp_path)
+    K.write_hf_fixture(folder)
+    block = _blocks.load_catalogue(folder)["blocks"][name]
+    limit = block["params"]["text"]["max"]
+    advice = []
+    out = _blocks.check_params(block, {"text": "x" * (limit + 6)}, VOCAB, advice=advice, aid="b1")
+    assert out == {"text": "x" * (limit + 6)}
+    assert advice == [{"code": "text_over_default", "value": limit + 6, "default": limit, "count": 1, "ids": ["b1"]}]
+    assert _blocks.check_params(block, {"text": "x" * limit}, VOCAB, advice=[]) == {"text": "x" * limit}
+    assert _blocks.check_params(block, {"text": "x" * 240}, VOCAB)["text"] == "x" * 240      # no list to report in: still accepted up to the ceiling
 
 
 def test_the_checker_passes_a_value_inside_its_bounds_and_does_not_fill_defaults(tmp_path):

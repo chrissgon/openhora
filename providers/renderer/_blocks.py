@@ -33,6 +33,7 @@ def blocks_dir() -> str:
 
 
 MAX_FILE = 1 << 20
+PARAM_TEXT_MAX = 240      # validity: a block's declared text bound is 1 to this (`check_param_spec`), and a text up to it is accepted over the block's own `max`, with advice
 SCHEMA_VERSION = 1
 SOURCES = {"oh": "openhora", "hf": "hyperframes-registry"}
 RUNTIMES = ("renderat", "gsap", "hf")
@@ -158,7 +159,7 @@ def check_param_spec(spec, where: str) -> None:
         _fail(where)
     rest = set(spec) - {"type", "required"}
     if kind == "text":
-        if rest - {"max", "max_items", "pattern"} or not _is_int(spec.get("max")) or not 1 <= spec["max"] <= 240:
+        if rest - {"max", "max_items", "pattern"} or not _is_int(spec.get("max")) or not 1 <= spec["max"] <= PARAM_TEXT_MAX:
             _fail(where)
         if "max_items" in spec and (not _is_int(spec["max_items"]) or not 1 <= spec["max_items"] <= 8):
             _fail(where)
@@ -448,9 +449,10 @@ def _check_number(spec: dict, value, field: str):
     return value
 
 
-def check_params(block: dict, params, vocab: dict, field: str = "params") -> dict:
+def check_params(block: dict, params, vocab: dict, field: str = "params", advice=None, aid=None) -> dict:
     """The renderer-side checker (VD15): one block's parameters against its declaration. No undeclared name, every required one
-    present, every value of its type and bounds. Defaults are not filled in. Returns the cleaned object."""
+    present, every value of its type and bounds. Defaults are not filled in. A text over the block's own `max` and up to PARAM_TEXT_MAX is accepted, and
+    reported as `text_over_default` in `advice` (a list of `_advice`, when given); number bounds are unchanged. Returns the cleaned object."""
     if not isinstance(params, dict):
         raise Refusal("params_not_object", field)
     declared = block["params"]
@@ -462,14 +464,14 @@ def check_params(block: dict, params, vocab: dict, field: str = "params") -> dic
         if spec["type"] == "number":
             out[pname] = _check_number(spec, value, "%s.%s" % (field, pname))
         else:
-            out[pname] = check_param(vocab, spec, "%s.%s" % (field, pname), value)
+            out[pname] = check_param(vocab, spec, "%s.%s" % (field, pname), value, PARAM_TEXT_MAX, advice if advice is not None else [], aid)
     for pname, spec in declared.items():
         if spec.get("required") and pname not in out:
             raise Refusal("missing_param", "%s.%s" % (field, pname))
     return out
 
 
-def templates_for(catalogue: dict, engine: str, timeline: dict, vocab: dict, with_caption: bool) -> tuple:
+def templates_for(catalogue: dict, engine: str, timeline: dict, vocab: dict, with_caption: bool, advice=None) -> tuple:
     """For a timeline: ({key: page path}, [page paths to load]). The key of the caption is "caption", the key of a beat's page is its
     block's name. Sets each beat's `block`. Every beat's parameters are checked on the block that draws it. A block of the second contract (the
     caption included) has the path None: a page is built for each of its entries (`_hf_host.prepare`), never a pinned file."""
@@ -484,7 +486,7 @@ def templates_for(catalogue: dict, engine: str, timeline: dict, vocab: dict, wit
     for e in timeline["beats"]:
         field = "beats.%s" % e["id"]
         blk = resolve(catalogue, engine, e["preset"], e.get("block"), field)
-        clean = check_params(blk, e["params"], vocab, field + ".params")
+        clean = check_params(blk, e["params"], vocab, field + ".params", advice, e["id"])
         e["block"] = blk["name"]
         runtime = second_contract_runtime(catalogue, blk, engine)
         if runtime:

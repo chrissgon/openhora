@@ -23,6 +23,7 @@ import tempfile
 import time
 import zlib
 
+import _advice
 import _alpha_gate
 import _assets
 import _blocks
@@ -124,10 +125,10 @@ CAPTION_DRAWN_MIN_FRAMES = 6      # a caption chunk shorter than this may draw n
 
 
 def admitted_ranges(data, timeline, admitted, out_frames) -> list:
-    """The runs of output frames each admitted entry owns, each with the line of its own entry: [{start, end, line_y, prefix, require_drawn}]. A beat's line is the top of the caption band, so a card that reaches the captions is refused
-    (`caption_below_line`), and it must draw at least one pixel. Nothing is refused for touching the face (2026-11-24);
+    """The runs of output frames each admitted entry owns, each with the line of its own entry: [{start, end, line_y, prefix, id, require_drawn}]. A beat's line is the top of the caption band, so a card that reaches the captions is advice
+    (`drawn_below_line`), and so is a range that draws nothing (`block_not_drawn`). Nothing is refused for touching the face (2026-11-24);
     a caption chunk's line is the bottom of its own caption band (the pip's or the split's included), so rows from there down must be clear, and a chunk of
-    CAPTION_DRAWN_MIN_FRAMES frames or more must draw at least one pixel."""
+    CAPTION_DRAWN_MIN_FRAMES frames or more should draw at least one pixel (advice otherwise)."""
     _, jobs = _frames.frame_jobs(timeline, out_frames)
     wanted = {"caption": set(admitted["pages"].get("caption", {})),
               "beat": {k for key, pages in admitted["pages"].items() if key != "caption" for k in pages}}
@@ -144,20 +145,23 @@ def admitted_ranges(data, timeline, admitted, out_frames) -> list:
         start = prev = run[0]
         for f in run[1:] + [None]:
             if f is None or f != prev + 1:
-                rows.append({"start": start, "end": prev + 1, "line_y": line_y, "prefix": "cap" if caption else "beat",
+                rows.append({"start": start, "end": prev + 1, "line_y": line_y, "prefix": "cap" if caption else "beat", "id": "c%d" % k if caption else entry["id"],
                              "require_drawn": (prev + 1 - start) >= CAPTION_DRAWN_MIN_FRAMES if caption else True})
                 start = f
             prev = f
     return rows
 
 
-def check_admitted_layer(data, edl, timeline, admitted, frames_dir, ffmpeg) -> None:
+def check_admitted_layer(data, edl, timeline, admitted, frames_dir, ffmpeg) -> list:
+    """The exact gates on every frame an admitted page drew. Returns the advice rows (`[]` for none)."""
     w, h = edl["size"]
     rows = admitted_ranges(data, timeline, admitted, edl["out_frames"])
+    found = []
     for prefix in ("beat", "cap"):
         mine = [r for r in rows if r["prefix"] == prefix]
         if mine:
-            _alpha_gate.check_layer(frames_dir, mine, w, h, ffmpeg, prefix)
+            found = _advice.merge(found, _alpha_gate.check_layer(frames_dir, mine, w, h, ffmpeg, prefix))
+    return found
 
 
 def load_clips(files: dict, sha256s: dict, limits: dict, ffmpeg: str, ffprobe: str) -> dict:
@@ -225,6 +229,7 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     docs = check_documents(data, edl, beats, platform, vocab, allow)
     limits = data["limits"]
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
+    advice = []                                          # what this render does past a default, reported and never refused (video P0b); the gates add theirs below
 
     # the recording is the one the edit list was made from
     facts = check_recording(ffprobe, src, edl, limits)
@@ -243,14 +248,15 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     assets.update(load_clips(clip_files, asset_sha256s, limits, ffmpeg, ffprobe))
 
     catalogue = _blocks.load_catalogue(blocks_dir or _blocks.BLOCKS_DIR, blocks_sha256)
-    templates, names = _blocks.templates_for(catalogue, ENGINE, timeline, vocab, with_caption=bool(timeline["captions"]))
+    block_advice = []
+    templates, names = _blocks.templates_for(catalogue, ENGINE, timeline, vocab, with_caption=bool(timeline["captions"]), advice=block_advice)
     settle_clips(vocab, data, timeline, assets)
     tpl_serve, tpl_hashes = _frames.load_templates(names, catalogue["dir"]) if names else ({}, {})
     font_serve, fonts_used = _frames.load_fonts(edl["theme"]["fonts"], allow, limits["font_max_bytes"], fonts_directory)
     # the pips and splits settled now, so that the caption pieces and the bands the second contract's pages are built for are the ones the frames are drawn with
     # (`compose_plan` settles them again: the arithmetic is the same and changes nothing)
-    _layout.pip_cards(data, timeline, assets)
-    _layout.split_layouts(data, timeline)
+    _layout.pip_cards(data, timeline, assets, advice=advice)
+    _layout.split_layouts(data, timeline, advice=advice)
     # the entries whose block runs on the second contract: their files read, edited, linted and proven before any frame is drawn
     admitted = admit_blocks(catalogue, timeline, data, edl, font_serve, vendor, hf_registry, None if dry_run else browser["path"])
     asset_serve = {"/assets/%s.%s" % (s, a["kind"]): (a["data"], _frames.ASSET_MIME[a["kind"]]) for s, a in assets.items() if a["kind"] != "clip"}
@@ -267,12 +273,15 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     outdir = os.path.abspath(os.path.dirname(out) if out.endswith(".mp4") else out)
     _, jobs_list = _frames.frame_jobs(timeline, edl["out_frames"])
     estimate = len(jobs_list) * limits["frame_bytes_estimate"] + 64 * 1024 * 1024 + plan["max_bytes"]
+    advice = _advice.merge(advice, docs.get("advice"), timeline.get("advice"), block_advice)
     summary = {"ok": True, "dry_run": bool(dry_run), "out_dir": outdir, "out_seconds": round(out_seconds, 3), "out_frames": edl["out_frames"],
                "frame_jobs": len(jobs_list), "jobs": jobs, "time_limit_seconds": limit, "layers": plan["layers"],
                "beats_drawn": [{"id": e["id"], "preset": e["preset"], "block": e["block"], "start_frame": e["start_frame"], "end_frame": e["end_frame"]} for e in timeline["beats"]],
                "beats_dropped": timeline["dropped"], **({"assets_dropped": sorted(dropped_only)} if dropped_only else {}), **({"beats_dropped_reasons": timeline["dropped_reasons"]} if timeline.get("dropped_reasons") else {}), "effects_dropped": timeline["effects_dropped"], "unmatched_beats": beats["unmatched"], "mentions": docs["mentions"],
                "fonts": fonts_used, "blocks": {**tpl_hashes, **{n: p["served_sha256"] for n, p in admitted["proofs"].items()}}, "blocks_sha256": catalogue["sha256"],
                "ffmpeg_argv": argv, "estimated_bytes": estimate, **({"hf_proofs": admitted["proofs"]} if admitted["proofs"] else {})}
+    if advice:
+        summary["advice"] = advice
     if dry_run:
         return summary
     os.makedirs(outdir, mode=0o700, exist_ok=True)
@@ -297,9 +306,10 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
             jobs_n=max(1, min(jobs, 8)), frames_dir=frames_dir, workdir=work, time_limit=max(5, int(deadline - time.time())),
             templates=templates, png_blank=blank_png, admitted=admitted if admitted["pages"] else None)
         timings["frames"] = round(time.time() - t0, 2)
+        advice = _advice.merge(advice, ffacts.get("advice"))
         if admitted["pages"]:                      # the exact gates on every frame an admitted page drew, before anything is composed
             t0 = time.time()
-            check_admitted_layer(data, edl, timeline, admitted, frames_dir, ffmpeg)
+            advice = _advice.merge(advice, check_admitted_layer(data, edl, timeline, admitted, frames_dir, ffmpeg))
             timings["gates"] = round(time.time() - t0, 2)
         t0 = time.time()
         _media.run(argv, deadline - time.time(), cwd=work)
@@ -321,6 +331,8 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
                     "output": verdict["facts"], "seconds": timings, "browser": ffacts.get("browser"), "browser_sandbox": ffacts.get("browser_sandbox"),
                     "frames_rendered": ffacts["frames_rendered"], "frames_reused": ffacts["frames_reused"], "cover": cover})
     summary.pop("ffmpeg_argv")
+    if advice:       # only a render that went past a default has the key: any other answer is what it always was
+        summary["advice"] = advice
     return summary
 
 

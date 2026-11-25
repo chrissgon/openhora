@@ -1,23 +1,25 @@
-"""The gates on what the HyperFrames engine draws (package V3b-2): the DOM boxes of every frame against the face box and the line at 1560,
-and the pixels of the face region against the undrawn base. Nothing the engine draws reaches the final encode unless both pass.
+"""The checks on what the HyperFrames engine draws (package V3b-2): the DOM boxes of every frame against the line at 1560, and the pixels of the face region
+against the undrawn base. Since video P0b (the maintainer's principle of 2026-11-24, "limit for security, release the creative questions") they report advice and
+refuse nothing about what is drawn: `caption_below_line`, `caption_not_drawn` and `face_pixels_changed` are rows of the `advice` list (`_advice`), the host says the
+sentence. A box in a zone that does not exist (`box_zone_unknown`) and a boxes file that cannot be read are still refusals: they are the container's output, checked.
 
-The box check has no rule about the face (the maintainer's decisions of 2026-11-24: an overlay may be drawn over the speaker's face, "limit security, not
-creativity"). The pixel check below still compares the face region with the undrawn base, so on this engine an overlay that draws on the face is still
-`face_pixels_changed` (that check also guards the base picture's parity with the ffmpeg engine; the engine is deleted in PF-b with its gate). The entries of the
+The box check has no rule about the face (the maintainer's decisions of 2026-11-24: an overlay may be drawn over the speaker's face). The pixel check below
+still compares the face region with the undrawn base and reports the lowest PSNR; under `PIXEL_MIN_PSNR_DB` it is advice `face_pixels_changed` (that check also
+shows the base picture's parity with the ffmpeg engine; the engine is deleted in PF-b with its gate). The entries of the
 `frame` band whose block has `may_cross_face: true` (a full-frame cutaway; package V9b-2, decision 6 of `docs/decisions/2026-11-21-v9b-2-frame-band.md`) are the frames the pixel check leaves out (`crossing_spans`, taken from the pinned
 catalogue, never from a file the drawing container wrote).
 
 Two checks, both code, neither with a switch:
 
   boxes   `boxes.json` is what the page itself reported after the drawing (`hyperframes-image/hf_measure.mjs`: every box of every frame,
-          the glyph rects of the text too). Each box is tested with the ffmpeg engine's own arithmetic (`_layout.caption_hit`, `_layout.zones`) against the face of the entry that is on at that frame in the box's zone, else the face
-          of the kept range the frame is in. The refusal is the ffmpeg engine's own: `caption_below_line`; a box in a zone that does not exist is `box_zone_unknown`. One more,
+          the glyph rects of the text too). Each box is tested with the ffmpeg engine's own arithmetic (`_layout.caption_hit`, `_layout.zones`) against the line of the entry that is on at that frame in the box's zone, else the face
+          of the kept range the frame is in. A caption box below the line is advice `caption_below_line`; a box in a zone that does not exist is the refusal `box_zone_unknown`. One more,
           the HyperFrames engine's alone (V3c): a caption entry of at least CAPTION_DRAWN_MIN_FRAMES frames that no frame of its span draws a
-          glyph box of area for is `caption_not_drawn` (words that draw nothing, a font-size of zero or a hidden line).
+          glyph box of area for is advice `caption_not_drawn` (words that draw nothing, a font-size of zero or a hidden line).
   pixels  the face region of each kept range of the intermediate is compared, frame by frame, with the same region of the base the
           ffmpeg engine would draw (the proxy cut and zoomed by `_media.base_graph`), by ffmpeg's `psnr`. It sees what the boxes cannot: a
           canvas, a pseudo-element, a shadow or a filter that draws on the face with no box of its own. Under `PIXEL_MIN_PSNR_DB` in any
-          frame of any range: `face_pixels_changed`.
+          frame of any range: advice `face_pixels_changed` (the lowest figure).
 
 The page's script reports the boxes and a block cannot report fewer: a block that hides a box from the page's own DOM is still seen by the
 pixel check. Both checks run on every composed render (`encode` takes the gate's inputs all together or none), and no flag, parameter or
@@ -30,6 +32,7 @@ import json
 import math
 import re
 
+import _advice
 import _assets
 import _blocks
 import _edl
@@ -135,18 +138,19 @@ def inside(spans, f: int) -> bool:
 
 
 def check_boxes(doc: dict, timeline: dict, range_faces: list, data: dict) -> dict:
-    """Every box of every frame against the line at 1560, in frame order, the first violation raised. There is no rule about the face: a box, a glyph or a whole
+    """Every box of every frame against the line at 1560, in frame order. There is no rule about the face: a box, a glyph or a whole
     layer may be on the speaker's face (the maintainer's decisions of 2026-11-24; the face box only places the bands):
 
-      a box of any zone but frame, card and caption             box_zone_unknown  "frame <f> <key>"
-      a caption box (element or glyph) whose bottom is below the caption band's bottom   caption_below_line  "frame <f> bottom <y>"
+      a box of any zone but frame, card and caption             refused  box_zone_unknown  "frame <f> <key>"
+      a caption box (element or glyph) whose bottom is below the caption band's bottom   advice  caption_below_line (the lowest bottom; the band's bottom; `c<k>`)
       a caption entry of CAPTION_DRAWN_MIN_FRAMES frames or more with no frame in its span that holds a caption-zone glyph box of width and
-      height above zero                                         caption_not_drawn  "caption <k> frames <first> to <last>"   (after the frame loop, entries in order)
+      height above zero                                         advice  caption_not_drawn (the entry's frames; 0; `c<k>`)   (after the frame loop, entries in order)
 
-    Returns {frames, boxes, lowest_caption_bottom (the largest bottom of a caption box, or None when no caption box was drawn)}."""
+    Returns {frames, boxes, lowest_caption_bottom (the largest bottom of a caption box, or None when no caption box was drawn)}, and `advice` when there is any."""
     out_frames = doc["frames"]
     faces = faces_by_frame(timeline, range_faces, out_frames)
-    bands, total, lowest = {}, 0, None
+    bands, total, lowest, found = {}, 0, None, []
+    starts = [(k, e["start_frame"], e["end_frame"]) for k, e in enumerate(timeline["captions"])]
     for f, boxes in enumerate(doc["per_frame"]):
         for b in boxes:
             total += 1
@@ -161,7 +165,8 @@ def check_boxes(doc: dict, timeline: dict, range_faces: list, data: dict) -> dic
                 lowest = bottom if lowest is None else max(lowest, bottom)
                 band = bands.setdefault((face["x"], face["y"], face["w"], face["h"]), _layout.zones(data, face))
                 if _layout.caption_hit(b, band):
-                    raise Refusal("caption_below_line", "frame %d bottom %g" % (f, bottom))
+                    on = next((k for k, a, z in starts if a <= f < z), None)
+                    _advice.add(found, "caption_below_line", bottom, band["caption"][1], None if on is None else "c%d" % on)
     for k, e in enumerate(timeline["captions"]):
         first, end = max(0, e["start_frame"]), min(out_frames, e["end_frame"])
         if e["end_frame"] - e["start_frame"] < CAPTION_DRAWN_MIN_FRAMES:
@@ -169,8 +174,11 @@ def check_boxes(doc: dict, timeline: dict, range_faces: list, data: dict) -> dic
         drawn = any(b["zone"] == "caption" and b["glyph"] is True and b["w"] > 0 and b["h"] > 0
                     for f in range(first, end) for b in doc["per_frame"][f])
         if not drawn:
-            raise Refusal("caption_not_drawn", "caption %d frames %d to %d" % (k, e["start_frame"], e["end_frame"] - 1))
-    return {"frames": out_frames, "boxes": total, "lowest_caption_bottom": None if lowest is None else round(lowest, 1)}
+            _advice.add(found, "caption_not_drawn", e["end_frame"] - e["start_frame"], 0, "c%d" % k)
+    out = {"frames": out_frames, "boxes": total, "lowest_caption_bottom": None if lowest is None else round(lowest, 1)}
+    if found:
+        out["advice"] = _advice.rows(found)
+    return out
 
 
 # ---------------------------------------------------------------- the pixel check
@@ -302,17 +310,27 @@ def pixel_argv_range(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data
 
 def pixel_check(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dict, range_faces: list, work: str, run=None, timeline=None, crossing=()) -> dict:
     """Run the pixel check in the folder `work` (the stats files are written there, and are the caller's to remove) and judge it: the
-    minimum PSNR over every frame of every kept range, refused `face_pixels_changed` ("range <k> frame <f> psnr <x>") when any frame is
-    under PIXEL_MIN_PSNR_DB. The frames inside `crossing` (the spans of `crossing_spans`, in output frames) are not judged: each counts as PSNR_CAP, so
-    exactly those frames are skipped and the frame before and the frame after are judged as ever. Returns {pixel_min_psnr_db, pixel_ranges}. `run`
+    minimum PSNR over every frame of every kept range; a range with a frame under PIXEL_MIN_PSNR_DB is advice `face_pixels_changed` (its lowest figure,
+    PIXEL_MIN_PSNR_DB, `r<k>`), never a refusal. A range whose face region is too small to crop is not judged and gives no advice. The frames inside `crossing` (the spans of `crossing_spans`, in output frames) are not judged: each counts as PSNR_CAP, so
+    exactly those frames are skipped and the frame before and the frame after are judged as ever. Returns {pixel_min_psnr_db, pixel_ranges}, and `advice` when a range is under. `run`
     stands where `_media.run` stands (a test's seam; production leaves it out)."""
     run = run or _media.run
     effects = _edl.range_effects(edl, timeline) if timeline else None     # the reference holds the punches and the grades the page draws
     range_faces = punched_faces(range_faces, timeline)                     # and the crop covers the face at every punched zoom
+    skipped = set()
     for k in range(len(range_faces)):
-        run(pixel_argv_range(ffmpeg, intermediate, proxy, edl, data, range_faces, k, effects), PIXEL_TIMEOUT, cwd=work)
-    lowest = None
+        try:
+            argv = pixel_argv_range(ffmpeg, intermediate, proxy, edl, data, range_faces, k, effects)
+        except Refusal as exc:
+            if exc.code != "face_box_leaves_no_room":
+                raise
+            skipped.add(k)                                    # a face region under MIN_CROP pixels cannot be compared: this range is not judged
+            continue
+        run(argv, PIXEL_TIMEOUT, cwd=work)
+    lowest, found = None, []
     for k, (first, last, _box) in enumerate(range_faces):
+        if k in skipped:
+            continue
         values = read_stats(work + "/" + (STATS_NAME % k), last - first)
         if crossing:
             values = [PSNR_CAP if inside(crossing, first + i) else v for i, v in enumerate(values)]
@@ -320,14 +338,15 @@ def pixel_check(ffmpeg: str, intermediate: str, proxy: str, edl: dict, data: dic
         if lowest is None or values[worst] < lowest:
             lowest = values[worst]
         if values[worst] < PIXEL_MIN_PSNR_DB:
-            err = Refusal("face_pixels_changed", "range %d frame %d psnr %.1f" % (k, first + worst, values[worst]))
-            err.problems = explain(k, edl, first, last, values, worst, timeline)
-            raise err
-    return {"pixel_min_psnr_db": round(lowest if lowest is not None else PSNR_CAP, 2), "pixel_ranges": len(range_faces)}
+            _advice.add(found, "face_pixels_changed", values[worst], PIXEL_MIN_PSNR_DB, "r%d" % k)
+    out = {"pixel_min_psnr_db": round(lowest if lowest is not None else PSNR_CAP, 2), "pixel_ranges": len(range_faces)}
+    if found:
+        out["advice"] = _advice.rows(found)
+    return out
 
 
 def explain(k: int, edl: dict, first: int, last: int, values: list, worst: int, timeline) -> list:
-    """What a refusal of the pixel check says about the range, in closed shapes (each a code and a field of the characters a field may hold): the
+    """What the pixel check could say about a range that is under the threshold (no caller makes it a refusal since P0b; kept for the logs), in closed shapes (each a code and a field of the characters a field may hold): the
     range's output frames, the worst frame's offset in it, how many frames are under the threshold, the median, the zoom at both ends of the range and
     what the timeline draws at the worst frame, so a clean render that fails explains itself."""
     ordered = sorted(values)

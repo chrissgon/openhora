@@ -441,6 +441,7 @@ def test_a_band_with_no_height_is_refused(tmp_path, docs):
     catalogue = catalogue_of(tmp_path, mixed=True)
     data, edl, _, _ = copy.deepcopy(docs)
     data["zones"]["caption_bottom"] = 100
+    data["zones"]["caption_min_height"] = 0      # the bands are clamped to their minimum since video P0b: only a zero minimum leaves a band with no height
     err = refused(docs, catalogue, tmp_path / "p", data=data)
     assert err.code == "band_too_small"
 

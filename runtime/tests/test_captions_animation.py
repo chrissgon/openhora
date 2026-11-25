@@ -80,19 +80,19 @@ def test_the_shape_of_an_add_is_closed():
     assert refusal(edited, review, [dict(ADD, start=1.5)]).code == "time_not_accepted"
 
 
-def test_the_cap_counts_the_script_beats_that_are_not_dropped_and_the_ceiling_is_twelve():
+def test_the_cap_counts_the_script_beats_that_are_not_dropped_and_the_ceiling_is_99():
     edited, review = fresh()
-    for _ in range(9):
+    for _ in range(96):          # 96 animations and the 3 script beats of `apply` are the 99 beats the ceiling allows
         edited, review, _ = add_one(edited, review)
-    assert len(review["animations"]) == 9
+    assert len(review["animations"]) == 96 and review["animations"][-1]["id"] == "a96"
     assert refusal(edited, review, [dict(ADD)]).code == "too_many_animations"
     edited, review, _ = apply(edited, review, [{"op": "overlay", "beat": 1, "dropped": True}])
     edited, review, _ = add_one(edited, review)
-    assert len(review["animations"]) == 10
+    assert len(review["animations"]) == 97
     edited, review = fresh()
     for _ in range(cap.ANIMATIONS_MAX):
         edited, review, _ = add_one(edited, review, beats=())
-    assert len(review["animations"]) == 12
+    assert len(review["animations"]) == 99
     assert refusal(edited, review, [dict(ADD)], beats=()).code == "too_many_animations"
 
 
@@ -137,7 +137,7 @@ def test_a_stored_review_reads_back_and_each_malformed_field_is_refused():
     item = good["animations"][0]
     old = {k: v for k, v in good.items() if k != "animations"}
     assert cap.check_review(old)["animations"] == []
-    broken = [dict(item, id="a13"), dict(item, id="b1"), dict(item, block="xx:key"), dict(item, preset="Key"), dict(item, params={"text": True}),
+    broken = [dict(item, id="a100"), dict(item, id="a0"), dict(item, id="a01"), dict(item, id="b1"), dict(item, block="xx:key"), dict(item, preset="Key"), dict(item, params={"text": True}),
               dict(item, params={"text": "x" * 241}), dict(item, params={"Text": "x"}), dict(item, params={"n": float("inf")}), dict(item, **{"from": 4, "to": 2}),
               dict(item, extra=1), dict(item, params=[]), dict(item, **{"from": -1})]
     for one in broken:

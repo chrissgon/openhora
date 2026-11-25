@@ -199,11 +199,10 @@ def test_the_answer_schema_keeps_assets_dropped_as_a_list_of_slots_and_refuses_a
 
 @pytest.mark.parametrize("verb, row", (("render", RENDER), ("hf-page", PAGE)))
 def test_the_effects_dropped_list_holds_the_effects_ceiling_and_the_beats_ceiling(verb, row):      # T6
-    beats_max = json.load(open(K.VOCABULARY))["limits"]["beats_max"]
-    assert 111 == _edl.EFFECTS_MAX + beats_max
+    assert 198 == _edl.EFFECTS_MAX + _edl.PUNCHES_CEILING      # 99 review effects and 99 script punches (video P0b: the ceiling is 99, M3)
     schema = D.RESULT_SCHEMAS[verb]
-    rows = [{"id": "e%d" % k, "reason": "grade_short"} for k in range(1, 112)]
-    assert len(D.sanitise(dict(row, effects_dropped=rows), schema, verb)["effects_dropped"]) == 111
+    rows = [{"id": "e%d" % k, "reason": "grade_short"} for k in range(1, 199)]
+    assert len(D.sanitise(dict(row, effects_dropped=rows), schema, verb)["effects_dropped"]) == 198
     with pytest.raises(Refusal) as caught:
-        D.sanitise(dict(row, effects_dropped=rows + [{"id": "e112", "reason": "grade_short"}]), schema, verb)
+        D.sanitise(dict(row, effects_dropped=rows + [{"id": "e199", "reason": "grade_short"}]), schema, verb)
     assert caught.value.code == "container_result_invalid"

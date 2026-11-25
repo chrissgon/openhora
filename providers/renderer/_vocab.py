@@ -12,6 +12,7 @@ import json
 import os
 import re
 
+import _advice
 from _text import Refusal, clean_text
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -115,7 +116,18 @@ def check_color(value, palette, field) -> str:
     raise Refusal("bad_color", field)
 
 
-def check_param(vocab: dict, spec: dict, field: str, value):
+def _text_of(part, limit: int, field: str, ceiling, advice, aid) -> str:
+    """One text against the spec's `max`. With a `ceiling` above it and an `advice` list, a text over `max` and up to `ceiling` is accepted and reported
+    (`text_over_default`: its length and the `max`); over the ceiling it is `text_too_long`. Without them the refusal is today's, at `max`."""
+    if ceiling is not None and advice is not None and ceiling > limit:
+        out = clean_text(part, ceiling, field)
+        if len(out) > limit:
+            _advice.add(advice, "text_over_default", len(out), limit, aid)
+        return out
+    return clean_text(part, limit, field)
+
+
+def check_param(vocab: dict, spec: dict, field: str, value, ceiling=None, advice=None, aid=None):
     kind = spec["type"]
     if slot_types(spec):
         if not isinstance(value, str) or not SLOT_ID.fullmatch(value):
@@ -129,9 +141,9 @@ def check_param(vocab: dict, spec: dict, field: str, value):
             parts = value.split(" | ")
             if len(parts) > items_max:
                 raise Refusal("too_many_items", field)
-            out = " | ".join(clean_text(p, spec["max"], field) for p in parts)
+            out = " | ".join(_text_of(p, spec["max"], field, ceiling, advice, aid) for p in parts)
         else:
-            out = clean_text(value, spec["max"], field)
+            out = _text_of(value, spec["max"], field, ceiling, advice, aid)
         pattern = spec.get("pattern")
         if pattern and not re.fullmatch(pattern, out):
             raise Refusal("bad_pattern", field)
@@ -149,7 +161,7 @@ def check_param(vocab: dict, spec: dict, field: str, value):
     raise Refusal("unknown_type", field)
 
 
-def check_params(vocab: dict, preset: str, params, field: str = "params") -> dict:
+def check_params(vocab: dict, preset: str, params, field: str = "params", ceiling=None, advice=None, aid=None) -> dict:
     """The params of one beat against the preset's declaration: no undeclared name, every required one present,
     every value of its type and bounds. Defaults are not filled in (the template and the data file own them)."""
     if preset not in vocab["presets"]:
@@ -161,7 +173,7 @@ def check_params(vocab: dict, preset: str, params, field: str = "params") -> dic
     for name, value in params.items():
         if name not in declared:
             raise Refusal("undeclared_param", f"{field}.{name}")
-        out[name] = check_param(vocab, declared[name], f"{field}.{name}", value)
+        out[name] = check_param(vocab, declared[name], f"{field}.{name}", value, ceiling, advice, aid)
     for name, spec in declared.items():
         if spec.get("required") and name not in out:
             raise Refusal("missing_param", f"{field}.{name}")

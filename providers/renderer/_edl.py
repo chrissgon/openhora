@@ -12,11 +12,13 @@ from __future__ import annotations
 import math
 import re
 
+import _advice
 import _blocks
 import _media
 import _redact
 from _align import norm_tokens, token_sim
 from _retakes import KINDS as RETAKE_KINDS, REASONS as RETAKE_REASONS, detect_retakes
+import _layout
 from _layout import zones  # noqa: F401  (moved: `_edl.zones` is still the name callers and tests use)
 from _text import Refusal, clean_text
 from _timeline import (build_words, caption_chunks, check_transcript, retime_misplaced, kept_ranges, normalise_words, find_phantoms, out_frames_of)
@@ -43,8 +45,10 @@ GRADE_KINDS = ("flash", "dip", "mono", "tint")                       # the effec
 OVERLAY_GRADES = ("flash", "dip", "tint")                            # the grades drawn as one colour laid over the picture (the page's `#fx`); mono is a filter
 EFFECT_ID = re.compile(r"e[1-9][0-9]?")
 EFFECTS_MAX = 99                # validity: a closed document; the id format e1-e99, read by runtime/step_media.py (the script's punches are counted apart)
+BEATS_CEILING = 99              # validity: a closed document, the ids go up to 99 (runtime/step_media.py); the vocabulary's `limits.beats_max` is the default, and a video past it gets advice
+PUNCHES_CEILING = 99            # validity: a closed document, the script's punch ids are p1 to p99
 ZOOM_MAX = 10.0                 # validity: ffmpeg zoompan's zoom range is 1 to 10
-PUNCH_SHORT_SECONDS = 0.4       # a punch clipped to less than this is not drawn
+PUNCH_SHORT_SECONDS = 0.4       # a punch clipped to less than this is drawn all the same, with advice (`punch_short`); one with no frame left is not
 ENTRY_REQUIRED = {"id", "beat", "preset", "params", "word_from", "word_to", "score"}
 ENTRY_KEYS = ENTRY_REQUIRED | {"role", "emphasis", "block"}      # the beat's role and emphasis from the script, and the block that draws it, all optional
 SCRIPT_KEYS = {"title", "loop"}
@@ -84,10 +88,12 @@ def union(boxes: list) -> dict:
     return {"x": left, "y": top, "w": right - left, "h": bottom - top}
 
 
-def check_face(data: dict, face, field: str = "face_box", zoom=None) -> dict:
-    """A face box {x, y, w, h} in frame pixels, inside the frame, that leaves room above it for a card and below it for a
-    caption. With `zoom` (the edit list's zoom block) the room is measured on the box at its largest, when a range is drawn at
-    the zoom factor with the whole push-in: the picture grows about the zoom's fixed point, so the face's box grows and moves."""
+def check_face(data: dict, face, field: str = "face_box", zoom=None, advice=None) -> dict:
+    """A face box {x, y, w, h} in frame pixels, inside the frame (at least 100 px each way). The room it leaves above it for a card and below it for a
+    caption is no refusal any more (the maintainer's principle of 2026-11-24): a room under `zones.card_min_height` or `zones.caption_min_height` is added to
+    `advice` (a list of `_advice`, when given) as `card_room_small` or `caption_room_small`, and `_layout.zones` clamps the band to its minimum. With `zoom`
+    (the edit list's zoom block) the room is measured on the box at its largest, when a range is drawn at the zoom factor with the whole push-in: the picture
+    grows about the zoom's fixed point, so the face's box grows and moves."""
     closed(face, {"x", "y", "w", "h"}, field)
     if not all(_int(face[k]) for k in "xywh") or face["w"] < 100 or face["h"] < 100 or face["x"] < 0 or face["y"] < 0 \
             or face["x"] + face["w"] > data["frame"]["width"] or face["y"] + face["h"] > data["frame"]["height"]:
@@ -99,9 +105,12 @@ def check_face(data: dict, face, field: str = "face_box", zoom=None) -> dict:
         top = zoom["factor"] if zoom["mode"] == "alternate" else 1.0
         most = top * (1.0 + zoom["push_in"])
         worst = union([face, _media.zoomed_box(face, top, most, anchor, w, h)])
-    z = zones(data, worst)
-    if z["card"][1] - z["card"][0] < data["zones"]["card_min_height"] or z["caption"][1] - z["caption"][0] < data["zones"]["caption_min_height"]:
-        raise Refusal("face_box_leaves_no_room", field)
+    if advice is not None:
+        room = _layout.rooms(data, worst)
+        if room["card"] < data["zones"]["card_min_height"]:
+            _advice.add(advice, "card_room_small", max(0, room["card"]), data["zones"]["card_min_height"])
+        if room["caption"] < data["zones"]["caption_min_height"]:
+            _advice.add(advice, "caption_room_small", max(0, room["caption"]), data["zones"]["caption_min_height"])
     return face
 
 
@@ -138,7 +147,7 @@ def parse_face_box(text: str) -> dict:
 
 def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None, gap=None, pad_head=None, pad_tail=None,
                caption_position="bottom", colors=None, font_flags=None, face_box=None, zoom_mode=None, zoom_factor=None,
-               push_in=None, confirm=(), long_cut=None, wordless_max=None, anchor_y=None, keep=(), retake_mode="auto") -> tuple:
+               push_in=None, confirm=(), long_cut=None, wordless_max=None, anchor_y=None, keep=(), retake_mode="auto", advice=None) -> tuple:
     """The code-generated base edit list from a transcript and an analysis. No model.
 
     Silence is the cut signal (`analysis["silences"]`; `None` when the recording has no audio, then the word gaps
@@ -271,7 +280,7 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
     zoom = {"mode": mode, "factor": factor, "push_in": zoom_cfg["push_in"] if push_in is None else push_in,
             "anchor_y": zoom_cfg["anchor_y"] if anchor_y is None else anchor_y}
     check_zoom(data, zoom)
-    face = check_face(data, dict(data["face_box_default"] if face_box is None else face_box), "face_box", zoom)
+    face = check_face(data, dict(data["face_box_default"] if face_box is None else face_box), "face_box", zoom, advice)
     edl = {"schema_version": EDL_SCHEMA_VERSION, "fps": fps, "size": [frame["width"], frame["height"]],
            "source": {"sha256": facts["sha256"], "duration": round(duration, 3), "width": facts["width"], "height": facts["height"],
                       "has_audio": bool(facts["has_audio"]),
@@ -316,7 +325,9 @@ def mentions_of(texts: list) -> list:
 
 
 def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
-    """Validate the base list. Returns {texts: [(field, text)], mentions: []} for the caller's scans; raises Refusal."""
+    """Validate the base list. Returns {texts: [(field, text)], mentions: []} for the caller's scans, and `advice` (rows of `_advice`) when the face box leaves
+    little room; raises Refusal."""
+    advice = []
     limits, frame = data["limits"], data["frame"]
     closed(edl, EDL_KEYS, "edl")
     if edl["schema_version"] == 1:
@@ -416,7 +427,7 @@ def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
             vals = [p["from"], p["to"]] if key == "retimed_words" else [[p["start"], p["end"]]]
             if not _int(p["index"]) or p["index"] < 0 or not all(isinstance(v, list) and len(v) == 2 and all(_num(x) for x in v) for v in vals):
                 raise Refusal("bad_normalisation", field)
-    check_face(data, edl["face_box"], "edl.face_box", edl["zoom"])
+    check_face(data, edl["face_box"], "edl.face_box", edl["zoom"], advice)
     check_zoom(data, edl["zoom"], "edl.zoom")
     props = edl["proposals"]
     if not isinstance(props, list) or len(props) > 100:
@@ -436,7 +447,7 @@ def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
             raise Refusal("confirmed_drop_still_drawn", field)
     scan_texts([("transcript", " ".join(w["text"] for w in words))])
     scan_texts(texts)
-    return {"texts": texts, "mentions": mentions_of(texts), "indices": index_set}
+    return dict({"texts": texts, "mentions": mentions_of(texts), "indices": index_set}, **({"advice": _advice.rows(advice)} if advice else {}))
 
 
 def check_role_emphasis(obj: dict, vocab: dict, field: str) -> None:
@@ -464,7 +475,10 @@ def check_script_object(obj, vocab: dict) -> list:
 
 
 def check_beats(beats, edl, vocab: dict) -> dict:
-    """Validate beats.json against the base list and the vocabulary. Returns {texts, mentions}; raises Refusal."""
+    """Validate beats.json against the base list and the vocabulary. Returns {texts, mentions}, and `advice` (rows of `_advice`) when a creative choice goes past a
+    default (more scenes or punches than the vocabulary's `limits.beats_max`, a second aside, a punch on an aside, a text over its `max`); raises Refusal
+    only past a validity ceiling (BEATS_CEILING, PUNCHES_CEILING, the text ceiling) or for a malformed document."""
+    advice = []
     closed(beats, BEATS_KEYS, "beats", BEATS_REQUIRED)
     if beats["schema_version"] != BEATS_SCHEMA_VERSION or not _num(beats["threshold"]) or not 0 < beats["threshold"] <= 1:
         raise Refusal("schema_version", "beats")
@@ -489,7 +503,7 @@ def check_beats(beats, edl, vocab: dict) -> dict:
                 raise Refusal("bad_beat", field)
             if e["preset"] not in vocab["presets"] or vocab["presets"][e["preset"]]["kind"] not in BUCKET_KINDS[bucket]:
                 raise Refusal("bad_preset", field)
-            clean = check_params(vocab, e["preset"], e["params"], field + ".params")
+            clean = check_params(vocab, e["preset"], e["params"], field + ".params", _blocks.PARAM_TEXT_MAX, advice, e["id"])
             if clean != e["params"]:
                 raise Refusal("text_not_clean", field + ".params")
             for name in slot_params(vocab, e["preset"]):
@@ -503,8 +517,10 @@ def check_beats(beats, edl, vocab: dict) -> dict:
                 raise Refusal("bad_word_range", field)
             if not _num(e["score"]) or not 0 <= e["score"] <= 1:
                 raise Refusal("bad_score", field)
-    if total > vocab["limits"]["beats_max"]:
+    if total > BEATS_CEILING:
         raise Refusal("too_many_beats", "beats")
+    if total > vocab["limits"]["beats_max"]:
+        _advice.add(advice, "beats_over_default", total, vocab["limits"]["beats_max"])
     if not isinstance(beats["slots"], list):
         raise Refusal("not_list", "beats.slots")
     slot_seen = set()
@@ -525,17 +541,21 @@ def check_beats(beats, edl, vocab: dict) -> dict:
             check_role_emphasis(item, vocab, "beats.report[%d]" % k)
     if "script" in beats:
         texts.extend(check_script_object(beats["script"], vocab))
-    check_punches(beats.get("punches", []), index_set, vocab)
+    check_punches(beats.get("punches", []), index_set, vocab, advice)
     check_effects(beats.get("effects", []), index_set)
     # the script checker's rules of an effect preset (`aside`), held again here: at most one in a video, and never with a punch on its beat
     effect_beats = [e["beat"] for e in beats["overlays"] if vocab["presets"][e["preset"]]["kind"] == "effect"]
+    asides = [e["id"] for e in beats["overlays"] if e["beat"] in effect_beats]
     if len(effect_beats) > 1:
-        raise Refusal("effect_repeated", "beats.overlays")
-    if any(p.get("beat") in effect_beats for p in beats.get("punches", [])) or \
-            any(e.get("emphasis") == "punch" for e in beats["overlays"] if e["beat"] in effect_beats):
-        raise Refusal("effect_with_punch", "beats")
+        for i in asides:
+            _advice.add(advice, "aside_repeated", len(effect_beats), 1, i)
+    for e in beats["overlays"]:
+        if e["beat"] in effect_beats:
+            punched = sum(1 for p in beats.get("punches", []) if p.get("beat") == e["beat"]) + (1 if e.get("emphasis") == "punch" else 0)
+            if punched:
+                _advice.add(advice, "aside_with_punch", punched, 0, e["id"])
     scan_texts(texts)
-    return {"texts": texts, "mentions": mentions_of(texts)}
+    return dict({"texts": texts, "mentions": mentions_of(texts)}, **({"advice": _advice.rows(advice)} if advice else {}))
 
 
 def _word_span(e: dict, index_set: set, field: str) -> None:
@@ -544,12 +564,14 @@ def _word_span(e: dict, index_set: set, field: str) -> None:
         raise Refusal("bad_word_range", field)
 
 
-def check_punches(punches, index_set: set, vocab: dict) -> None:
+def check_punches(punches, index_set: set, vocab: dict, advice=None) -> None:
     """The script's punches in beats.json: closed rows of a beat number, a word range of the edit list and a score, one per beat."""
     if not isinstance(punches, list):
         raise Refusal("not_list", "beats.punches")
-    if len(punches) > vocab["limits"]["beats_max"]:
+    if len(punches) > PUNCHES_CEILING:
         raise Refusal("too_many_punches", "beats.punches")
+    if len(punches) > vocab["limits"]["beats_max"] and advice is not None:
+        _advice.add(advice, "punches_over_default", len(punches), vocab["limits"]["beats_max"])
     seen = set()
     for k, p in enumerate(punches):
         field = "beats.punches[%d]" % k
@@ -622,11 +644,11 @@ def _frame_at(seconds: float, fps: int, n: int) -> int:
     return min(max(0, int(round(seconds * fps))), n - 1)
 
 
-def resolve_punches(edl: dict, beats: dict, data: dict) -> tuple:
+def resolve_punches(edl: dict, beats: dict, data: dict, advice=None) -> tuple:
     """(rows, dropped): the script's punches and the review's punch effects as frame spans of the OUTPUT timeline, each inside one kept range.
 
     A punch spans its words, stretched to `punch.min_seconds` and cut at its range's end. Two punches in one range never
-    overlap: the later one starts where the earlier one ends. One left under PUNCH_SHORT_SECONDS is dropped (`punch_short`). Its zoom is the range's
+    overlap: the later one starts where the earlier one ends. One left with no frame is dropped (`punch_short`); one left under PUNCH_SHORT_SECONDS is drawn, with advice `punch_short` in `advice`. Its zoom is the range's
     own level at the punch's first frame times `punch.factor`, held for the span and capped at ZOOM_MAX; one that would not zoom in past
     the range's own level is dropped (`punch_capped`). A row: {id, start_frame, end_frame, range, zoom, face}, `face` the face box as the punch draws it."""
     fps, n = edl["fps"], edl["out_frames"]
@@ -650,15 +672,18 @@ def resolve_punches(edl: dict, beats: dict, data: dict) -> tuple:
         k = r["range"]
         first, last = table[k]
         r["start_frame"] = max(r["start_frame"], floor.get(k, first))
-        if (r["end_frame"] - r["start_frame"]) / float(fps) < PUNCH_SHORT_SECONDS - 1e-9:
+        if r["end_frame"] - r["start_frame"] <= 0:
             dropped.append({"id": r["id"], "reason": "punch_short"})
             continue
+        short = (r["end_frame"] - r["start_frame"]) / float(fps) < PUNCH_SHORT_SECONDS - 1e-9
         z0, z1 = _media.zoom_levels(edl["zoom"], k, last - first, fps)
         base = z0 + (z1 - z0) * (r["start_frame"] - first) / float(max(1, last - first - 1))
         zp = round(min(ZOOM_MAX, base * cfg["factor"]), 5)
         if zp <= base + 1e-9:
             dropped.append({"id": r["id"], "reason": "punch_capped"})
             continue
+        if short and advice is not None:
+            _advice.add(advice, "punch_short", (r["end_frame"] - r["start_frame"]) / float(fps), PUNCH_SHORT_SECONDS, r["id"])
         floor[k] = r["end_frame"]
         rows.append(dict(r, zoom=zp, face=_media.zoomed_box(edl["face_box"], zp, zp, anchor, w, h)))
     return rows, dropped
@@ -774,10 +799,11 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
     One beat track, and a picture wins (V9b-3e): a picture beat (a layout with an asset slot in its params) keeps its own
     range against every text beat (an overlay, or a layout with no slot) it overlaps. A text beat that starts before the
     picture ends where the picture starts; one that starts inside it starts where the picture ends; one left with no frame
-    is dropped and reported (`dropped` and a {id, reason: under_picture} row of `dropped_reasons`), and so is one whose
-    kept side is shorter than its preset's `min_duration` (in frames, at least 1); one that spans a picture keeps the
+    is dropped and reported (`dropped` and a {id, reason: under_picture} row of `dropped_reasons`), and one whose
+    kept side is shorter than its preset's `min_duration` is kept with advice `beat_shorter_than_default` while at least 1 frame is left; one that spans a picture keeps the
     longer side (the earlier on a tie). Then, among what is left, where two beats overlap the earlier one ends
     where the later one starts, and one that is left with no frame is dropped and reported (`overlap`)."""
+    advice = []
     fps, n = edl["fps"], edl["out_frames"]
     by_index = {w["index"]: w for w in edl["words"]}
     entries = []
@@ -810,9 +836,12 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
         before = (lo - s0) if s0 < lo else 0
         after = (e0 - hi) if e0 > hi else 0
         least = max(1, int(round(data["presets"][t["preset"]]["min_duration"] * fps)))
-        if max(before, after) < least:                    # nothing left, or less than the preset's minimum: a flash of a few frames is dropped
+        if max(before, after) < 1:                        # nothing left: dropped. Less than the preset's minimum is drawn, with advice
             under.append(t["id"])
-        elif before >= after:
+            continue
+        if max(before, after) < least:
+            _advice.add(advice, "beat_shorter_than_default", max(before, after) / float(fps), data["presets"][t["preset"]]["min_duration"], t["id"])
+        if before >= after:
             t["end_frame"], t["clipped"] = lo, True
         else:
             t["start_frame"], t["clipped"] = hi, True
@@ -825,7 +854,7 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
     overlapped = [e["id"] for e in entries if e["end_frame"] <= e["start_frame"]]
     dropped = under + overlapped
     entries = [e for e in entries if e["id"] not in dropped]
-    punches, punches_dropped = resolve_punches(edl, beats, data)
+    punches, punches_dropped = resolve_punches(edl, beats, data, advice)
     grades, grades_dropped = resolve_grades(edl, beats, data)
     aside_grades, echoes = resolve_asides(edl, entries, vocab, data)      # an aside's grey is a mono grade over its beat; its echo is a row of its own
     if aside_grades:
@@ -850,6 +879,8 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
         captions.append({"word_from": a, "word_to": b, "start_frame": sf, "end_frame": ef, "face": span_face(edl, data, sf, ef, punches)})
     out = {"captions": captions, "beats": entries, "dropped": dropped, "punches": punches, "grades": grades, "echoes": echoes,
            "effects_dropped": sorted(punches_dropped + grades_dropped, key=lambda r: r["id"])}
+    if advice:       # only a timeline with a choice past a default has the key: any other is what it always was
+        out["advice"] = _advice.rows(advice)
     if dropped:      # every id of `dropped` has one reason row (V9b-3f); the layout passes add theirs (`pip_no_room`, `split_no_room`)
         out["dropped_reasons"] = [{"id": i, "reason": "under_picture"} for i in under] + [{"id": i, "reason": "overlap"} for i in overlapped]
     return out

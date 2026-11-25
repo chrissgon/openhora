@@ -127,14 +127,16 @@ def test_an_aside_in_the_layouts_bucket_is_refused():
     assert refused(_edl.check_beats, doc, synthetic_edl(), VOCAB).code == "bad_preset"
 
 
-def test_two_asides_or_an_aside_with_a_punch_are_refused():
+def test_two_asides_or_an_aside_with_a_punch_are_advice_and_nothing_is_refused():
     edl = synthetic_edl()
     two = beats_of([entry(1, "aside", 0, 2), entry(4, "aside", 10, 12)])
-    assert refused(_edl.check_beats, two, edl, VOCAB).code == "effect_repeated"
+    got = _edl.check_beats(two, edl, VOCAB)["advice"]
+    assert [(r["code"], r["value"], r["default"], r["count"]) for r in got] == [("aside_repeated", 2, 1, 2)]
     punched = beats_of([entry(1, "aside", 0, 2)], punches=[{"beat": 1, "word_from": 0, "word_to": 2, "score": 1.0}])
-    assert refused(_edl.check_beats, punched, edl, VOCAB).code == "effect_with_punch"
+    got = _edl.check_beats(punched, edl, VOCAB)["advice"]
+    assert [(r["code"], r["value"], r["default"], r["count"]) for r in got] == [("aside_with_punch", 1, 0, 1)]
     elsewhere = beats_of([entry(1, "aside", 0, 2)], punches=[{"beat": 3, "word_from": 8, "word_to": 9, "score": 1.0}])
-    assert _edl.check_beats(elsewhere, edl, VOCAB)
+    assert "advice" not in _edl.check_beats(elsewhere, edl, VOCAB)
 
 
 def test_a_bad_echo_value_is_refused_by_the_renderers_checker():

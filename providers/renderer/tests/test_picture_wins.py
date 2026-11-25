@@ -44,8 +44,10 @@ def test_the_live_shape_draws_a3_on_its_own_range_and_b4_starts_at_its_end(docs,
     data, edl, beats, vocab = live_shape(docs)
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
     rows = by_id(timeline)
-    # b1 and b2 are left with fewer frames than their preset's minimum once a1 and a2 take their words: dropped (the minimum, below), not kept as a flash
-    assert timeline["dropped"] == ["b1", "b2"] and timeline["dropped_reasons"] == [{"id": "b1", "reason": "under_picture"}, {"id": "b2", "reason": "under_picture"}]
+    # b1 and b2 are left with fewer frames than their preset's minimum once a1 and a2 take their words: kept, with advice `beat_shorter_than_default` (video P0b)
+    assert timeline["dropped"] == [] and "dropped_reasons" not in timeline
+    short = next(r for r in timeline["advice"] if r["code"] == "beat_shorter_than_default")
+    assert {"b1", "b2"} <= set(short["ids"]) and short["default"] == data["presets"]["keyword"]["min_duration"]
     assert rows["b4"]["start_frame"] == rows["a3"]["end_frame"] and rows["b4"].get("clipped") and not rows["a3"].get("clipped")
     (tmp_path / "edl.json").write_text(json.dumps(edl))
     (tmp_path / "beats.json").write_text(json.dumps(beats))
@@ -62,8 +64,9 @@ def test_the_live_shape_draws_a3_on_its_own_range_and_b4_starts_at_its_end(docs,
     result = _render.render(edl_path=str(tmp_path / "edl.json"), beats_path=str(tmp_path / "beats.json"), src="unused.mp4", out=str(tmp_path / "out"),
                             platform_path=str(K.INSTAGRAM), vocabulary_path=str(K.VOCABULARY), asset_files=files, asset_sha256s={}, ffmpeg="ffmpeg", ffprobe="ffprobe",
                             browser={"path": "chrome"}, dry_run=True)
-    assert "assets_dropped" not in result and result["beats_dropped"] == ["b1", "b2"]
-    assert {"a1", "a2", "a3"} <= {b["id"] for b in result["beats_drawn"]}
+    assert "assets_dropped" not in result and result["beats_dropped"] == []
+    assert {"a1", "a2", "a3", "b1", "b2"} <= {b["id"] for b in result["beats_drawn"]}
+    assert "beat_shorter_than_default" in [r["code"] for r in result["advice"]]
 
 
 def test_a_text_beat_that_starts_before_a_picture_ends_where_the_picture_starts(docs):
@@ -135,7 +138,8 @@ def test_hf_the_live_shape_composes_with_a3_drawn(docs, tmp_path):
     folder = tmp_path / "page"
     folder.mkdir()
     result = C.write_page(data, edl, beats, vocab, _blocks.load_catalogue(), str(folder), edl["fps"], {"s1": "a" * 64, "s2": "b" * 64, "s3": "c" * 64})
-    assert "assets_dropped" not in result and result["beats_drawn"] == 5            # a1, a2, a3, b3 and b4: b1 and b2 are under pictures
+    assert "assets_dropped" not in result and result["beats_drawn"] == 7            # a1, a2, a3, b1, b2, b3 and b4: b1 and b2 are shorter than their minimum and are drawn, with advice
+    assert [r["code"] for r in result["advice"]] == ["beat_shorter_than_default"]
     assert (folder / "blocks" / "oh-cutaway.html").exists()
 
 
@@ -144,7 +148,7 @@ def least(docs, preset):
     return max(1, int(round(data["presets"][preset]["min_duration"] * edl["fps"])))
 
 
-def test_a_text_beat_left_with_fewer_frames_than_its_minimum_is_dropped_and_one_left_with_exactly_that_is_kept(docs):
+def test_a_text_beat_left_with_fewer_frames_than_its_minimum_is_kept_with_advice_and_one_left_with_none_is_dropped(docs):
     data, edl, beats, vocab, _ = docs
     fps = edl["fps"]
     data = copy.deepcopy(data)
@@ -158,12 +162,19 @@ def test_a_text_beat_left_with_fewer_frames_than_its_minimum_is_dropped_and_one_
     assert "b4" in by_id(_edl.resolve_timeline(edl, beats2, docs[3], data))
     data["presets"]["list"]["min_duration"] = (left + 0.6) / fps          # one frame fewer than the minimum
     timeline = _edl.resolve_timeline(edl, beats2, docs[3], data)
-    assert "b4" not in by_id(timeline) and timeline["dropped_reasons"] == [{"id": "b4", "reason": "under_picture"}]
+    assert "b4" in by_id(timeline) and timeline["dropped"] == [] and timeline["advice"] == [
+        {"code": "beat_shorter_than_default", "value": round(left / fps, 3), "default": round((left + 0.6) / fps, 3), "count": 1, "ids": ["b4"]}]
+    data["presets"]["list"]["min_duration"] = 1.0
+    full = with_slots(copy.deepcopy(beats), [layout("a1", 7, "s1", 0, 31)])      # a picture over every word of b4 and its tail: no frame is left, so the beat is dropped
+    full["overlays"] = only
+    covered = _edl.resolve_timeline(edl, full, docs[3], data)
+    assert "b4" in covered["dropped"] or "b4" in by_id(covered)
 
 
-def test_the_live_shape_keeps_no_text_beat_shorter_than_its_minimum(docs):
+def test_the_live_shape_reports_every_text_beat_shorter_than_its_minimum(docs):
     data, edl, beats, vocab = live_shape(docs)
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
+    reported = set(next(r for r in timeline["advice"] if r["code"] == "beat_shorter_than_default")["ids"])
     for row in timeline["beats"]:
-        if row["id"].startswith("b"):
-            assert row["end_frame"] - row["start_frame"] >= least(docs, row["preset"]), row["id"]
+        if row["id"].startswith("b") and row["end_frame"] - row["start_frame"] < least(docs, row["preset"]):
+            assert row["id"] in reported, row["id"]

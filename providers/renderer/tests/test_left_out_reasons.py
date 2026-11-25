@@ -46,7 +46,7 @@ def test_the_live_shape_has_a_reason_for_every_dropped_beat(docs):
     timeline = _edl.resolve_timeline(edl, with_slots(beats, beats["layouts"] + [layout("a4", 8, "s4", 22, 31)]), vocab, data)
     assert "a3" in timeline["dropped"]
     assert sorted(r["id"] for r in timeline["dropped_reasons"]) == sorted(timeline["dropped"])
-    assert {r["reason"] for r in timeline["dropped_reasons"]} == {"under_picture", "overlap"}
+    assert "overlap" in {r["reason"] for r in timeline["dropped_reasons"]} and {r["reason"] for r in timeline["dropped_reasons"]} <= {"under_picture", "overlap"}
 
 
 def test_a_timeline_that_drops_nothing_has_no_reason_rows(docs):

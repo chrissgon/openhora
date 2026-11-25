@@ -128,7 +128,7 @@ def test_the_bounds_on_ranges_words_and_beats():
             (lambda b: b["overlays"].append(dict(b["overlays"][0])), "bad_id"),
             (lambda b: b["layouts"][0]["params"].update(asset="../x"), "bad_slot"),
             (lambda b: b["slots"].clear(), "slot_without_description"),
-            (lambda b: b.update(overlays=b["overlays"] * 1 + [dict(b["overlays"][0], id="x%d" % k) for k in range(20)]), "too_many_beats")):
+            (lambda b: b.update(overlays=b["overlays"] * 1 + [dict(b["overlays"][0], id="x%d" % k) for k in range(100)]), "too_many_beats")):
         bad = copy.deepcopy(beats)
         mutate(bad)
         assert code(edl, bad).code == expected, expected

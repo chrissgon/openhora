@@ -27,6 +27,7 @@ import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
+import _advice  # noqa: E402
 import _container as box  # noqa: E402  (the shared container box: providers/_container.py)
 
 from _browser import NotConfigured  # noqa: E402
@@ -450,6 +451,7 @@ CODE = re.compile(r"[a-z0-9_]{1,60}")
 FIELD = re.compile(r"[A-Za-z0-9_.\[\]:\- ]{0,80}")
 SAFE_TEXT = re.compile(r"[^\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069\u200b-\u200f\ufeff]{0,200}")
 S, I, N, B, FLD, COD = "str", "int", "num", "bool", "field", "code"
+ACODE = "advice_code"      # a code of `_advice.CODES`: the closed list of the advice rows (video P0b)
 
 
 def opt(schema):
@@ -502,6 +504,10 @@ def sanitise(value, schema, where="result"):
         if not isinstance(value, str) or not CODE.fullmatch(value):
             raise bad
         return value
+    if schema == ACODE:
+        if not isinstance(value, str) or value not in _advice.CODES:
+            raise bad
+        return value
     if schema == I:
         if not isinstance(value, int) or isinstance(value, bool):
             raise bad
@@ -522,18 +528,19 @@ FACTS = dct(video_start=N, audio_start=N, width=I, height=I, rotation=I, fps=N, 
 OUTPUT = dct(container=S, codec=S, profile=opt(S), pix_fmt=opt(S), width=I, height=I, fps=N, duration=N, bytes=I, audio_codec=opt(S), faststart=B,
              color=lst(opt(S), 8), frames=opt(S))
 PROBLEMS = lst(dct(beat=opt(I), field=FLD, code=COD), 50)
+ADVICE = lst(dct(code=ACODE, value=N, default=N, count=I, ids=opt(lst(FLD, 12))), 24)      # video P0b: closed rows; the host says the sentence (runtime/deliver_document.py)
 RESULT_SCHEMAS = {
     "selfcheck": dct(ok=B, ffmpeg=S, ffprobe=S, missing=lst(S, 50), python=S, browser=S, libass=B, container=B),
     "analyse": dct(ok=B, duration=N, sha256=S, silences=opt(I), has_audio=B),
     "analysis_doc": dct(ok=B, schema_version=I, facts=FACTS, silences=opt(lst(dct(start=N, end=N), 20000)), noise_db=N, min_silence=N),
-    "base": dct(ok=B, fps=I, kept_ranges=I, out_seconds=N, source_seconds=N, words=I, caption_chunks=I,
+    "base": dct(ok=B, advice=opt(ADVICE), fps=I, kept_ranges=I, out_seconds=N, source_seconds=N, words=I, caption_chunks=I,
                 normalisation=dct(words=I, dropped_words=I, dropped_segments=lst(dct(segment=I, words=I, seconds=N), 500), zero_length_words=I,
                                   spread_runs=I, estimated_words=I, clamped_starts=I, retimed_words=lst(dct(index=I, **{"from": lst(N, 2), "to": lst(N, 2)}), 2000), unplaced_words=lst(dct(index=I, start=N, end=N), 2000)),
                 font_fallbacks=lst(dct(role=S, asked=S, used=S, reason=S), 20), proposals=lst(dct(id=S, kind=S, seconds=N, confirmed=B, default=S, reason=S), 100),
                 face_box=dct(x=I, y=I, w=I, h=I), zoom=dct(mode=S, factor=N, push_in=N)),
     "align": dct(ok=B, beats=I, overlays=I, layouts=I, unmatched=lst(I, 100), slots=lst(S, 100), fallbacks=lst(dct(beat=I, **{"from": S, "to": S}), 100),
                  scores=mp(N), reordered=lst(I, 100)),
-    "check": dct(ok=B, mentions=lst(S, 500), out_seconds=N, words=I, overlays=I, layouts=I),
+    "check": dct(ok=B, advice=opt(ADVICE), mentions=lst(S, 500), out_seconds=N, words=I, overlays=I, layouts=I),
     "cover": dct(ok=B, offset_ms=I, sha256=S),
     "still": dct(ok=B, at_ms=I, sha256=S, width=I, height=I, bytes=I),
     "verify": dct(ok=B, sha256=S, output=OUTPUT),
@@ -544,13 +551,13 @@ RESULT_SCHEMAS = {
     "proxy": dct(ok=B, sha256=S, bytes=I, seconds=N, width=I, height=I, fps=I, has_audio=B),
     "preview": dct(ok=B, sha256=S, from_sha256=S, bytes=I, width=I, height=I, duration=N, has_audio=B, video_kbps=I, audio_kbps=I, seconds=N),
     "encode": dct(ok=B, sha256=S, out_seconds=N, out_frames=I, intermediate_sha256=S, gate_frames=opt(I), gate_boxes=opt(I), lowest_caption_bottom=opt(N),
-                  pixel_min_psnr_db=opt(N), pixel_ranges=opt(I), pixel_seconds=opt(N)),
-    "hf-page": dct(ok=B, page_sha256=S, vars_sha256=S, clips=I, zooms=I, duration=N, fps=I, layers=lst(S, 4), blocks=opt(mp(S)), blocks_sha256=opt(S),
-                   captions_drawn=opt(I), beats_drawn=opt(I), effects_dropped=opt(lst(dct(id=S, reason=S), 111)), beats_dropped=opt(lst(S, 100)), beats_dropped_reasons=opt(lst(dct(id=S, reason=S), 100)), assets_dropped=opt(lst(S, 36)), runtimes=opt(mp(S)), fonts_used=opt(mp(S))),
+                  pixel_min_psnr_db=opt(N), pixel_ranges=opt(I), pixel_seconds=opt(N), advice=opt(ADVICE)),
+    "hf-page": dct(ok=B, advice=opt(ADVICE), page_sha256=S, vars_sha256=S, clips=I, zooms=I, duration=N, fps=I, layers=lst(S, 4), blocks=opt(mp(S)), blocks_sha256=opt(S),
+                   captions_drawn=opt(I), beats_drawn=opt(I), effects_dropped=opt(lst(dct(id=S, reason=S), 198)), beats_dropped=opt(lst(S, 100)), beats_dropped_reasons=opt(lst(dct(id=S, reason=S), 100)), assets_dropped=opt(lst(S, 36)), runtimes=opt(mp(S)), fonts_used=opt(mp(S))),
     "asset-sheet": dct(ok=B, assets=lst(dct(row=S, col=I, file=opt(S), sha256=S, width=I, height=I, source_sha256=S, kind=S, seconds=N), 36), sheet=S, sheet_sha256=S, rows=lst(S, 36)),
     "admit-check": dct(ok=B, served_sha256=S, runtime_sha256=S, samples=I, frames=I, runs=I, blocked=I, seconds=N, browser=S, per_sample=lst(dct(frames=I, digest=S), 20)),
-    "render": dct(ok=B, dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),
-                  beats_drawn=lst(dct(id=S, preset=S, block=opt(S), start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), assets_dropped=opt(lst(S, 36)), beats_dropped_reasons=opt(lst(dct(id=S, reason=S), 100)), effects_dropped=opt(lst(dct(id=S, reason=S), 111)), unmatched_beats=lst(I, 100),
+    "render": dct(ok=B, advice=opt(ADVICE), dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),
+                  beats_drawn=lst(dct(id=S, preset=S, block=opt(S), start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), assets_dropped=opt(lst(S, 36)), beats_dropped_reasons=opt(lst(dct(id=S, reason=S), 100)), effects_dropped=opt(lst(dct(id=S, reason=S), 198)), unmatched_beats=lst(I, 100),
                   mentions=lst(S, 500), fonts=mp(S), blocks=mp(S), blocks_sha256=S, estimated_bytes=I, sha256=S, bytes=I, output=OUTPUT, seconds=mp(N),
                   browser=opt(S), browser_sandbox=opt(S), frames_rendered=I, frames_reused=I, cover=opt(dct(offset_ms=I, sha256=S)),
                   hf_proofs=opt(mp(dct(served_sha256=S, runtime_sha256=S)))),

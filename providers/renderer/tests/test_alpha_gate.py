@@ -1,5 +1,5 @@
-"""The exact pixel gates of an admitted page on synthetic RGBA frames: a row at the line refuses (a dot of alpha 1/255 is a hit, found on exactly its frames)
-and one above passes, a layer with no pixel drawn and a frame that is not 8-bit RGBA of the frame's size refuse, a short caption chunk may draw nothing, and
+"""The exact pixel gates of an admitted page on synthetic RGBA frames: a row at the line is advice (a dot of alpha 1/255 is a hit, counted on exactly its frames)
+and one above is not, a layer with no pixel drawn is advice, a frame that is not 8-bit RGBA of the frame's size refuses, a short caption chunk may draw nothing, and
 nothing is refused for being on the speaker's face (the maintainer's decisions of 2026-11-24: the face box is a placement input, not a gate). Needs ffmpeg."""
 from __future__ import annotations
 
@@ -44,23 +44,19 @@ def write(folder, frames, start=10, **kw):
 
 
 def check(folder, n, start=10, **kw):
-    G.check_range(str(folder), start, start + n, LINE, W, H, K.FFMPEG, **kw)
+    return G.check_range(str(folder), start, start + n, LINE, W, H, K.FFMPEG, **kw)
 
 
 DRAWN = {(5, 5): (255, 255, 255, 255)}              # a pixel somewhere harmless, so that the layer draws something
 
 
 @needs_ffmpeg
-def test_a_dot_of_one_over_255_below_the_line_is_found_on_exactly_its_frames(tmp_path):
+def test_a_dot_of_one_over_255_below_the_line_is_counted_on_exactly_its_frames(tmp_path):
     dot = {**DRAWN, **{(60, LINE + 5): (255, 255, 255, 1)}}
     write(tmp_path, [DRAWN, DRAWN, dot, dot, dot, DRAWN])
-    with pytest.raises(Refusal) as e:
-        check(tmp_path, 6)
-    assert (e.value.code, e.value.field) == ("caption_below_line", "frame 12")
+    assert check(tmp_path, 6, aid="b1") == [{"code": "drawn_below_line", "value": 3, "default": 0, "count": 1, "ids": ["b1"]}]
     write(tmp_path, [DRAWN, DRAWN, DRAWN, dot, DRAWN, DRAWN])
-    with pytest.raises(Refusal) as e:
-        check(tmp_path, 6)
-    assert e.value.field == "frame 13"
+    assert check(tmp_path, 6)[0]["value"] == 1
 
 
 @needs_ffmpeg
@@ -74,21 +70,17 @@ def test_pixels_on_the_speakers_face_are_not_refused_a_dot_a_block_and_a_whole_f
 
 
 @needs_ffmpeg
-def test_a_row_at_the_line_refuses_and_one_above_it_passes(tmp_path):
+def test_a_row_at_the_line_is_advice_and_one_above_it_is_not(tmp_path):
     write(tmp_path, [{**DRAWN, **{(10, LINE - 1): (0, 255, 0, 255)}}])
-    check(tmp_path, 1)
+    assert check(tmp_path, 1) == []
     write(tmp_path, [{**DRAWN, **{(10, LINE): (0, 255, 0, 1)}}])
-    with pytest.raises(Refusal) as e:
-        check(tmp_path, 1)
-    assert (e.value.code, e.value.field) == ("caption_below_line", "frame 10")
+    assert [r["code"] for r in check(tmp_path, 1)] == ["drawn_below_line"]
 
 
 @needs_ffmpeg
-def test_a_layer_with_nothing_drawn_refuses_and_so_does_a_frame_that_is_not_8_bit_rgba_of_the_frames_size(tmp_path):
+def test_a_layer_with_nothing_drawn_is_advice_and_a_frame_that_is_not_8_bit_rgba_of_the_frames_size_refuses(tmp_path):
     write(tmp_path, [{}, {}])
-    with pytest.raises(Refusal) as e:
-        check(tmp_path, 2)
-    assert e.value.code == "block_not_drawn"
+    assert check(tmp_path, 2) == [{"code": "block_not_drawn", "value": 2, "default": 0, "count": 1}]
     write(tmp_path, [DRAWN, DRAWN], colour=2)
     with pytest.raises(Refusal) as e:
         check(tmp_path, 2)
@@ -106,24 +98,19 @@ def test_a_layer_with_nothing_drawn_refuses_and_so_does_a_frame_that_is_not_8_bi
 
 
 @needs_ffmpeg
-def test_every_range_of_a_layer_is_judged_with_its_own_line_and_its_own_drawn_floor(tmp_path):
+def test_every_range_of_a_layer_is_judged_with_its_own_line_and_its_own_drawn_floor_and_gives_advice(tmp_path):
     write(tmp_path, [DRAWN] * 3 + [{}] * 3 + [{**DRAWN, **{(10, 120): (0, 255, 0, 255)}}] * 3, start=10)
     rows = [{"start": 10, "end": 13, "line_y": LINE}, {"start": 13, "end": 16, "line_y": LINE, "require_drawn": False}, {"start": 16, "end": 19, "line_y": 100}]
-    with pytest.raises(Refusal) as e:
-        G.check_layer(str(tmp_path), rows, W, H, K.FFMPEG)
-    assert (e.value.code, e.value.field) == ("caption_below_line", "frame 16")      # the third range's line is 100: its pixel at 120 is below it
-    G.check_layer(str(tmp_path), rows[:2], W, H, K.FFMPEG)                           # a short chunk may draw nothing
-    with pytest.raises(Refusal) as e:
-        G.check_layer(str(tmp_path), [{"start": 13, "end": 16, "line_y": LINE}], W, H, K.FFMPEG)
-    assert e.value.code == "block_not_drawn"
+    got = G.check_layer(str(tmp_path), rows, W, H, K.FFMPEG)
+    assert [(r["code"], r["value"]) for r in got] == [("drawn_below_line", 3)]      # the third range's line is 100: its pixel at 120 is below it, on its three frames
+    assert G.check_layer(str(tmp_path), rows[:2], W, H, K.FFMPEG) == []              # a short chunk may draw nothing
+    assert [r["code"] for r in G.check_layer(str(tmp_path), [{"start": 13, "end": 16, "line_y": LINE}], W, H, K.FFMPEG)] == ["block_not_drawn"]
 
 
 @needs_ffmpeg
-def test_a_caption_prefix_reads_cap_frames_and_a_caption_line_at_the_band_bottom_refuses_rows_from_it_down(tmp_path):
+def test_a_caption_prefix_reads_cap_frames_and_a_caption_line_at_the_band_bottom_gives_advice_for_rows_from_it_down(tmp_path):
     for k, pixels in enumerate([DRAWN, {**DRAWN, **{(10, 250): (0, 255, 0, 255)}}]):
         (tmp_path / ("cap_%06d.png" % (10 + k))).write_bytes(png(W, H, pixels))
-    G.check_range(str(tmp_path), 10, 11, 250, W, H, K.FFMPEG, "cap")
-    with pytest.raises(Refusal) as e:
-        G.check_range(str(tmp_path), 10, 12, 250, W, H, K.FFMPEG, "cap")
-    assert (e.value.code, e.value.field) == ("caption_below_line", "frame 11")
-    G.check_range(str(tmp_path), 10, 12, 251, W, H, K.FFMPEG, "cap")
+    assert G.check_range(str(tmp_path), 10, 11, 250, W, H, K.FFMPEG, "cap") == []
+    assert [(r["code"], r["value"]) for r in G.check_range(str(tmp_path), 10, 12, 250, W, H, K.FFMPEG, "cap")] == [("drawn_below_line", 1)]
+    assert G.check_range(str(tmp_path), 10, 12, 251, W, H, K.FFMPEG, "cap") == []

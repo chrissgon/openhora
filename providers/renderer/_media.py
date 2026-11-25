@@ -446,7 +446,21 @@ def _even(x: float) -> int:
     return n + (n % 2)
 
 
-PUSH_MIN_SECONDS = 5.0     # only a range this long gets the slow push-in
+_PUSH_MIN = []
+
+
+def push_min_seconds() -> float:
+    """Only a kept range this long gets the slow push-in: `zoom.push_min_seconds` of renderer-presets.json (5.0; a default that shapes a span and refuses nothing,
+    video P0b M5). Finite and at least 0, else a Refusal; read once."""
+    if not _PUSH_MIN:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "renderer-presets.json"), "r", encoding="utf-8") as fh:
+            value = json.load(fh)["zoom"]["push_min_seconds"]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            raise Refusal("bad_zoom", "zoom.push_min_seconds")
+        _PUSH_MIN.append(float(value))
+    return _PUSH_MIN[0]
+
+
 SWS = "lanczos+accurate_rnd+bitexact"     # every scale: the same arithmetic whatever SIMD the CPU has (bitexact), no threads-dependent rounding
 THREADS = 4                                # the decoders and filter graphs of the compose, the proxy and the contact sheet (with swscale's slices); no encoder reads it
 ENCODE_INPUT_THREADS = 1                   # the encode's decoder and filter graph: one thread, so no worker can race another at the end of the stream (CI: 7 of 8 encodes matched, the tail frame of one differed)
@@ -464,9 +478,9 @@ def anchor_point(face: dict, anchor_y: float) -> tuple:
 
 def zoom_levels(zoom: dict, k: int, frames: int, fps: int) -> tuple:
     """(zoom at the first frame, zoom at the last frame) of kept range number k: `alternate` draws every second range at `factor`;
-    a range of PUSH_MIN_SECONDS or more also pushes in by `push_in` over its length."""
+    a range of `push_min_seconds()` or more (`zoom["push_min_seconds"]` when the block has it) also pushes in by `push_in` over its length."""
     z0 = zoom["factor"] if zoom["mode"] == "alternate" and k % 2 == 1 else 1.0
-    z1 = z0 * (1.0 + zoom["push_in"]) if zoom["push_in"] > 0 and frames / float(fps) >= PUSH_MIN_SECONDS else z0
+    z1 = z0 * (1.0 + zoom["push_in"]) if zoom["push_in"] > 0 and frames / float(fps) >= zoom.get("push_min_seconds", push_min_seconds()) else z0
     return z0, z1
 
 
