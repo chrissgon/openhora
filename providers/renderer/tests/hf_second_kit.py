@@ -97,6 +97,10 @@ VARIANTS = {
     # the same two planted pixels at the DEFAULT face box (240,620,600,560 at 1080x1920: the box an admission measures at) and below its caption line (1198)
     "face_dot_default": {"mark_css": "left: 540px; top: 900px; width: 1px; height: 1px; background: rgba(255,255,255,0.004);",
                          "script": 'tl.set(mark, { opacity: 1 }, 5 / 30); tl.set(mark, { opacity: 0 }, 8 / 30);'},
+    # the same dot, with the badge on its own layer so that the reverse run agrees (it proves a page that draws on the face is admitted)
+    # (a tween, not a `set`: the stand-in's `set` does not revert when the reverse run seeks back, a real GSAP timeline does; the dot stays from frame 5 on)
+    "face_dot_stable": {"badge_css": "will-change: opacity;", "mark_css": "left: 540px; top: 900px; width: 1px; height: 1px; background: rgba(255,255,255,0.004);",
+                        "script": 'tl.fromTo(mark, { opacity: 0 }, { opacity: 1, duration: 0.001 }, 5 / 30);'},
     "below_default_line": {"mark_css": "left: 300px; top: 1250px; width: 60px; height: 60px; background: #ffffff;", "script": 'tl.set(mark, { opacity: 1 }, 4 / 30);'},
     # a box that starts below the line the captions begin at
     "below_line": {"mark_css": "left: 300px; top: 830px; width: 60px; height: 60px; background: #ffffff;",
@@ -109,7 +113,7 @@ VARIANTS = {
     "fontface": {"script": 'new FontFace("pv-x", "url(/fonts/display.ttf)");'},
     # a family the page asks for that is not one the host declared
     "system_font": {"badge_css": "font-family: Georgia, serif !important;"},
-    # a full-frame opaque layer: with the 1-pixel corner cut it is RGBA and the face gate refuses it
+    # a full-frame opaque layer: with the 1-pixel corner cut it is RGBA and the line gate refuses it (the face gate was removed on 2026-11-24)
     "opaque": {"mark_css": "left: 0; top: 0; width: 1080px; height: 1920px; background: #101820;", "script": 'tl.set(mark, { opacity: 1 }, 3 / 30);'},
     # the same, and the page removes the corner cut: Chrome then writes an RGB frame
     "opaque_no_clip": {"mark_css": "left: 0; top: 0; width: 1080px; height: 1920px; background: #101820;",

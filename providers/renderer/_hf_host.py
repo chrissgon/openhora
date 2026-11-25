@@ -336,37 +336,60 @@ def fonts_spec(faces: list, fallbacks: dict = None) -> dict:
 
 def prepare(*, catalogue: dict, engine: str, timeline: dict, data: dict, edl: dict, font_serve: dict, vendor: str, registry: str, shims: str,
             browser_version=None) -> dict:
-    """Everything the render needs from the beats of the timeline whose block runs on the second contract: {serve, pages ({block name: {beat index:
-    path}}), ready, fonts, proofs ({block name: {served_sha256, runtime_sha256}}), blocks (names)}. Refuses before any frame is drawn.
-    `browser_version` None (a dry run: no browser) leaves the runtime hash out of the proof."""
+    """Everything the render needs from the entries of the timeline whose block runs on the second contract: {serve, pages ({key: {entry index: path}}: the key is
+    a beat's block name, or "caption" for the caption chunks), ready, fonts, proofs ({block name: {served_sha256, runtime_sha256}}), blocks (names)}. A registry
+    component (runtime `hf`) gets a page per beat from `registry`; one of our own ports (runtime `gsap`, PF-a4) gets a page per beat and per caption chunk from
+    `_hf_port`, its fragment read from the staged blocks folder by its pin. Refuses before any frame is drawn. `browser_version` None (a dry run: no browser)
+    leaves the runtime hash out of the proof."""
     import _blocks
-    rows = []
+    import _hf_port
+    caption_block = _blocks.resolve(catalogue, engine, "caption", None, "edl.captions")
+    caption_runtime = _blocks.second_contract_runtime(catalogue, caption_block, engine)
+    rows = []                                   # (track, entry index, entry, block, runtime)
+    if caption_runtime:
+        rows += [("caption", k, e, caption_block, caption_runtime) for k, e in enumerate(timeline["captions"])]
     for k, e in enumerate(timeline["beats"]):
         block = catalogue["blocks"][e["block"]]
-        if _blocks.runtime_of(catalogue, block, engine) == "hf":
-            rows.append((k, e, block))
+        runtime = _blocks.second_contract_runtime(catalogue, block, engine)
+        if runtime:
+            rows.append(("beat", k, e, block, runtime))
     if not rows:
         return {"serve": {}, "pages": {}, "ready": READY_JS, "fonts": {"faces": [], "system": []}, "proofs": {}, "blocks": []}
-    runtime = load_runtime(vendor, shims, edl["fps"], browser_version or "")
+    runtime_doc = load_runtime(vendor, shims, edl["fps"], browser_version or "")
     faces = theme_fonts(font_serve, edl["theme"]["fonts"])
     fonts = {f["role"]: "%s, %s" % (f["family"], data["theme"]["system_fallback"][f["role"]]) for f in faces}
     for role in data["theme"]["font_roles"]:
         fonts.setdefault(role, data["theme"]["system_fallback"][role])
-    serve = {"/h/vendor/gsap.min.js": (runtime["gsap"], "text/javascript; charset=utf-8")}
-    pages, proofs, checked = {}, {}, {}
-    for k, e, block in rows:
+    by_index = {w["index"]: w for w in edl.get("words", [])}
+    serve = {"/h/vendor/gsap.min.js": (runtime_doc["gsap"], "text/javascript; charset=utf-8")}
+    pages, proofs, checked, names = {}, {}, {}, set()
+    for track, k, e, block, runtime in rows:
         name = block["name"]
         if name not in checked:
-            files = check_edited(block, registry)
-            prove(block, block["served_sha256"], runtime["runtime_sha256"] if browser_version is not None else None)
-            checked[name] = files
-            proofs[name] = {"served_sha256": block["served_sha256"], "runtime_sha256": runtime["runtime_sha256"] if browser_version is not None else ""}
+            if runtime == "gsap":
+                fragment = _hf_port.read_fragment(catalogue, block)
+                served = _hf_port.served_digest(fragment["raw"])
+                prove(block, served, runtime_doc["runtime_sha256"] if browser_version is not None else None)
+                checked[name] = fragment
+            else:
+                files = check_edited(block, registry)
+                served = block["served_sha256"]
+                prove(block, served, runtime_doc["runtime_sha256"] if browser_version is not None else None)
+                checked[name] = files
+            proofs[name] = {"served_sha256": served, "runtime_sha256": runtime_doc["runtime_sha256"] if browser_version is not None else ""}
+        names.add(name)
+        if runtime == "gsap":
+            path = "/h/%s%d/index.html" % ("c" if track == "caption" else "b", k)
+            serve[path] = (_hf_port.page_for(block=block, fragment=checked[name], runtime=runtime_doc, faces=faces, stacks=fonts, data=data, edl=edl, entry=e,
+                                             track=track, index=k, by_index=by_index), "text/html; charset=utf-8")
+            pages.setdefault("caption" if track == "caption" else name, {})[k] = path
+            continue
         files = checked[name]
         variables, css = values_for(block, files, e["params"], edl["theme"]["colors"], fonts)
         box = box_of(data, e["face"])
         if box["h"] <= 0:
             raise Refusal("admitted_unbound", "box")
         path = "/h/b%d/index.html" % k
-        serve[path] = (build_page(block, files, runtime, variables, css, box, faces, block["natural_duration"], k), "text/html; charset=utf-8")
+        serve[path] = (build_page(block, files, runtime_doc, variables, css, box, faces, block["natural_duration"], k), "text/html; charset=utf-8")
         pages.setdefault(name, {})[k] = path
-    return {"serve": serve, "pages": pages, "ready": READY_JS, "fonts": fonts_spec(faces, data["theme"]["system_fallback"]), "proofs": proofs, "blocks": sorted(pages)}
+    return {"serve": serve, "pages": pages, "ready": READY_JS, "fonts": fonts_spec(faces, data["theme"]["system_fallback"]), "proofs": proofs, "blocks": sorted(names)}

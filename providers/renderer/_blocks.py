@@ -62,6 +62,10 @@ HF_KEYS = frozenset(("tier", "commit", "notice", "files"))
 # property of the host root (`css:--prop`), `fixed` gives the variables no parameter reaches, `theme_vars` maps the component's CSS variables to our theme
 # (a colour token, or `font:<role>`; never `--bg`), `font_map` names the host family each edited family becomes, `determinism` is the recorded test.
 HF_RUNTIME_KEYS = frozenset(("component", "edits", "font_map", "served_sha256", "bind", "fixed", "theme_vars", "determinism"))
+# The runtimes of the second page contract (PF-a2, PF-a4): the host builds the page, the runtime mounts and seeks it, the exact pixel gates read its frames.
+# `hf` is a registry component an admission tool pinned; `gsap` is one of our own fragments (a tier-B port, a `block.json` block), drawn the same way
+# on an engine that runs `hf` too (`usable`), and only with a recorded determinism test of its own.
+SECOND_CONTRACT = ("hf", "gsap")
 DETERMINISM_KEYS = frozenset(("served_sha256", "runtime_sha256", "samples", "frames", "runs", "blocked", "date", "image", "seconds"))
 EDIT = re.compile(r"E1|E2:[A-Za-z][A-Za-z0-9 ]{0,40}")
 BIND = re.compile(r"var:[A-Za-z][A-Za-z0-9_]{0,31}|css:--[a-z][a-z0-9-]{0,40}")
@@ -213,7 +217,7 @@ def check_block(obj, where: str, namespace: str, short=None, pinned=None, regist
     if obj["band"] != BANDS[kind]:
         _fail(where)
     cross = obj["may_cross_face"]
-    if not isinstance(cross, bool) or (cross and (obj["band"] != "frame" or namespace == "hf")):
+    if not isinstance(cross, bool):               # the key stays (it is pinned in every block file and read by the catalogue's readers): no gate reads it any more but the old engine's pixel check, which leaves out the frames of a full-frame layout (2026-11-24: nothing is refused for touching the face)
         _fail(where)
     lic = obj["license"]
     if not isinstance(lic, list) or not 1 <= len(lic) <= 3 or len(set(map(str, lic))) != len(lic) or any(x not in LICENSES for x in lic):
@@ -247,8 +251,12 @@ def check_block(obj, where: str, namespace: str, short=None, pinned=None, regist
     if not isinstance(impl, dict) or not 1 <= len(impl) <= 2 or any(k not in RUNTIMES or not _is_str(v, FILE_NAME) for k, v in impl.items()):
         _fail(where)
     on_hf = isinstance(impl, dict) and "hf" in impl
-    if on_hf != bool(HF_RUNTIME_KEYS & set(obj)) or (on_hf and (set(impl) != {"hf"} or HF_RUNTIME_KEYS - set(obj) or from_file)):
+    if on_hf != bool(HF_RUNTIME_KEYS - {"determinism"} & set(obj)) or (on_hf and (set(impl) != {"hf"} or HF_RUNTIME_KEYS - set(obj) or from_file)):
         _fail(where)
+    if not on_hf and "determinism" in obj:           # only a tier-B port (a block.json of namespace hf drawn by our own gsap page) records a test without the hf keys
+        if namespace != "hf" or not from_file or obj.get("tier") != "B" or set(impl) != {"gsap"}:
+            _fail(where)
+        _check_determinism(obj["determinism"], where)
     if namespace == "hf":
         if not _is_str(obj.get("commit"), HEX40) or not isinstance(obj.get("notice"), str) or not NOTICE.fullmatch(obj["notice"]):
             _fail(where)
@@ -272,9 +280,9 @@ def check_block(obj, where: str, namespace: str, short=None, pinned=None, regist
 
 
 def _check_hf_runtime(obj: dict, where: str) -> None:
-    """The extra rules of an entry of the second contract (see HF_RUNTIME_KEYS): it never crosses the face, takes no picture, binds every parameter
+    """The extra rules of an entry of the second contract (see HF_RUNTIME_KEYS): it takes no picture, binds every parameter
     and records a determinism test of 4 runs and no blocked request."""
-    if obj["may_cross_face"] is not False or obj["kind"] != "overlay" or obj["natural_duration"] is None:
+    if obj["kind"] != "overlay" or obj["natural_duration"] is None:
         _fail(where)
     if not _is_str(obj["component"], REGISTRY_PATH) or not _is_str(obj["served_sha256"], HEX64):
         _fail(where)
@@ -297,7 +305,11 @@ def _check_hf_runtime(obj: dict, where: str) -> None:
     if not isinstance(theme, dict) or len(theme) > 20 or not all(_is_str(k, re.compile(r"--[a-z][a-z0-9-]{0,40}")) and k != "--bg" and _is_str(v, THEME_ROLE)
                                                                   for k, v in theme.items()):
         _fail(where)
-    det = obj["determinism"]
+    _check_determinism(obj["determinism"], where)
+
+
+def _check_determinism(det, where: str) -> None:
+    """A recorded determinism test: the keys of DETERMINISM_KEYS, the hashes as sha256, four runs, no blocked request."""
     if not isinstance(det, dict) or set(det) != DETERMINISM_KEYS or not _is_str(det["served_sha256"], HEX64) or not _is_str(det["runtime_sha256"], HEX64) \
             or not _is_int(det["samples"]) or det["samples"] < 1 or not _is_int(det["frames"]) or det["frames"] < 1 \
             or not _is_int(det["runs"]) or det["runs"] != 4 or not _is_int(det["blocked"]) or det["blocked"] != 0 \
@@ -368,30 +380,46 @@ def load_catalogue(blocks_dir: str = BLOCKS_DIR, expect_sha256=None) -> dict:
     for ename, engine in engines.items():
         for preset, bname in engine["presets"].items():
             block = blocks.get(bname)
-            if block is None or block["preset"] != preset or not set(engine["runtimes"]) & set(block["implementations"]):
+            if block is None or block["preset"] != preset or not any(usable(engine, block, r) for r in engine["runtimes"]):
                 _fail("engines:%s.json" % ename)
     return {"dir": os.path.abspath(blocks_dir), "sha256": digest, "files": files, "blocks": blocks, "engines": engines}
 
 
+def usable(engine: dict, block: dict, runtime: str) -> bool:
+    """Whether `engine` can draw `block` with `runtime`: the block implements it, and, for our own `gsap` page on an engine that also runs the second
+    contract's `hf`, the block is a `block.json` block (no `files`, not tier A) with a recorded determinism test. The old engine (no `hf`) keeps its
+    rule: it draws a `gsap` page it runs, with no record."""
+    if runtime not in block["implementations"]:
+        return False
+    if runtime == "gsap" and "hf" in engine["runtimes"]:
+        return "files" not in block and block.get("tier") != "A" and "determinism" in block
+    return True
+
+
+def second_contract_runtime(catalogue: dict, block: dict, engine: str):
+    """The runtime that draws `block` on `engine` when it is one of the second contract (`hf`, or our `gsap` page on an engine that runs `hf`), else None."""
+    runtime = runtime_of(catalogue, block, engine)
+    return runtime if runtime == "hf" or (runtime == "gsap" and "hf" in catalogue["engines"][engine]["runtimes"]) else None
+
+
 def engines_of(catalogue: dict, block: dict) -> list:
-    return sorted(n for n, e in catalogue["engines"].items() if set(e["runtimes"]) & set(block["implementations"]))
+    return sorted(n for n, e in catalogue["engines"].items() if any(usable(e, block, r) for r in e["runtimes"]))
 
 
 def runtime_of(catalogue: dict, block: dict, engine: str) -> str:
-    """The runtime that draws `block` on `engine`: the first of the engine's runtimes the block implements."""
-    for runtime in catalogue["engines"][engine]["runtimes"]:
-        if runtime in block["implementations"]:
+    """The runtime that draws `block` on `engine`: the first of the engine's runtimes the block implements and the engine can use."""
+    eng = catalogue["engines"][engine]
+    for runtime in eng["runtimes"]:
+        if usable(eng, block, runtime):
             return runtime
     raise Refusal("block_not_on_engine", block["name"])
 
 
 def implementation(catalogue: dict, block: dict, engine: str) -> str:
-    """The page that draws `block` on `engine`: the first of the engine's runtimes the block implements, as "<ns>/<name>/<file>"."""
-    for runtime in catalogue["engines"][engine]["runtimes"]:
-        if runtime in block["implementations"]:
-            ns, short = block["name"].split(":")
-            return "%s/%s/%s" % (ns, short, block["implementations"][runtime])
-    raise Refusal("block_not_on_engine", block["name"])
+    """The page that draws `block` on `engine`: the first of the engine's runtimes the block implements and the engine can use, as "<ns>/<name>/<file>"."""
+    runtime = runtime_of(catalogue, block, engine)
+    ns, short = block["name"].split(":")
+    return "%s/%s/%s" % (ns, short, block["implementations"][runtime])
 
 
 def resolve(catalogue: dict, engine: str, preset: str, name, field: str) -> dict:
@@ -407,7 +435,7 @@ def resolve(catalogue: dict, engine: str, preset: str, name, field: str) -> dict
     elif not _is_str(name, NAME) or name not in catalogue["blocks"]:
         raise Refusal("block_unknown", field)
     block = catalogue["blocks"][name]
-    if not set(eng["runtimes"]) & set(block["implementations"]):
+    if not any(usable(eng, block, r) for r in eng["runtimes"]):
         raise Refusal("block_not_on_engine", default)
     if block["preset"] != preset:
         raise Refusal("block_preset_mismatch", field)
@@ -443,15 +471,25 @@ def check_params(block: dict, params, vocab: dict, field: str = "params") -> dic
 
 def templates_for(catalogue: dict, engine: str, timeline: dict, vocab: dict, with_caption: bool) -> tuple:
     """For a timeline: ({key: page path}, [page paths to load]). The key of the caption is "caption", the key of a beat's page is its
-    block's name. Sets each beat's `block`. Every beat's parameters are checked on the block that draws it."""
-    templates = {"caption": implementation(catalogue, resolve(catalogue, engine, "caption", None, "edl.captions"), engine)}
-    names = [templates["caption"]] if with_caption else []
+    block's name. Sets each beat's `block`. Every beat's parameters are checked on the block that draws it. A block of the second contract (the
+    caption included) has the path None: a page is built for each of its entries (`_hf_host.prepare`), never a pinned file."""
+    caption = resolve(catalogue, engine, "caption", None, "edl.captions")
+    names = []
+    if second_contract_runtime(catalogue, caption, engine):
+        templates = {"caption": None}
+    else:
+        templates = {"caption": implementation(catalogue, caption, engine)}
+        if with_caption:
+            names.append(templates["caption"])
     for e in timeline["beats"]:
         field = "beats.%s" % e["id"]
         blk = resolve(catalogue, engine, e["preset"], e.get("block"), field)
-        check_params(blk, e["params"], vocab, field + ".params")
+        clean = check_params(blk, e["params"], vocab, field + ".params")
         e["block"] = blk["name"]
-        if runtime_of(catalogue, blk, engine) == "hf":
+        runtime = second_contract_runtime(catalogue, blk, engine)
+        if runtime:
+            if runtime == "gsap" and clean != e["params"]:
+                raise Refusal("text_not_clean", field + ".params")      # our own page is handed the parameters as given: they must be the cleaned ones
             templates[blk["name"]] = None          # a page of the second contract is built for each beat (`_hf_host.prepare`), never a pinned file
             continue
         templates[blk["name"]] = implementation(catalogue, blk, engine)
@@ -477,7 +515,7 @@ def catalogue_doc(catalogue: dict) -> dict:
 
 
 def catalogue_bytes(catalogue: dict) -> bytes:
-    return (json.dumps(catalogue_doc(catalogue), indent=1, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
+    return (json.dumps(catalogue_doc(catalogue), indent=1, sort_keys=True) + "\n").encode("ascii")      # ASCII: a sample with accents is written as escapes, so the generated file stays English-only text
 
 
 # ---------------------------------------------------------------- maintainer tools

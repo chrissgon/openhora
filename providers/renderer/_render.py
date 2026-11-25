@@ -120,24 +120,32 @@ def _here() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
+CAPTION_DRAWN_MIN_FRAMES = 6      # a caption chunk shorter than this may draw nothing: the old engine's own floor (`_hf_gate.CAPTION_DRAWN_MIN_FRAMES`)
+
+
 def admitted_ranges(data, timeline, admitted, out_frames) -> list:
-    """The runs of output frames each admitted beat owns, each with the face box and the line of its own entry: [{start, end, face, line_y}].
-    The line is the top of the caption band, so a card that reaches the captions is refused (`caption_below_line`)."""
+    """The runs of output frames each admitted entry owns, each with the line of its own entry: [{start, end, line_y, prefix, require_drawn}]. A beat's line is the top of the caption band, so a card that reaches the captions is refused
+    (`caption_below_line`), and it must draw at least one pixel. Nothing is refused for touching the face (2026-11-24);
+    a caption chunk's line is the bottom of its own caption band (the pip's or the split's included), so rows from there down must be clear, and a chunk of
+    CAPTION_DRAWN_MIN_FRAMES frames or more must draw at least one pixel."""
     _, jobs = _frames.frame_jobs(timeline, out_frames)
-    wanted = {k for pages in admitted["pages"].values() for k in pages}
+    wanted = {"caption": set(admitted["pages"].get("caption", {})),
+              "beat": {k for key, pages in admitted["pages"].items() if key != "caption" for k in pages}}
     owned = {}
     for f, track, k in jobs:
-        if track == "beat" and k in wanted:
-            owned.setdefault(k, []).append(f)
+        if k in wanted[track]:
+            owned.setdefault((track, k), []).append(f)
     rows = []
-    for k in sorted(owned):
-        entry = timeline["beats"][k]
-        line_y = _layout.entry_zones(data, entry)["caption"][0]
-        run = owned[k]
+    for track, k in sorted(owned, key=lambda tk: (tk[0] != "beat", tk[1])):
+        entry = timeline["captions" if track == "caption" else "beats"][k]
+        caption = track == "caption"
+        line_y = _layout.entry_zones(data, entry)["caption"][1 if caption else 0]
+        run = owned[(track, k)]
         start = prev = run[0]
         for f in run[1:] + [None]:
             if f is None or f != prev + 1:
-                rows.append({"start": start, "end": prev + 1, "face": entry["face"], "line_y": line_y})
+                rows.append({"start": start, "end": prev + 1, "line_y": line_y, "prefix": "cap" if caption else "beat",
+                             "require_drawn": (prev + 1 - start) >= CAPTION_DRAWN_MIN_FRAMES if caption else True})
                 start = f
             prev = f
     return rows
@@ -145,7 +153,11 @@ def admitted_ranges(data, timeline, admitted, out_frames) -> list:
 
 def check_admitted_layer(data, edl, timeline, admitted, frames_dir, ffmpeg) -> None:
     w, h = edl["size"]
-    _alpha_gate.check_layer(frames_dir, admitted_ranges(data, timeline, admitted, edl["out_frames"]), edl["face_box"], None, w, h, ffmpeg)
+    rows = admitted_ranges(data, timeline, admitted, edl["out_frames"])
+    for prefix in ("beat", "cap"):
+        mine = [r for r in rows if r["prefix"] == prefix]
+        if mine:
+            _alpha_gate.check_layer(frames_dir, mine, w, h, ffmpeg, prefix)
 
 
 def load_clips(files: dict, sha256s: dict, limits: dict, ffmpeg: str, ffprobe: str) -> dict:
@@ -235,7 +247,11 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     settle_clips(vocab, data, timeline, assets)
     tpl_serve, tpl_hashes = _frames.load_templates(names, catalogue["dir"]) if names else ({}, {})
     font_serve, fonts_used = _frames.load_fonts(edl["theme"]["fonts"], allow, limits["font_max_bytes"], fonts_directory)
-    # the beats whose block runs on the second contract: their files read, edited, linted and proven before any frame is drawn
+    # the pips and splits settled now, so that the caption pieces and the bands the second contract's pages are built for are the ones the frames are drawn with
+    # (`compose_plan` settles them again: the arithmetic is the same and changes nothing)
+    _layout.pip_cards(data, timeline, assets)
+    _layout.split_layouts(data, timeline)
+    # the entries whose block runs on the second contract: their files read, edited, linted and proven before any frame is drawn
     admitted = admit_blocks(catalogue, timeline, data, edl, font_serve, vendor, hf_registry, None if dry_run else browser["path"])
     asset_serve = {"/assets/%s.%s" % (s, a["kind"]): (a["data"], _frames.ASSET_MIME[a["kind"]]) for s, a in assets.items() if a["kind"] != "clip"}
     serve = {}

@@ -207,14 +207,12 @@ def test_the_base_list_keeps_the_face_box_the_person_gave():
     assert refused(_edl.build_base, doc, analysis_for(doc), DATA, {}, face_box={"x": 0, "y": 0, "w": 1080, "h": 1920}).code == "face_box_leaves_no_room"
 
 
-def test_a_drawn_box_that_touches_the_face_box_is_found():
+def test_there_is_no_test_of_a_drawn_box_against_the_face_box_any_more():
+    """The maintainer's decisions of 2026-11-24: an overlay may be drawn over the speaker's face; the face box only places the bands."""
     import _frames
-    face = {"x": 240, "y": 620, "w": 600, "h": 560}
-    assert _frames.face_hit([{"zone": "card", "x": 100, "y": 200, "w": 800, "h": 380}], face) is None
-    assert _frames.face_hit([{"zone": "card", "x": 100, "y": 200, "w": 800, "h": 440}], face) == "card"
-    assert _frames.face_hit([{"zone": "caption", "x": 100, "y": 1100, "w": 800, "h": 200}], face) == "caption"
-    assert _frames.face_hit([{"zone": "layout", "x": 0, "y": 0, "w": 1080, "h": 1920}], face) is None    # cutaway and pip are not in a zone
-    assert _frames.face_hit([{"zone": "card", "x": 0, "y": 600, "w": 0, "h": 0}], face) is None          # nothing drawn
+    import _layout
+    assert not hasattr(_layout, "face_hit") and not hasattr(_frames, "face_hit")
+    assert _layout.caption_hit({"y": 1500, "h": 61}, {"caption": [1000, 1560]}) and not _layout.caption_hit({"y": 1500, "h": 60}, {"caption": [1000, 1560]})
 
 
 # ---------------------------------------------------------------- the zoom

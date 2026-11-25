@@ -40,6 +40,7 @@ import pytest
 import renderer_kit as K
 import contract_kit as C
 import hf_second_kit as S
+import hf_port_kit as PK
 import _docker as D
 import _edl
 import _host
@@ -505,8 +506,9 @@ def test_f10_the_second_page_contract_draws_the_clean_control_twice_identically_
     one, two = run("clean", "clean1"), run("clean", "clean2")
     assert one.rc == 0 and two.rc == 0, (one.err, two.err)
     assert one.out["sha256"] == two.out["sha256"] and one.out["hf_proofs"][S.NAME]["runtime_sha256"] == runtime_sha
-    expected = {"face_dot": ("overlay_hits_face", start + 5), "below_line": ("caption_below_line", start + 4), "nothing": ("block_not_drawn", start),
-                "opaque": ("overlay_hits_face", start + 3)}
+    # `opaque` (a full-frame layer, the 1-pixel corner cut so that it is RGBA) now proves the line gate: it is below the line from frame 3 (it was the face gate's
+    # until 2026-11-24, when the face rule was removed); `face_dot` (alpha 1/255 in the face box) is no longer refused: it is drawn twice, one sha256
+    expected = {"below_line": ("caption_below_line", start + 4), "nothing": ("block_not_drawn", start), "opaque": ("caption_below_line", start + 3)}
     for variant, (code, frame) in expected.items():
         r = run(variant)
         assert (r.rc, r.code) == (1, code), (variant, r.err[-400:])
@@ -515,13 +517,45 @@ def test_f10_the_second_page_contract_draws_the_clean_control_twice_identically_
                           ("fontface", "block_lint"), ("lint_storage", "block_lint")):
         r = run(variant)
         assert (r.rc, r.code) == (1, code), (variant, r.err[-400:])
+    on_face_one, on_face_two = run("face_dot", "face1"), run("face_dot", "face2")
+    assert on_face_one.rc == 0 and on_face_two.rc == 0, (on_face_one.err[-400:], on_face_two.err[-400:])
+    assert on_face_one.out["sha256"] == on_face_two.out["sha256"]
     r = run("clean", "unproven", determinism=dict(S.entry({}, "a" * 64, "b" * 64)["determinism"]))
     assert (r.rc, r.code) == (1, "block_not_proven"), r.err[-300:]
 
 
+@legs("F11", ("ffmpeg",))
+def test_f11_one_of_our_own_ports_is_drawn_under_the_second_contract_by_the_real_runtime_twice_identically(engine, lab):
+    """PF-a4a. A FICTIONAL tier-B card port and caption port (hf_port_kit) in a test blocks folder, each with a provisional determinism record at the image's own
+    runtime hash. No file is requested at mount (a request would be `blocked_request`), the pages draw, every gate passes (the line, the RGBA check, drawn) and the
+    render twice is one sha256; the caption chunks are written as `cap_*` frames by the same path. The five real ports are PF-a4b's records."""
+    transcript = K.build_transcript(K.SHORT_SENTENCES[:2])
+    rec = lab.recording("pfa4", transcript)
+    edl, beats, doc = lab.documents("pfa4", rec, transcript, S.POST, ("--face-box", K.PIP_FACE_BOX))
+    runtime_sha = image_runtime_sha256(lab, fresh(lab.folder / "pfa4-probe"))
+
+    def run(tag):
+        tmp = fresh(lab.folder / ("pfa4-" + tag))
+        blocks = PK.blocks_folder(tmp, ("card", "caption"), runtime_sha)
+        return lab.render(engine, "pfa4-" + tag, rec, edl, beats, blocks=blocks)
+
+    one, two = run("one"), run("two")
+    assert one.rc == 0 and two.rc == 0, (one.err[-600:], two.err[-600:])
+    assert one.out["sha256"] == two.out["sha256"] and set(one.out["hf_proofs"]) == {PK.CARD, PK.CAPTION}
+    assert one.out["hf_proofs"][PK.CARD]["runtime_sha256"] == runtime_sha and "caption" in one.out["layers"]
+
+
 @legs("F5")
-def test_f5_a_card_over_the_face_box_is_refused_and_leaves_nothing(engine, lab):
-    planted_leg(lab, engine, "cover", "overlay_hits_face")
+def test_f5_a_card_over_the_face_box_is_drawn_on_ffmpeg_and_is_a_pixel_change_of_the_face_region_on_the_old_engine(engine, lab):
+    """The face rule was removed on 2026-11-24 (nothing is refused for touching the face): the ffmpeg engine draws the card. The old engine's pixel check
+    (the face region against the undrawn base) is still there until the engine is deleted (PF-b), so it refuses the same card as `face_pixels_changed`."""
+    if engine == "ffmpeg":
+        lab.need(engine)
+        rec, edl, beats, doc = lab.short()
+        run = lab.render(engine, "planted-cover-%s" % engine, rec, edl, beats, blocks=C.planted_renderat(lab.folder, "cover"))
+        assert run.rc == 0, (run.rc, run.out, run.err[-2000:])
+    else:
+        planted_leg(lab, engine, "cover", "face_pixels_changed")
 
 
 @legs("F6")

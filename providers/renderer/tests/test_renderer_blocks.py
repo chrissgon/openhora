@@ -151,7 +151,6 @@ MALFORMED = [
     ("another name", lambda d: d.update(name="oh:other")),
     ("another namespace", lambda d: d.update(name="xx:keyword")),
     ("a kind that does not give the band", lambda d: d.update(kind="layout")),
-    ("may cross the face in the card band", lambda d: d.update(may_cross_face=True)),
     ("a licence outside the list", lambda d: d.update(license=["GPL-3.0"])),
     ("the registry as the source of an oh: block", lambda d: d.update(source="hyperframes-registry")),
     ("a use_when of 121 characters", lambda d: d.update(use_when=_long(121))),
@@ -187,8 +186,7 @@ def test_an_hf_block_fits_the_schema_unchanged_and_is_refused_on_ffmpeg_naming_t
     assert _blocks.implementation(cat, cat["blocks"]["hf:demo-pop"], "hyperframes") == "hf/demo-pop/demo-pop.html"
     bad_image = copy.deepcopy(K.HF_ENTRY)
     bad_image["params"]["picture"] = {"type": "image"}
-    bad_cross = dict(copy.deepcopy(K.HF_ENTRY), kind="layout", band="frame", may_cross_face=True)
-    for entry in (bad_image, bad_cross):
+    for entry in (bad_image,):
         assert refused(_blocks.check_block, entry, "hf:allowlist[0]", "hf", registry_commit="a" * 40).code == "block_schema"
 
 
@@ -342,7 +340,7 @@ def hf_folder(tmp_path, name="hf", **over):
 def test_the_committed_allowlist_is_still_empty_and_the_ffmpeg_engine_runs_the_renderat_and_the_hf_runtimes():
     allow = json.load(open(os.path.join(BLOCKS, "hf", "allowlist.json"), encoding="utf-8"))
     assert allow["blocks"] == [] and allow["registry_commit"] is None
-    assert json.load(open(os.path.join(BLOCKS, "engines", "ffmpeg.json"), encoding="utf-8"))["runtimes"] == ["renderat", "hf"]
+    assert json.load(open(os.path.join(BLOCKS, "engines", "ffmpeg.json"), encoding="utf-8"))["runtimes"] == ["renderat", "hf", "gsap"]
     assert _blocks.RUNTIMES == ("renderat", "gsap", "hf")
     cat = _blocks.load_catalogue(BLOCKS)
     assert not [b for b in cat["blocks"].values() if "hf" in b["implementations"]]
@@ -379,7 +377,6 @@ def test_an_entry_of_the_second_contract_without_one_of_its_keys_is_refused_and_
     lambda e: e["determinism"].update(date="24-11-2026"),
     lambda e: e["determinism"].update(extra=1),
     lambda e: e["determinism"].pop("seconds"),
-    lambda e: e.update(may_cross_face=True),
     lambda e: e["params"].update(picture={"type": "image"}),
     lambda e: e["params"].update(picture={"type": ["image", "clip"]}),
     lambda e: e["params"].pop("color"),                                       # `bind` names a parameter the entry does not declare

@@ -8,8 +8,13 @@ What an admission does, in the order it does it:
      lints them;
   3. (the container's: `_admit_check`) measures determinism and the exact gates; the verb in `ffmpeg.py` runs it and hands the result here;
   4. writes what the admission changes: the `registry.sha256` rows and a NOTICE entry (so that the image fetches the file at its next build, pinned),
-     and the allowlist entry with its recorded determinism test, or, when staging was asked or the name is already held by another block (the tier-B
-     port holds `hf:spring-pop` until the port is deleted), `hf-runtime/staged/<id>.json`, which the catalogue never loads.
+     and the allowlist entry with its recorded determinism test, or, when staging was asked or the name is already held by another block (our own
+     port of the same name), `hf-runtime/staged/<id>.json`, which the catalogue never loads. The staged `spring-pop` original is kept as evidence and
+     is never activated: the port is what runs (decision C10, 2026-11-24).
+
+One of our own tier-B ports (`--port NAME`, PF-a4) is admitted the same way with less to do: the file is ours and already in the repository, so there is no
+registry row, no NOTICE entry and no allowlist entry. `plan_port` runs both lints, checks the working file against its pin and against `HEAD`, and computes
+the served digest; `write_port` writes the determinism record into the port's `block.json` and re-pins. Any edit of the port's file expires the record.
 
 Without `--confirmed` the plan is printed and nothing is written, and no container is started. Nothing is downloaded: the source is a folder on this machine.
 A refusal leaves every file as it was. Standard library only.
@@ -172,16 +177,24 @@ def _sha(raw: bytes) -> str:
 
 # ---------------------------------------------------------------- step 4: what is written
 
-def record_of(result: dict, planned: dict, image: str, date: str = None) -> dict:
-    """The determinism record from the container's measurement, checked against the plan: the same served hash, four runs, no blocked request, the
-    samples of the entry. `date` is `date +%F` of the day it was measured."""
-    served = planned["entry"]["served_sha256"]
+def _record(result: dict, served: str, samples: int, image: str, date) -> dict:
     ok = result.get("served_sha256") == served and result.get("runs") == 4 and result.get("blocked") == 0 \
-        and result.get("samples") == len(planned["entry"]["samples"]) and isinstance(result.get("frames"), int) and result["frames"] > 0
+        and result.get("samples") == samples and isinstance(result.get("frames"), int) and result["frames"] > 0
     if not ok or not isinstance(result.get("runtime_sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", result["runtime_sha256"]):
         raise Refusal("admit_result", "determinism")
     return {"served_sha256": served, "runtime_sha256": result["runtime_sha256"], "samples": result["samples"], "frames": result["frames"], "runs": 4,
             "blocked": 0, "date": date or time.strftime("%Y-%m-%d"), "image": image, "seconds": float(result["seconds"])}
+
+
+def record_of(result: dict, planned: dict, image: str, date: str = None) -> dict:
+    """The determinism record from the container's measurement, checked against the plan: the same served hash, four runs, no blocked request, the
+    samples of the entry. `date` is `date +%F` of the day it was measured."""
+    return _record(result, planned["entry"]["served_sha256"], len(planned["entry"]["samples"]), image, date)
+
+
+def record_of_port(result: dict, planned: dict, image: str, date: str = None) -> dict:
+    """The same for a port (`plan_port`): the samples measured are the port's own (`planned["samples"]`)."""
+    return _record(result, planned["served_sha256"], planned["samples"], image, date)
 
 
 def notice_text(current: str, planned: dict, record: dict) -> str:
@@ -260,3 +273,69 @@ def read_staged(path: str, registry_commit: str) -> dict:
     except (OSError, ValueError):
         raise Refusal("block_schema", "staged") from None
     return _blocks.check_block(obj, "staged:" + os.path.basename(path)[:60], "hf", registry_commit=registry_commit)
+
+
+# ---------------------------------------------------------------- one of our own ports (PF-a4)
+
+def git_clean(repo_root: str, path: str) -> bool:
+    """Whether `path` is tracked and equal to `HEAD` in the repository at `repo_root`."""
+    env = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""), "GIT_CONFIG_NOSYSTEM": "1"}
+    try:
+        tracked = subprocess.run(["git", "-C", repo_root, "ls-files", "--error-unmatch", "--", path], capture_output=True, timeout=30, env=env)
+        same = subprocess.run(["git", "-C", repo_root, "diff", "--quiet", "HEAD", "--", path], capture_output=True, timeout=30, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return tracked.returncode == 0 and same.returncode == 0
+
+
+def plan_port(name: str, blocks_dir=None, repo_root=None) -> dict:
+    """Steps 1 and 2 for one of our own tier-B ports. Returns {name, block, path (its block.json), served_sha256, samples (how many the measurement draws), blocks_dir,
+    summary}. Nothing is written and no container is started. Refusals: `admit_entry` (not a tier-B port of ours: a tier-A entry, an `oh:` block, an unknown
+    name), `block_hash` (the staged file differs from its pin), `block_lint`, and `admitted_commit` (the file differs from `HEAD`, or is not tracked)."""
+    import _hf_port
+    _hf_lint.self_test()
+    blocks_dir = blocks_dir or _blocks.blocks_dir()
+    repo_root = repo_root or os.path.dirname(os.path.dirname(HERE))
+    if not isinstance(name, str) or not _blocks.NAME.fullmatch(name) or not name.startswith("hf:"):
+        raise Refusal("admit_entry", "port")
+    catalogue = _blocks.load_catalogue(blocks_dir)                     # every pinned file against its pin: `block_hash` on any difference
+    block = catalogue["blocks"].get(name)
+    if block is None or block.get("tier") != "B" or set(block["implementations"]) != {"gsap"}:
+        raise Refusal("admit_entry", "port")
+    fragment = _hf_port.read_fragment(catalogue, block)                # the pin again, and both lints
+    served = _hf_port.served_digest(fragment["raw"])
+    short = name.split(":", 1)[1]
+    fragment_path = os.path.join(blocks_dir, "hf", short, block["implementations"]["gsap"])
+    try:
+        rel = os.path.relpath(os.path.realpath(fragment_path), os.path.realpath(repo_root))
+    except ValueError:
+        rel = None
+    if rel is None or rel.startswith("..") or not git_clean(repo_root, rel):
+        raise Refusal("admitted_commit", "port")
+    if block["kind"] == "caption":
+        import _admit_check          # the drawing part (the measurement's lines): imported here only, since it brings the browser's modules
+        samples = len(_admit_check.CAPTION_LINES)
+    else:
+        samples = len(block["samples"])
+    path = os.path.join(blocks_dir, "hf", short, "block.json")
+    return {"name": name, "block": block, "path": path, "served_sha256": served, "samples": samples, "blocks_dir": blocks_dir,
+            "summary": {"ok": True, "plan": True, "name": name, "port": True, "files": {block["implementations"]["gsap"]: _sha(fragment["raw"])},
+                        "served_sha256": served, "samples": samples, "commit": block["commit"], "had_record": "determinism" in block,
+                        "writes": ["hf/%s/block.json" % short, "pins.json", "catalogue.json"]}}
+
+
+def write_port(planned: dict, record: dict) -> dict:
+    """Write the record into the port's `block.json`, then pin the blocks again (`pins.json`, `catalogue.json`), all computed before the first write. A record
+    that is not the plan's (another served hash) is `admit_result`. Returns the paths written."""
+    if record.get("served_sha256") != planned["served_sha256"]:
+        raise Refusal("admit_result", "determinism")
+    with open(planned["path"], encoding="utf-8") as fh:
+        doc = json.load(fh)
+    doc["determinism"] = record
+    short = planned["name"].split(":", 1)[1]
+    pinned = {"hf/%s/%s" % (short, planned["block"]["implementations"]["gsap"]): "-"}
+    _blocks.check_block(doc, "admit:port", "hf", short, pinned)
+    _write(planned["path"], json.dumps(doc, indent=1) + "\n")
+    _blocks.write_pins(planned["blocks_dir"])
+    sha = _blocks.write_catalogue(planned["blocks_dir"])
+    return {"written": [planned["path"], os.path.join(planned["blocks_dir"], "pins.json"), os.path.join(planned["blocks_dir"], "catalogue.json")], "blocks_sha256": sha}

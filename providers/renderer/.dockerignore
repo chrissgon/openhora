@@ -21,6 +21,7 @@
 !_hf_gate.py
 !_hf_host.py
 !_hf_lint.py
+!_hf_port.py
 !_hf_page.py
 !_layout.py
 !_lint.py

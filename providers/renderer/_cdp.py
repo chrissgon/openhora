@@ -491,6 +491,13 @@ class Page:
         time.sleep(0.15)   # let late subresource requests reach the Fetch handler
         self._admitted_state(self.before)
 
+    def close(self):
+        """Close this page's target (`Target.closeTarget`), so that a long render does not keep one tab per entry open. A page that is already gone is not an error."""
+        try:
+            self.c.send("Target.closeTarget", {"targetId": self.target_id})
+        except CDPError:
+            pass
+
     def seek_admitted(self, t):
         """Seek the runtime to `t` seconds, wait for two painted frames, check the faces and the page's state, and return the PNG."""
         self.evaluate(SEEK_JS % float(t), await_promise=True, timeout=60)

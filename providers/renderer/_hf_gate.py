@@ -1,17 +1,17 @@
 """The gates on what the HyperFrames engine draws (package V3b-2): the DOM boxes of every frame against the face box and the line at 1560,
 and the pixels of the face region against the undrawn base. Nothing the engine draws reaches the final encode unless both pass.
 
-One rule is loosened, and only inside a cut (package V9b-2, decision 6 of `docs/decisions/2026-11-21-v9b-2-frame-band.md`): while an entry of the `frame`
-band whose block has `may_cross_face: true` (a full-frame cutaway) is on, its picture covers the face by design, so a `frame`-zone box on those frames is
-allowed and the pixel check does not judge the face region of exactly those frames (`crossing_spans`, taken from the pinned catalogue, never from a file the
-drawing container wrote). Anywhere else a `frame`-zone box is `overlay_hits_face`, and the captions keep every rule on every frame.
+The box check has no rule about the face (the maintainer's decisions of 2026-11-24: an overlay may be drawn over the speaker's face, "limit security, not
+creativity"). The pixel check below still compares the face region with the undrawn base, so on this engine an overlay that draws on the face is still
+`face_pixels_changed` (that check also guards the base picture's parity with the ffmpeg engine; the engine is deleted in PF-b with its gate). The entries of the
+`frame` band whose block has `may_cross_face: true` (a full-frame cutaway; package V9b-2, decision 6 of `docs/decisions/2026-11-21-v9b-2-frame-band.md`) are the frames the pixel check leaves out (`crossing_spans`, taken from the pinned
+catalogue, never from a file the drawing container wrote).
 
 Two checks, both code, neither with a switch:
 
   boxes   `boxes.json` is what the page itself reported after the drawing (`hyperframes-image/hf_measure.mjs`: every box of every frame,
-          the glyph rects of the text too). Each box is tested with the ffmpeg engine's own arithmetic (`_layout.face_hit`,
-          `_layout.caption_hit`, `_layout.zones`) against the face of the entry that is on at that frame in the box's zone, else the face
-          of the kept range the frame is in. The refusals are the ffmpeg engine's own: `overlay_hits_face`, `caption_below_line`. One more,
+          the glyph rects of the text too). Each box is tested with the ffmpeg engine's own arithmetic (`_layout.caption_hit`, `_layout.zones`) against the face of the entry that is on at that frame in the box's zone, else the face
+          of the kept range the frame is in. The refusal is the ffmpeg engine's own: `caption_below_line`; a box in a zone that does not exist is `box_zone_unknown`. One more,
           the HyperFrames engine's alone (V3c): a caption entry of at least CAPTION_DRAWN_MIN_FRAMES frames that no frame of its span draws a
           glyph box of area for is `caption_not_drawn` (words that draw nothing, a font-size of zero or a hidden line).
   pixels  the face region of each kept range of the intermediate is compared, frame by frame, with the same region of the base the
@@ -39,7 +39,7 @@ from _text import Refusal
 
 BOXES_MAX_BYTES = 64 * 1024 ** 2                # the cap of boxes.json (hf_measure.mjs refuses a larger one, `boxes_too_large`)
 MAX_BOXES_PER_FRAME = 2000                      # the same figure as hf_measure.mjs (`boxes_too_many`)
-ZONES = ("frame", "card", "caption")           # the bands boxes sit in; a `frame` box is allowed only inside a crossing entry (`crossing_spans`)
+ZONES = ("frame", "card", "caption")           # the bands boxes sit in
 ENGINE = "hyperframes"
 ALLOWED_FAMILIES = ("Inter", "JetBrains Mono")  # the families of assets/fonts/allowlist.json
 KEY = re.compile(r"[A-Za-z0-9_.:\-]{1,60}")
@@ -134,13 +134,11 @@ def inside(spans, f: int) -> bool:
     return any(a <= f < b for a, b in spans)
 
 
-def check_boxes(doc: dict, timeline: dict, range_faces: list, data: dict, crossing=()) -> dict:
-    """Every box of every frame against the face box and the line at 1560, in frame order, the first violation raised. `crossing` is the spans of
-    `crossing_spans` (none by default: nothing may cross the face):
+def check_boxes(doc: dict, timeline: dict, range_faces: list, data: dict) -> dict:
+    """Every box of every frame against the line at 1560, in frame order, the first violation raised. There is no rule about the face: a box, a glyph or a whole
+    layer may be on the speaker's face (the maintainer's decisions of 2026-11-24; the face box only places the bands):
 
-      a `frame`-zone box on a frame outside `crossing`          overlay_hits_face  "frame <f> <key>"
-      a box of any zone but frame, card and caption             overlay_hits_face  "frame <f> <key>"
-      a box (element or glyph) that touches the face            overlay_hits_face  "frame <f> <key>"
+      a box of any zone but frame, card and caption             box_zone_unknown  "frame <f> <key>"
       a caption box (element or glyph) whose bottom is below the caption band's bottom   caption_below_line  "frame <f> bottom <y>"
       a caption entry of CAPTION_DRAWN_MIN_FRAMES frames or more with no frame in its span that holds a caption-zone glyph box of width and
       height above zero                                         caption_not_drawn  "caption <k> frames <first> to <last>"   (after the frame loop, entries in order)
@@ -154,15 +152,11 @@ def check_boxes(doc: dict, timeline: dict, range_faces: list, data: dict, crossi
             total += 1
             zone, field = b["zone"], ("frame %d %s" % (f, b["key"]))[:80]
             if zone not in ZONES:
-                raise Refusal("overlay_hits_face", field)
-            if zone == "frame":
-                if not inside(crossing, f):
-                    raise Refusal("overlay_hits_face", field)
-                continue                                                          # inside a cut: the picture covers the face by design
+                raise Refusal("box_zone_unknown", field)
+            if zone != "caption":
+                continue                                                          # a card or a layout may cover the face; only a caption has a line to keep
             face = faces[zone][f]
-            if _layout.face_hit([b], face):
-                raise Refusal("overlay_hits_face", field)
-            if zone == "caption" and b["w"] > 0 and b["h"] > 0:
+            if b["w"] > 0 and b["h"] > 0:
                 bottom = b["y"] + b["h"]
                 lowest = bottom if lowest is None else max(lowest, bottom)
                 band = bands.setdefault((face["x"], face["y"], face["w"], face["h"]), _layout.zones(data, face))

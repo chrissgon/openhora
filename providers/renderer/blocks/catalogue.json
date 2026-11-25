@@ -95,8 +95,16 @@
    ],
    "samples": [
     {
-     "label": "visits in the first week",
-     "value": "2.480"
+     "label": "Go",
+     "value": "7"
+    },
+    {
+     "label": "visits we counted over the whole summer",
+     "value": "123.456,78"
+    },
+    {
+     "label": "Pedidos de caf\u00e9, \u00e7a va",
+     "value": "42"
     }
    ],
    "source": "hyperframes-registry",
@@ -135,8 +143,15 @@
    ],
    "samples": [
     {
+     "text": "Go"
+    },
+    {
      "icon": "coin",
-     "text": "Name every dollar"
+     "text": "Name every dollar, today"
+    },
+    {
+     "icon": "bolt",
+     "text": "Promo\u00e7\u00e3o s\u00f3 hoje, j\u00e1!"
     }
    ],
    "source": "hyperframes-registry",
@@ -176,8 +191,15 @@
    ],
    "samples": [
     {
-     "author": "Aster Lane",
-     "text": "Small steps beat big plans."
+     "text": "Go."
+    },
+    {
+     "author": "Aster Lane of the Long Harbour Savings C",
+     "text": "Small steps beat big plans, and a plain written budget beats a clever hidden one every single month of the year. Ask me!"
+    },
+    {
+     "author": "Ren\u00e9e Fa\u00e7on",
+     "text": "Cr\u00e8me br\u00fbl\u00e9e \u00e9 a melhor sobremesa de todas."
     }
    ],
    "source": "hyperframes-registry",
@@ -789,7 +811,7 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "e31ab998ba6a5476f6132d31d0d82c92cf24cbd60a50ff294feddbe026439d3e",
+ "blocks_sha256": "e7069d5532d43944a1037dbf2eb4ad14525ed3c9d7cd5fec034cafab78b9e968",
  "engines": {
   "ffmpeg": {
    "presets": {
@@ -808,7 +830,8 @@
    },
    "runtimes": [
     "renderat",
-    "hf"
+    "hf",
+    "gsap"
    ]
   },
   "hyperframes": {

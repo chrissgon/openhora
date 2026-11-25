@@ -139,7 +139,7 @@ def test_a_moved_function_is_still_found_under_its_old_module_and_is_the_same_ob
         assert getattr(_frames, name) is getattr(_assets, name), name
     for name in ("read_platform", "make_cover", "make_still", "png_size", "write_once"):
         assert getattr(_render, name) is getattr(_output, name), name
-    assert _edl.zones is _layout.zones and _frames.face_hit is _layout.face_hit and _frames.caption_hit is _layout.caption_hit
+    assert _edl.zones is _layout.zones and _frames.caption_hit is _layout.caption_hit
     assert not hasattr(_frames, "_edl_zones")
 
 
