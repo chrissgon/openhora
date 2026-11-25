@@ -82,7 +82,7 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `scheduler:job` | `scheduler/` | `systemd.py` | `--check`, `schedule`, `list`, `cancel`, `resolve`, `run` |
 | `store:runtime` | `store/` | `sqlite.py` | `--check`, `init`, `cursor-get`, `cursor-set`, `cursor-clear`, `event-add`, `event-next`, `event-done`, `run-start`, `run-end`, `runs`, `inbox-add`, `inbox-list`, `inbox-resolve`, `action-add`, `actions`, `action-count`, `export` |
 | `transcriber:speech` | `transcriber/` | `whispercpp.py` | `--check`, `models`, `build`, `reap`, `transcribe` |
-| `renderer:video` | `renderer/` | `ffmpeg.py` | `--check`, `build`, `pin-browser`, `reap`, `pin-blocks`, `block-params`, `render`, `storyboard` |
+| `renderer:video` | `renderer/` | `ffmpeg.py` | `--check`, `build`, `pin-browser`, `reap`, `pin-blocks`, `block-params`, `admit-block`, `render`, `storyboard` |
 | `renderer:video` | `renderer/` | `hyperframes.py` | `--check`, `build`, `reap`, `render`, `compat`, `block-params` |
 | `fetcher:video` | `fetcher/` | `ytdlp.py` | `--check`, `pin-show`, `pin-latest`, `pin-raise`, `build`, `reap`, `fetch`, `measure` |
 | `stock:media` | `stock/` | `openverse.py` | `search`, `fetch` |

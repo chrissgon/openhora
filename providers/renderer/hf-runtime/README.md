@@ -1,7 +1,7 @@
 # hf-runtime: the HyperFrames runtime and GSAP of the common image
 
 What is here (and in the image's manifest): `npm-pins.json` (two npm tarballs, pinned by url, sha512 integrity and a sha256 of each member we
-extract), `registry.sha256` (the HyperFrames registry commit and the sha256 of each raw file the image carries: only `LICENSE` for now),
+extract), `registry.sha256` (the HyperFrames registry commit and the sha256 of each raw file the image carries: `LICENSE` and each file of an admitted component),
 `fetch_hf.py` (the build-time fetch), and `shims/` (five small scripts the second page contract serves with a page; `SHA256SUMS` pins them).
 
 What is fetched at build and never committed: `gsap.min.js`, `hyperframe.runtime.iife.js` and `hyperframe.manifest.json` go to
@@ -13,4 +13,4 @@ path, a `..` or a member over 8 MiB, and leaves no output folder when it refuses
 To raise a version: edit `npm-pins.json` (url, integrity, sha256 of each member) and the lockfile of `hyperframes-image/` together, rebuild the common image
 (`ffmpeg.py build --confirmed`). The runtime's hash changes, so every admitted block's determinism record expires and the render refuses it until it is tested again.
 
-Who reads them: `_hf_host.py` (the second page contract, PF-a2) loads the three vendor files and the five shims at render, each against its pin, serves the runtime, GSAP and the shims inline or from `/h/vendor/`, and takes the runtime's hash from them. `registry.sha256` rows are what an admitted entry's files come from (PF-a3 adds them).
+Who reads them: `_hf_host.py` (the second page contract, PF-a2) loads the three vendor files and the five shims at render, each against its pin, serves the runtime, GSAP and the shims inline or from `/h/vendor/`, and takes the runtime's hash from them. `registry.sha256` rows are what an admitted entry's files come from; `ffmpeg.py admit-block` adds them. `entries/` holds our fields of an entry (the input of `admit-block`), `staged/` the admitted entries that are not active (validated, never loaded by the catalogue).
