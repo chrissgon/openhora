@@ -283,6 +283,22 @@ CARD_TODO_LIST: Lista: one, two, three (Example Calendar)
 CARD_TODO_NOW_TITLE: Tarefa: Quarterly review
 CARD_TODO_PLAIN: Uma tarefa só com este título: sem data de vencimento e sem nota.
 CARD_TODO_TITLE: Tarefa: Quarterly review
+CARD_VIDEO_ADVICE_ASIDE_REPEATED: Conselho: o vídeo tem yes apartes, mais que o <default> de costume.
+CARD_VIDEO_ADVICE_ASIDE_WITH_PUNCH: Conselho: yes zooms de impacto caem num aparte, que costuma não ter nenhum.
+CARD_VIDEO_ADVICE_BEATS_OVER_DEFAULT: Conselho: o vídeo tem yes cenas, mais que as <default> de costume.
+CARD_VIDEO_ADVICE_BEAT_SHORTER_THAN_DEFAULT: Conselho: uma cena aparece por yes s, menos que os <default> s de costume, porque uma imagem cobre o resto.
+CARD_VIDEO_ADVICE_BLOCK_NOT_DRAWN: Conselho: uma animação não desenhou nada por yes quadros (3 vezes).
+CARD_VIDEO_ADVICE_CAPTION_BELOW_LINE: Conselho: as legendas chegam a yes px, abaixo da linha de costume em <default> px, onde os botões do app podem cobri-las.
+CARD_VIDEO_ADVICE_CAPTION_NOT_DRAWN: Conselho: uma legenda não mostrou palavras por yes quadros (3 vezes).
+CARD_VIDEO_ADVICE_CAPTION_ROOM_SMALL: Conselho: as legendas têm yes px abaixo do rosto, menos que os <default> px de costume, e podem cobrir o rosto.
+CARD_VIDEO_ADVICE_CARD_ROOM_SMALL: Conselho: os cartões têm yes px acima do rosto, menos que os <default> px de costume, e podem cobrir o rosto.
+CARD_VIDEO_ADVICE_DRAWN_BELOW_LINE: Conselho: uma animação desenha abaixo da sua linha em yes quadros (3 vezes).
+CARD_VIDEO_ADVICE_FACE_PIXELS_CHANGED: Conselho: algo desenhado muda o rosto: yes dB contra a verificação de costume de <default> dB.
+CARD_VIDEO_ADVICE_PIP_CARD_OVER_FACE: Conselho: um cartão de imagem tem yes px abaixo do rosto, menos que os <default> px de costume, e é desenhado sobre o rosto.
+CARD_VIDEO_ADVICE_PUNCHES_OVER_DEFAULT: Conselho: o roteiro tem yes zooms de impacto, mais que os <default> de costume.
+CARD_VIDEO_ADVICE_PUNCH_SHORT: Conselho: um zoom de impacto dura yes s, menos que os <default> s de costume.
+CARD_VIDEO_ADVICE_SPLIT_BAND_OVER_FACE: Conselho: uma divisão de tela deixa yes px de faixa de legenda livre do rosto, menos que os <default> px de costume, e as legendas passam por cima.
+CARD_VIDEO_ADVICE_TEXT_OVER_DEFAULT: Conselho: um texto tem yes caracteres, mais que os <default> para os quais a animação foi feita; ele pode ser cortado ou encolher.
 CARD_VIDEO_ASSET: Imagem: <slot>, notes.example, <licence>, sha256 0123456789abcdef
 CARD_VIDEO_BLOCK: Bloco de animação: 42 0123456789abcdef
 CARD_VIDEO_CLOSING: Aprovar marca este arquivo exato como disponível para baixar. Nada é publicado.
