@@ -73,6 +73,19 @@ def test_the_page_is_built_like_the_registry_page_a_template_a_host_root_the_fiv
     assert "background:transparent" in text and "--c-accent:" in text and "--font-display:" in text and "--weight-display:" in text
 
 
+def test_the_css_of_the_theme_and_the_fragment_is_in_the_page_head_and_never_inside_the_template_the_runtime_rewrites(world):
+    """PF-a4d. The runtime rewrites every selector of a `<style>` it finds in a mounted composition under `[data-composition-id="oh-port"]` (and `:root`
+    into that root), which can never match inside `@scope (#oh-inst)`: a port drawn so had no style at all. The CSS is in the page's own head, where the
+    runtime leaves it as written; the template holds the markup and the script only."""
+    text = page(world)
+    template = text[text.index("<template id=\"oh-port-template\">"):text.index("</template>")]
+    head = text[:text.index("<template id=\"oh-port-template\">")]
+    assert "<style" not in template and "@scope" not in template and ":root" not in template
+    assert ":root{--c-accent:" in head and ".hf-inst{position:absolute;display:block}" in head and "@scope (#oh-inst) {\n" in head
+    assert ".badge { padding: 10px 22px;" in head.split("@scope (#oh-inst) {")[1]
+    assert "[data-composition-id" not in head.split("<style>")[-1]
+
+
 def test_a_caption_chunk_page_is_at_c_with_its_own_zone_band_and_the_old_engines_payload(world):
     text = page(world, "caption")
     assert 'data-composition-src="/h/c3/oh-port.html"' in text and 'data-hf-zone="caption"' in text
@@ -168,7 +181,7 @@ def test_the_digest_covers_the_fragment_and_the_version_of_the_page_shape(monkey
     raw = P.fragment().encode()
     a = _hf_port.served_digest(raw)
     assert re.fullmatch(r"[0-9a-f]{64}", a) and _hf_port.served_digest(raw + b" ") != a
-    monkeypatch.setattr(_hf_port, "PORT_HOST_VERSION", "2")
+    monkeypatch.setattr(_hf_port, "PORT_HOST_VERSION", _hf_port.PORT_HOST_VERSION + "x")
     assert _hf_port.served_digest(raw) != a
 
 
