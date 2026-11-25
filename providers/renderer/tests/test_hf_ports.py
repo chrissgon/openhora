@@ -114,7 +114,7 @@ def test_a_ports_header_names_the_component_the_commit_and_the_notice_and_never_
     header = re.match(r"\s*<!--(.*?)-->", text, re.S).group(1)
     assert header.startswith(" hf:%s:" % short)
     assert "component %s " % component in header and "file %s.html" % component in header and digest in header and COMMIT in header
-    assert "Apache-2.0" in header and ("providers/renderer/hf-runtime/NOTICE.md" in header or "providers/renderer/hyperframes-image/NOTICE.md" in header) and "changes:" in header      # PF-a4: the notice moved to hf-runtime/NOTICE.md; the two headers not yet moved are in the PR notes
+    assert "Apache-2.0" in header and "providers/renderer/hf-runtime/NOTICE.md" in header and "changes:" in header      # PF-a4: the notice moved to hf-runtime/NOTICE.md
     assert MAKER not in text.lower() and MAKER not in (HF_DIR / short / "block.json").read_text().lower()
     assert "<template data-hf-block=\"hf:%s\">" % short in text
 
