@@ -138,6 +138,14 @@ def test_every_declared_variable_gets_a_value_from_a_parameter_or_a_fixed_one_an
     assert refused(_hf_host.values_for, dict(block, fixed={"nope": 1}), files, {"text": "x"}, *THEME).code == "admitted_unbound"
 
 
+def test_a_palette_token_is_the_themes_colour_and_a_parameter_wins_over_the_themes_default_for_the_same_property(tmp_path, rt):
+    block, runtime, files = sample(tmp_path, rt, theme_vars=dict(H.THEME_VARS, **{"--brand": "accent"}))
+    colors = DATA["theme"]["colors"]
+    assert _hf_host.values_for(block, files, {"text": "x"}, *THEME)[1]["--brand"] == colors["accent"]                  # no parameter given: the theme's default
+    assert _hf_host.values_for(block, files, {"text": "x", "color": "muted"}, *THEME)[1]["--brand"] == colors["muted"]   # a token: the theme's colour for it
+    assert _hf_host.values_for(block, files, {"text": "x", "color": "#112233"}, *THEME)[1]["--brand"] == "#112233"        # a hex value stays as it is
+
+
 def test_the_background_variable_is_never_mapped_and_an_unknown_role_is_refused(tmp_path, rt):
     block, runtime, files = sample(tmp_path, rt)
     for tv in ({"--bg": "bg"}, {"--x": "nope"}, {"x": "text"}):

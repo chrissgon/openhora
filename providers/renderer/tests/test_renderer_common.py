@@ -163,7 +163,7 @@ def test_the_host_exports_the_common_verbs_and_the_ffmpeg_engine_serves_them_bes
     sub = p.add_subparsers(dest="verb")
     _host.add_common_parsers(sub)
     assert tuple(sub.choices) == _host.COMMON_VERBS
-    assert set(ffmpeg.VERBS) == set(_host.COMMON_VERBS) | {"build", "pin-browser", "reap", "pin-blocks", "block-params", "render", "storyboard"}
+    assert set(ffmpeg.VERBS) == set(_host.COMMON_VERBS) | {"build", "pin-browser", "reap", "pin-blocks", "block-params", "render", "storyboard", "admit-block"}
     for verb in _host.COMMON_VERBS:
         assert ffmpeg.VERBS[verb] is _host.COMMON_HANDLERS[verb]
 

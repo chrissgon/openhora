@@ -41,7 +41,8 @@ def test_the_registry_manifest_names_the_commit_and_the_license_row():
     lines = (RUNTIME / "registry.sha256").read_text(encoding="utf-8").splitlines()
     assert lines[0] == "# commit b4cc674f7f312e77ded32e0b53006cc0bad6723b"
     rows = [line for line in lines if line.strip() and not line.startswith("#")]
-    assert rows == ["%s  LICENSE" % LICENSE_SHA]
+    assert rows[0] == "%s  LICENSE" % LICENSE_SHA                                       # an admission adds one row per file of the component it admits
+    assert all(re.fullmatch(r"[0-9a-f]{64}  registry/components/[a-z0-9-]+/[a-z0-9-]+\.html", row) for row in rows[1:]) and rows[1:] == sorted(rows[1:], key=lambda r: r.split()[1])
     assert LICENSE_SHA == hashlib.sha256((K.RENDERER / "hyperframes-image" / "LICENSE-registry-Apache-2.0.txt").read_bytes()).hexdigest()
 
 

@@ -1,0 +1,79 @@
+{
+ "band": "card",
+ "bind": {
+  "color": "css:--brand",
+  "text": "var:text"
+ },
+ "commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
+ "component": "registry/components/spring-pop",
+ "determinism": {
+  "blocked": 0,
+  "date": "2026-11-24",
+  "frames": 162,
+  "image": "openhora-renderer:4d3d46922f7a",
+  "runs": 4,
+  "runtime_sha256": "491a22ffea0bf65cedc4389ddda9c31e2906c7adac05726333e4d4f422bf42ea",
+  "samples": 3,
+  "seconds": 36.64,
+  "served_sha256": "e10158be254745a17099aab005d402e579a2843f8ba962937a24c59ed6648a7f"
+ },
+ "edits": [
+  "E1",
+  "E2:Inter"
+ ],
+ "files": {
+  "spring-pop.html": "542423b2d98bb48400280b621e7421b16ae026c2abc1ee8f64d5cca18fd8f51d"
+ },
+ "fixed": {
+  "fromScale": 0.9,
+  "overshoot": 1.4
+ },
+ "font_map": {
+  "Inter": "oh-text"
+ },
+ "implementations": {
+  "hf": "spring-pop.html"
+ },
+ "kind": "overlay",
+ "license": [
+  "Apache-2.0"
+ ],
+ "may_cross_face": false,
+ "name": "hf:spring-pop",
+ "natural_duration": 2.0,
+ "notice": "Apache-2.0; HyperFrames registry at b4cc674f; notices in providers/renderer/hf-runtime/NOTICE.md",
+ "params": {
+  "color": {
+   "type": "color"
+  },
+  "text": {
+   "max": 24,
+   "required": true,
+   "type": "text"
+  }
+ },
+ "preset": "keyword",
+ "samples": [
+  {
+   "text": "Go"
+  },
+  {
+   "text": "Name every dollar today!"
+  },
+  {
+   "text": "Promo\u00e7\u00e3o s\u00f3 hoje, j\u00e1!"
+  }
+ ],
+ "served_sha256": "e10158be254745a17099aab005d402e579a2843f8ba962937a24c59ed6648a7f",
+ "source": "hyperframes-registry",
+ "theme_vars": {
+  "--border": "chip_border",
+  "--brand": "accent",
+  "--fg": "text",
+  "--font-body": "font:text",
+  "--font-display": "font:display",
+  "--surface": "chip_fill"
+ },
+ "tier": "A",
+ "use_when": "a single short keyword that should pop in, no icon"
+}

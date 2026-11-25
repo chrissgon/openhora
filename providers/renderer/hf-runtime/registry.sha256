@@ -1,3 +1,4 @@
 # commit b4cc674f7f312e77ded32e0b53006cc0bad6723b
 # sha256  path (raw files of the registry repository at that commit; PF-a3 adds a component's files)
 4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8  LICENSE
+542423b2d98bb48400280b621e7421b16ae026c2abc1ee8f64d5cca18fd8f51d  registry/components/spring-pop/spring-pop.html
