@@ -310,15 +310,15 @@ def verb_admit_check(args) -> dict:
     import _admit_check   # the drawing part: imported only by this verb
     if args.vendor and os.environ.get("RENDERER_TEST") != "1":
         raise Usage("--vendor is for the tests: the image's folder is the only one a measurement reads")
-    ffmpeg, _ffprobe = tools(args)
+    if args.port and (args.entry or args.component_dir):
+        raise Usage("--port is exclusive with --entry and --component-dir")
+    if not args.port and (not args.entry or not args.component_dir):
+        raise Usage("admit-check needs --entry and --component-dir, or --port")
+    ffmpeg, _ffprobe = tools(args)   # after every usage check: a usage error is never reported as a missing tool
     if args.port:
-        if args.entry or args.component_dir:
-            raise Usage("--port is exclusive with --entry and --component-dir")
         return _admit_check.admit_port_check(port=args.port, vocabulary=args.vocabulary, blocks=args.blocks, blocks_sha256=args.blocks_sha256,
                                              scratch=args.scratch or tempfile.gettempdir(), browser=browser_path(args), ffmpeg=ffmpeg, vendor=args.vendor,
                                              jobs=max(1, min(args.jobs, 8)), time_limit=args.time_limit)
-    if not args.entry or not args.component_dir:
-        raise Usage("admit-check needs --entry and --component-dir, or --port")
     entry = read_json(args.entry, 1 << 20)
     if not isinstance(entry, dict) or not isinstance(entry.get("samples"), list) or not isinstance(entry.get("files"), dict) \
             or not isinstance(entry.get("served_sha256"), str):

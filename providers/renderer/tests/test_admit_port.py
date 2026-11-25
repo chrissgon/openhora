@@ -151,6 +151,23 @@ def test_the_inner_verb_refuses_a_port_with_an_entry_and_needs_one_of_them(tmp_p
     assert rc == 2 and "--port" in err, err
 
 
+def test_the_usage_checks_of_the_inner_verb_come_before_the_tool_check(monkeypatch):
+    """A usage error is a usage error (rc 2) on a machine with no ffmpeg too, never a missing tool (rc 3)."""
+    import _inner
+
+    def no_tool(args):
+        raise _inner.NotConfigured("tool_missing", "ffmpeg")
+
+    monkeypatch.setattr(_inner, "tools", no_tool)
+    parser = _inner.parser()
+    common = ["--vocabulary", "v.json", "--blocks", "b", "--blocks-sha256", "0" * 64, "--scratch", "s"]
+    both = parser.parse_args(["admit-check", "--port", "p", "--entry", "e.json"] + common)
+    neither = parser.parse_args(["admit-check"] + common)
+    for args in (both, neither):
+        with pytest.raises(_inner.Usage):
+            _inner.verb_admit_check(args)
+
+
 # ---------------------------------------------------------------- the measurement
 
 def check_args(tmp, monkeypatch, name, kinds=("card", "caption"), extra=""):
