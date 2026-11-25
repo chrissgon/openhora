@@ -32,7 +32,7 @@ import _payload
 from _hf_page import COLOR, num
 from _text import Refusal, is_clean
 
-PORT_HOST_VERSION = "1"
+PORT_HOST_VERSION = "2"
 COMPOSITION = "oh-port"
 INSTANCE = "oh-inst"
 TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,39}")
@@ -122,8 +122,11 @@ def _px(value) -> str:
 def build_port_page(*, block: dict, parts: dict, runtime: dict, faces: list, css: str, payload: dict, ctx: dict, zone: str, prefix: str, index: int,
                     duration: float, fps: int, width: int, height: int) -> bytes:
     """The page of one entry at `/h/<prefix><index>/index.html` (`prefix` c for a caption chunk, b for a beat). The head is `_hf_host.build_page`'s. The
-    component is one `<template>` holding the theme, the port's markup in an instance element clipped to the band, and the port's own build script
-    followed by the call that runs it into a paused timeline; the host root names it and the runtime mounts it from the local template. The composition root
+    theme, `.hf-inst` and the fragment's CSS inside `@scope (#oh-inst)` are in the page's own `<style>` (as `_hf_compose` puts them), never inside the
+    template: the runtime rewrites every selector of a style it finds in a mounted composition under `[data-composition-id="oh-port"]`, which cannot match
+    inside `@scope (#oh-inst)` (the composition root is outside the scope root), and `:root` becomes the composition root (PF-a4d). The component is one
+    `<template>` holding the port's markup in an instance element clipped to the band, and the port's own build script followed by the call that runs it
+    into a paused timeline; the host root names it and the runtime mounts it from the local template. The composition root
     sets the theme's text font: the page's font check walks every element that holds text, the fragment's own `<style>` and `<script>` included, and they
     inherit from it (a family the browser would resolve to its own default is `font_not_allowed`)."""
     top, band_h = ctx["band"]["top"], ctx["band"]["height"]
@@ -136,17 +139,18 @@ def build_port_page(*, block: dict, parts: dict, runtime: dict, faces: list, css
               "(function () { var tl = gsap.timeline({paused: true}); build(document.getElementById(\"%s\"), tl, OH_DATA, OH_CTX); tl.set({}, {}, %s); "
               "window.__timelines = window.__timelines || {}; window.__timelines[\"%s\"] = tl; })();"
               % (parts["script"], _json(payload), _json(ctx), INSTANCE, d, COMPOSITION))
-    component = ('<div data-composition-id="%s" data-duration="%s" data-fps="%d" style="position:absolute;inset:0;font-family:var(--font-text)">\n<style>%s\n.hf-inst{position:absolute;display:block}\n'
-                 '@scope (#%s) {\n%s\n}</style>\n%s\n<script>%s</script>\n</div>' % (COMPOSITION, d, fps, css, INSTANCE, parts["style"], inst, script))
+    component = ('<div data-composition-id="%s" data-duration="%s" data-fps="%d" style="position:absolute;inset:0;font-family:var(--font-text)">\n%s\n<script>%s</script>\n</div>'
+                 % (COMPOSITION, d, fps, inst, script))
+    port_css = "%s\n.hf-inst{position:absolute;display:block}\n@scope (#%s) {\n%s\n}\n" % (css, INSTANCE, parts["style"])
     page = (
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n%s\n"
         "<script src=\"/h/vendor/gsap.min.js\"></script>\n%s\n"
-        "<style>%shtml,body{margin:0;padding:0;background:transparent}body{position:relative;width:%dpx;height:%dpx;overflow:hidden}</style>\n</head>\n<body>\n"
+        "<style>%s%shtml,body{margin:0;padding:0;background:transparent}body{position:relative;width:%dpx;height:%dpx;overflow:hidden}</style>\n</head>\n<body>\n"
         "<template id=\"%s-template\">%s</template>\n"
         "<div id=\"oh-host\" data-composition-id=\"%s\" data-composition-src=\"/h/%s%d/%s.html\" data-start=\"0\" data-duration=\"%s\" "
         "style=\"position:absolute;left:0;top:0;width:%dpx;height:%dpx\"></div>\n"
         "<script>window.__timelines = window.__timelines || {}; window.__timelines[\"oh-host\"] = gsap.timeline({paused: true});</script>\n%s\n</body>\n</html>\n"
-    ) % (_hf_host._tags(runtime["shims"][:3], "early"), _hf_host._tags([runtime["runtime"]], "runtime"), font_css, width, height, COMPOSITION, component,
+    ) % (_hf_host._tags(runtime["shims"][:3], "early"), _hf_host._tags([runtime["runtime"]], "runtime"), font_css, port_css, width, height, COMPOSITION, component,
          COMPOSITION, prefix, index, COMPOSITION, d, width, height, _hf_host._tags(runtime["shims"][3:], "late"))
     return page.encode("utf-8")
 
