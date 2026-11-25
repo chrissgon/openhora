@@ -26,8 +26,15 @@
  },
  "samples": [
   {
-   "text": "Small steps beat big plans.",
-   "author": "Aster Lane"
+   "text": "Go."
+  },
+  {
+   "text": "Small steps beat big plans, and a plain written budget beats a clever hidden one every single month of the year. Ask me!",
+   "author": "Aster Lane of the Long Harbour Savings C"
+  },
+  {
+   "text": "Cr\u00e8me br\u00fbl\u00e9e \u00e9 a melhor sobremesa de todas.",
+   "author": "Ren\u00e9e Fa\u00e7on"
   }
  ],
  "natural_duration": 2.0,
@@ -36,5 +43,5 @@
  },
  "tier": "B",
  "commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
- "notice": "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hyperframes-image/NOTICE.md"
+ "notice": "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hf-runtime/NOTICE.md"
 }

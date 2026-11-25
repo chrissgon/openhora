@@ -139,7 +139,7 @@ def test_a_candidate_is_fit_only_when_both_renders_agree_draw_the_block_and_pass
     assert row["dynamic"] == "fit" and row["repeatable"] is True and row["gate"] == {"frames": 90, "boxes": 12, "pixel_min_psnr_db": 40.5, "pixel_ranges": 2}
     assert T.candidate_row(comp, [(0, ok), (0, dict(ok, sha256="b" * 64))])["dynamic"] == "refuse:not_repeatable"
     assert T.candidate_row(comp, [(0, dict(ok, beats_drawn=0)), (0, ok)])["dynamic"] == "refuse:not_drawn"
-    assert T.candidate_row(comp, [(1, {"ok": False, "code": "overlay_hits_face", "field": "x"})])["dynamic"] == "refuse:overlay_hits_face"
+    assert T.candidate_row(comp, [(1, {"ok": False, "code": "caption_below_line", "field": "x"})])["dynamic"] == "refuse:caption_below_line"
     assert T.candidate_row(comp, [(1, {"ok": False, "code": "Free Text!"})])["dynamic"] == "refuse:no_result"
     assert T.candidate_row(comp, [(1, None)])["dynamic"] == "refuse:no_result"
     assert T.candidate_row(comp, [(0, ok)])["dynamic"] == "refuse:no_result"

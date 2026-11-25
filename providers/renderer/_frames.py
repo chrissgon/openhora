@@ -19,7 +19,7 @@ import _cdp
 import _layout
 import _redact
 from _assets import (FONT_ID, FONT_MAGIC, font_allowlist, fonts_dir, image_facts, load_assets, load_fonts, read_regular)  # noqa: F401  (moved: the callers and tests still find them here)
-from _layout import caption_hit, face_hit  # noqa: F401
+from _layout import caption_hit  # noqa: F401
 from _lint import lint
 from _payload import beat_data, caption_data, pip_geometry, split_geometry_of  # noqa: F401  (moved: the callers and tests still find them here)
 from _text import Refusal
@@ -142,8 +142,8 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
     PNG is a picture to look at; a pip beat also gets its asset slot as a flat-colour card. A split beat gets its halves (`_layout.split_layouts`). With both left out the
     loop is the render's, unchanged.
 
-    `admitted` (the second contract, `_hf_host.prepare`'s result, or None): the beats whose block runs on it are drawn from their own page, one per
-    beat per worker, sought with the runtime's seek, every frame written (no link of a frame to the one before it) and no box reported: the render
+    `admitted` (the second contract, `_hf_host.prepare`'s result, or None): the beats whose block runs on it, and the caption chunks when the caption block does
+    (PF-a4), are drawn from their own page, one per entry per worker (the track's previous page is closed when the next opens), sought with the runtime's seek, every frame written (no link of a frame to the one before it) and no box reported: the render
     checks the pixels of those frames afterwards (`_alpha_gate`). The first contract's path is untouched.
     `reverse` (the admission test's one use): the jobs are taken last frame first.
 
@@ -197,22 +197,26 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
             return {"colors": colors, "fonts": theme_fonts_urls, "images": images}
 
         def worker(chunk):
-            pages, last = {}, {}
+            pages, last, open_track = {}, {}, {}
             try:
                 for f, track, k in chunk:
                     entry = tracks[track][k]
                     preset = "caption" if track == "caption" else entry["preset"]
                     key = "caption" if track == "caption" else entry.get("block", preset)
-                    if admitted and track != "caption" and key in admitted["pages"]:
+                    if admitted and key in admitted["pages"] and k in admitted["pages"][key]:
                         pkey = (key, k)
                         if pkey not in pages:
+                            before = open_track.pop(track, None)          # an entry's frames are contiguous: the track's previous page is done with
+                            if before is not None:
+                                pages.pop(before).close()
                             page = chrome.new_page(w, h, contract="admitted")
                             admitted_call(page.open_admitted, admitted["pages"][key][k], admitted["ready"], admitted["fonts"])
                             pages[pkey] = page
+                            open_track[track] = pkey
                         if only is not None and (track, f) not in only:
                             continue                                       # a storyboard draws its rest frame only
                         png = admitted_call(pages[pkey].seek_admitted, (f - entry["start_frame"]) / fps)
-                        with open(os.path.join(frames_dir, "beat_%06d.png" % f), "wb") as fh:
+                        with open(os.path.join(frames_dir, "%s_%06d.png" % ("cap" if track == "caption" else "beat", f)), "wb") as fh:
                             fh.write(png)
                         with lock:
                             stats["rendered"] += 1
@@ -234,9 +238,6 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                         payload["clip_size"] = entry["clip_size"]      # {"asset": "clip"}: the page draws the label only; the compose draws the clip (V9b-5a)
                     result = page.frame((f - entry["start_frame"]) / fps, payload)
                     sig = result["html"]
-                    hit = face_hit(result["boxes"], entry["face"])
-                    if hit:
-                        raise Refusal("overlay_hits_face", hit)
                     band = _layout.entry_zones(data, entry)
                     for box in result["boxes"]:
                         if box["zone"] == "caption" and box["w"] > 0 and box["h"] > 0 and caption_hit(box, band):

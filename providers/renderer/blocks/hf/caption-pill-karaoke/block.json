@@ -20,5 +20,5 @@
  },
  "tier": "B",
  "commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
- "notice": "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hyperframes-image/NOTICE.md"
+ "notice": "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hf-runtime/NOTICE.md"
 }

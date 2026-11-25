@@ -21,8 +21,8 @@ only writable mount) and /scratch (memory-backed), with no network.
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
   asset-sheet --asset ROW:COL=FILE ... --mode preview|full [--fps N] --out DIR   the pictures and clips to pick from, checked and tiled; in full mode normalised too
   still    --in VIDEO --at-ms N --out PNG                    one frame of a recording, framed as the render frames it (1080x1920)
-  admit-check --entry FILE --component-dir DIR --vocabulary V --blocks DIR --blocks-sha256 H --scratch DIR [--jobs N]   the determinism test of a candidate
-           HyperFrames block (three forward runs and one reverse run per sample, each in a fresh browser, identical frame hashes; the exact gates; the font check)
+  admit-check (--entry FILE --component-dir DIR | --port hf:NAME) --vocabulary V --blocks DIR --blocks-sha256 H --scratch DIR [--jobs N]   the determinism test of a candidate
+           HyperFrames block, or of one of our own ports of the staged blocks (three forward runs and one reverse run per sample, each in a fresh browser, identical frame hashes; the exact gates; the font check)
   selfcheck                                  the versions of what the image holds, and that each tool starts
 
 Every verb writes its result as one JSON object to `--result FILE` (before the verb; stdout when absent): the same object the
@@ -311,6 +311,14 @@ def verb_admit_check(args) -> dict:
     if args.vendor and os.environ.get("RENDERER_TEST") != "1":
         raise Usage("--vendor is for the tests: the image's folder is the only one a measurement reads")
     ffmpeg, _ffprobe = tools(args)
+    if args.port:
+        if args.entry or args.component_dir:
+            raise Usage("--port is exclusive with --entry and --component-dir")
+        return _admit_check.admit_port_check(port=args.port, vocabulary=args.vocabulary, blocks=args.blocks, blocks_sha256=args.blocks_sha256,
+                                             scratch=args.scratch or tempfile.gettempdir(), browser=browser_path(args), ffmpeg=ffmpeg, vendor=args.vendor,
+                                             jobs=max(1, min(args.jobs, 8)), time_limit=args.time_limit)
+    if not args.entry or not args.component_dir:
+        raise Usage("admit-check needs --entry and --component-dir, or --port")
     entry = read_json(args.entry, 1 << 20)
     if not isinstance(entry, dict) or not isinstance(entry.get("samples"), list) or not isinstance(entry.get("files"), dict) \
             or not isinstance(entry.get("served_sha256"), str):
@@ -383,8 +391,8 @@ def verb_proxy(args) -> dict:
 def encode_gate(args, edl: dict, data: dict, platform: dict, ffprobe: str):
     """The inputs of the HyperFrames engine's gates, all or none (`Usage` otherwise): None for an encode with none of them (the base-only
     path), else (the document of boxes, the kept ranges' face boxes) after the rules on the boxes have passed. Refusals: `boxes_changed`,
-    `boxes_unreadable`, `boxes_frames_differ`, `font_not_allowed`, `proxy_changed`, `proxy_truncated`, `overlay_hits_face`, `caption_below_line`, `caption_not_drawn`.
-    `--blocks` and `--blocks-sha256` (both or neither) are the staged catalogue the gate reads the entries that may cross the face from (`_hf_gate.crossing_spans`)."""
+    `boxes_unreadable`, `boxes_frames_differ`, `font_not_allowed`, `proxy_changed`, `proxy_truncated`, `box_zone_unknown`, `caption_below_line`, `caption_not_drawn`.
+    `--blocks` and `--blocks-sha256` (both or neither) are the staged catalogue the gate reads the entries whose frames the pixel check leaves out from (`_hf_gate.crossing_spans`)."""
     flags = (args.boxes, args.boxes_sha256, args.beats, args.vocabulary, args.proxy, args.proxy_sha256)
     if bool(args.blocks) != bool(args.blocks_sha256) or (args.blocks and not any(flags)):
         raise Usage("encode takes --blocks and --blocks-sha256 together, and only with the flags of the gate")
@@ -406,7 +414,7 @@ def encode_gate(args, edl: dict, data: dict, platform: dict, ffprobe: str):
     # changed face region are then refused on every frame, so leaving the flags out can only make the gate stricter.
     catalogue = _blocks.load_catalogue(args.blocks, expect_sha256=args.blocks_sha256) if args.blocks else None
     crossing = _hf_gate.crossing_spans(timeline, catalogue) if catalogue else []
-    return dict(_hf_gate.check_boxes(doc, timeline, faces, data, crossing=crossing), faces=faces, timeline=timeline, crossing=crossing)
+    return dict(_hf_gate.check_boxes(doc, timeline, faces, data), faces=faces, timeline=timeline, crossing=crossing)
 
 
 def verb_encode(args) -> dict:
@@ -695,8 +703,9 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--hf-registry", help="the folder of the registry files of an admitted block (the image's; another folder only when RENDERER_TEST=1)")
     sp = sub.add_parser("admit-check")
     common(sp, browser=True)
-    sp.add_argument("--entry", required=True, help="the candidate allowlist entry as JSON, with `samples` and `served_sha256`, no `determinism`")
-    sp.add_argument("--component-dir", required=True, help="the folder holding the component's files, named as the entry's `files`")
+    sp.add_argument("--entry", help="the candidate allowlist entry as JSON, with `samples` and `served_sha256`, no `determinism`")
+    sp.add_argument("--component-dir", help="the folder holding the component's files, named as the entry's `files`")
+    sp.add_argument("--port", help="one of our own tier-B ports, hf:<name>, read from the staged blocks by its pin (instead of --entry and --component-dir)")
     sp.add_argument("--vocabulary", required=True)
     sp.add_argument("--blocks", required=True, help="the staged blocks folder")
     sp.add_argument("--blocks-sha256", required=True, help="the sha256 of the staged pins.json, computed by the host on its copy")

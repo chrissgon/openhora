@@ -197,19 +197,25 @@ def test_boxes_in_their_bands_pass_and_the_result_counts_them_and_gives_the_lowe
     assert check_without_the_glyph_rule(boxes_doc(edl["out_frames"]), timeline, ranges, data) == {"frames": edl["out_frames"], "boxes": 0, "lowest_caption_bottom": None}
 
 
-@pytest.mark.parametrize("zone", ["card", "caption"])
-def test_a_box_on_the_face_is_overlay_hits_face_with_its_frame_and_key(docs, zone):
+def test_a_card_box_or_glyph_on_the_face_passes_nothing_is_refused_for_the_face(docs):
+    """The maintainer's decision of 2026-11-24: an overlay may be drawn over the speaker's face (`overlay_hits_face` no longer exists)."""
     f, ranges, edl = first_frame_without_an_entry(docs)
     face = ranges[0][2]
-    on_face = box(zone, x=face["x"] + 10, y=face["y"] + 10, w=100.0, h=100.0, key="hf-inst-7")
-    assert code_of(checked, docs, {f: [on_face]}) == ("overlay_hits_face", "frame %d hf-inst-7" % f)
+    on_face = box("card", x=face["x"] + 10, y=face["y"] + 10, w=100.0, h=100.0, key="hf-inst-7")
+    glyph = box("card", x=face["x"] + 20, y=face["y"] + 20, w=60.0, h=30.0, key="hf-inst-8", glyph=True)
+    assert checked(docs, {f: [on_face, glyph]})["boxes"] == 2
 
 
-def test_the_glyph_of_a_text_on_the_face_is_refused_like_an_element(docs):
+def test_a_caption_box_or_glyph_on_the_face_passes_but_the_line_still_holds(docs):
+    """The maintainer's decisions of 2026-11-24: a caption may cross the face; the 1560 line stays."""
     f, ranges, edl = first_frame_without_an_entry(docs)
     face = ranges[0][2]
+    on_face = box("caption", x=face["x"] + 10, y=face["y"] + 10, w=100.0, h=100.0, key="hf-inst-7")
     glyph = box("caption", x=face["x"] + 20, y=face["y"] + 20, w=60.0, h=30.0, key="oh:caption", glyph=True)
-    assert code_of(checked, docs, {f: [glyph]}) == ("overlay_hits_face", "frame %d oh:caption" % f)
+    for hit in (on_face, glyph):
+        checked_doc = checked(docs, {f: [hit]})
+        assert checked_doc["boxes"] == 1
+    assert code_of(checked, docs, {f: [box("caption", y=1540.0, h=40.0, glyph=True)]})[0] == "caption_below_line"
 
 
 def test_a_box_that_only_touches_the_faces_edge_is_not_a_hit(docs):
@@ -219,9 +225,13 @@ def test_a_box_that_only_touches_the_faces_edge_is_not_a_hit(docs):
     assert checked(docs, {f: [beside]})["boxes"] == 1
 
 
-@pytest.mark.parametrize("zone", ["frame", "cutaway", ""])
-def test_a_box_of_the_frame_band_outside_a_cutaway_or_of_any_other_zone_is_overlay_hits_face(docs, zone):
-    assert code_of(checked, docs, {2: [box(zone, y=10.0, h=10.0, key="x")]}) == ("overlay_hits_face", "frame 2 x")
+@pytest.mark.parametrize("zone", ["cutaway", ""])
+def test_a_box_of_a_zone_that_does_not_exist_is_box_zone_unknown(docs, zone):
+    assert code_of(checked, docs, {2: [box(zone, y=10.0, h=10.0, key="x")]}) == ("box_zone_unknown", "frame 2 x")
+
+
+def test_a_box_of_the_frame_band_passes_everywhere_a_layout_may_cover_the_face(docs):
+    assert checked(docs, {2: [box("frame", y=10.0, h=10.0, key="x")]})["boxes"] == 1
 
 
 def test_a_glyph_below_the_line_at_1560_is_caption_below_line_and_one_at_the_line_is_not(docs):
@@ -249,7 +259,6 @@ def test_the_ffmpeg_engines_own_arithmetic_is_what_decides(docs):
     data = docs[0]
     face = FACE
     assert _layout.zones(data, face)["caption"][1] == 1560
-    assert _layout.face_hit([box("card", x=310.0, y=710.0, w=10.0, h=10.0)], face) == "card"
     assert _layout.caption_hit(box("caption", y=1551.0, h=10.0), _layout.zones(data, face))
 
 
@@ -261,7 +270,7 @@ def test_the_first_violation_in_frame_order_is_the_one_raised(docs):
     on_face = box("card", x=face["x"] + 5, y=face["y"] + 5, w=50.0, h=50.0, key="late")
     low = box("caption", y=1540.0, h=40.0, key="early")
     assert code_of(checked, docs, {1: [low], late: [on_face]})[0] == "caption_below_line"
-    assert code_of(checked, docs, {late: [on_face, low]}) == ("overlay_hits_face", "frame %d late" % late)
+    assert code_of(checked, docs, {late: [on_face, low]}) == ("caption_below_line", "frame %d bottom 1580" % late)        # the card on the face is not a refusal
 
 
 # ---------------------------------------------------------------- a caption with words draws glyphs (C12, V3c)
@@ -699,14 +708,18 @@ def test_some_of_the_gates_flags_without_the_others_is_a_usage_error_and_writes_
 
 
 @needs_ffmpeg
-def test_a_box_on_the_face_stops_the_encode_before_anything_is_written(gated, tmp_path):
+def test_a_box_on_the_face_does_not_stop_the_encode_the_line_does(gated, tmp_path):
     folder, proxy, mov, edl = gated
     data = load_data()
     face = _edl.range_faces(edl, data)[0][2]
-    doc = boxes_doc(edl["out_frames"], {0: [box("card", x=face["x"] + 5, y=face["y"] + 5, w=80.0, h=80.0, key="hf-inst-1")]})
+    doc, _ = clean_doc(folder, edl)
+    doc["per_frame"][0].append(box("card", x=face["x"] + 5, y=face["y"] + 5, w=80.0, h=80.0, key="hf-inst-1"))
     rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out", doc))
-    assert rc == 1 and (out["code"], out["field"]) == ("overlay_hits_face", "frame 0 hf-inst-1")
-    assert left_over(tmp_path / "out") == []
+    assert rc == 0, err
+    low = boxes_doc(edl["out_frames"], {0: [box("caption", y=1540.0, h=40.0, key="hf-inst-1", glyph=True)]})
+    rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out2", low))
+    assert rc == 1 and (out["code"], out["field"]) == ("caption_below_line", "frame 0 bottom 1580")
+    assert left_over(tmp_path / "out2") == []
 
 
 @needs_ffmpeg
@@ -813,8 +826,7 @@ def frame_box(**kwargs):
 
 def checked_with(docs, cut_catalogue, per_frame, block=None, catalogue=None, **kwargs):
     data, edl, timeline, ranges = with_cutaway(docs, block, **kwargs)
-    spans = G.crossing_spans(timeline, catalogue or cut_catalogue)
-    return check_without_the_glyph_rule(boxes_doc(edl["out_frames"], per_frame), timeline, ranges, data, crossing=spans)
+    return check_without_the_glyph_rule(boxes_doc(edl["out_frames"], per_frame), timeline, ranges, data)
 
 
 def test_a_frame_box_inside_a_cutaway_entry_passes_whether_or_not_it_covers_the_face(docs, cut_catalogue):
@@ -824,17 +836,16 @@ def test_a_frame_box_inside_a_cutaway_entry_passes_whether_or_not_it_covers_the_
         assert checked_with(docs, cut_catalogue, {frame: [frame_box(), on_face]})["boxes"] == 2, frame
 
 
-def test_the_same_box_one_frame_before_and_one_frame_after_the_entry_is_overlay_hits_face(docs, cut_catalogue):
+def test_a_frame_box_one_frame_before_and_one_frame_after_the_entry_passes_too_the_box_check_has_no_span(docs, cut_catalogue):
     for frame in (CUT_FIRST - 1, CUT_END):
-        assert code_of(checked_with, docs, cut_catalogue, {frame: [frame_box()]}) == ("overlay_hits_face", "frame %d oh:cutaway" % frame)
+        assert checked_with(docs, cut_catalogue, {frame: [frame_box()]})["boxes"] == 1
 
 
-def test_a_frame_box_inside_an_entry_whose_block_may_not_cross_the_face_fails(docs, cut_catalogue):
+def test_a_block_that_may_not_cross_the_face_opens_no_span_for_the_pixel_check_and_its_frame_box_still_passes(docs, cut_catalogue):
     closed = copy.deepcopy(cut_catalogue)
     closed["blocks"]["oh:cutaway"]["may_cross_face"] = False
     assert G.crossing_spans(with_cutaway(docs)[2], closed) == []
-    assert code_of(lambda: checked_with(docs, cut_catalogue, {40: [frame_box()]}, catalogue=closed)) == ("overlay_hits_face", "frame 40 oh:cutaway")
-    assert checked_with(docs, cut_catalogue, {40: [frame_box()]})["boxes"] == 1                  # with the committed block it passes
+    assert checked_with(docs, cut_catalogue, {40: [frame_box()]}, catalogue=closed)["boxes"] == 1
 
 
 def test_only_an_entry_of_the_frame_band_with_may_cross_face_opens_a_span(docs, cut_catalogue):
@@ -848,14 +859,14 @@ def test_only_an_entry_of_the_frame_band_with_may_cross_face_opens_a_span(docs, 
     assert G.inside([(30, 61)], 30) and G.inside([(30, 61)], 60) and not G.inside([(30, 61)], 29) and not G.inside([(30, 61)], 61) and not G.inside([], 0)
 
 
-def test_a_caption_box_on_the_face_during_a_cutaway_still_fails_and_so_does_a_caption_below_1560(docs, cut_catalogue):
+def test_a_caption_or_card_box_on_the_face_during_a_cutaway_passes_and_a_caption_below_1560_still_fails(docs, cut_catalogue):
     face = timeline_of(docs)[3][0][2]
     on_face = box("caption", x=face["x"] + 10, y=face["y"] + 10, w=100.0, h=100.0, key="oh:caption", glyph=True)
-    assert code_of(checked_with, docs, cut_catalogue, {40: [on_face]}) == ("overlay_hits_face", "frame 40 oh:caption")
+    assert checked_with(docs, cut_catalogue, {40: [on_face]})["boxes"] == 1
     assert code_of(checked_with, docs, cut_catalogue, {40: [box("caption", y=1540.0, h=40.0, glyph=True)]}) == ("caption_below_line", "frame 40 bottom 1580")
     assert code_of(checked_with, docs, cut_catalogue, {45: [frame_box(), box("caption", y=1540.0, h=40.0)]})[0] == "caption_below_line"
     low_card = box("card", x=face["x"] + 10, y=face["y"] + 10, w=100.0, h=100.0)                # a card on the face too
-    assert code_of(checked_with, docs, cut_catalogue, {40: [low_card]})[0] == "overlay_hits_face"
+    assert checked_with(docs, cut_catalogue, {40: [low_card]})["boxes"] == 1
 
 
 def test_a_render_with_no_frame_entry_gives_the_same_gate_result_with_or_without_the_new_input(docs, cut_catalogue):
@@ -864,8 +875,7 @@ def test_a_render_with_no_frame_entry_gives_the_same_gate_result_with_or_without
     f = first_frame_without_an_entry(docs)[0]
     per = {f: [box("caption", y=1450.0, h=50.0, glyph=True)], 3: [box("card", y=data["zones"]["card_top"], h=40.0)]}
     old = check_without_the_glyph_rule(boxes_doc(edl["out_frames"], per), timeline, ranges, data)
-    assert check_without_the_glyph_rule(boxes_doc(edl["out_frames"], per), timeline, ranges, data, crossing=[]) == old
-    assert code_of(checked, docs, {2: [frame_box(key="x")]}) == ("overlay_hits_face", "frame 2 x")          # the frame band is refused everywhere, as before
+    assert check_without_the_glyph_rule(boxes_doc(edl["out_frames"], per), timeline, ranges, data) == old
 
 
 def stats_run(edl, values):
@@ -974,18 +984,18 @@ def test_with_the_blocks_a_picture_over_the_face_in_exactly_the_cutaways_frames_
 def test_without_the_blocks_the_same_render_is_refused_the_gate_is_then_stricter_never_looser(gated_cutaway, tmp_path):
     folder, proxy, mov, edl, entry = gated_cutaway
     rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out", cutaway_doc(folder, edl, entry)))
-    assert rc == 1 and (out["code"], out["field"]) == ("overlay_hits_face", "frame %d oh:cutaway" % (entry["start_frame"] + 2)) and left_over(tmp_path / "out") == []
+    assert rc == 1 and out["code"] == "face_pixels_changed" and left_over(tmp_path / "out") == []         # the box check has no face rule; the pixel check is the old engine's
     rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out2", cutaway_doc(folder, edl, entry, chip=False)))
     assert rc == 1 and out["code"] == "face_pixels_changed" and left_over(tmp_path / "out2") == []
 
 
 @needs_ffmpeg
-def test_a_frame_box_one_frame_outside_the_entry_is_refused_even_with_the_blocks(gated_cutaway, tmp_path):
+def test_a_frame_box_one_frame_outside_the_entry_passes_the_box_check_with_the_blocks(gated_cutaway, tmp_path):
     folder, proxy, mov, edl, entry = gated_cutaway
     doc = cutaway_doc(folder, edl, entry, chip=False)
     doc["per_frame"][entry["end_frame"]].append(box("frame", x=65.0, y=320.0, w=300.0, h=60.0, key="oh:cutaway", glyph=True))
     rc, out, err = K.run_verb("encode", *encode_args(folder, proxy, mov, tmp_path / "out", doc), *BLOCK_FLAGS)
-    assert rc == 1 and (out["code"], out["field"]) == ("overlay_hits_face", "frame %d oh:cutaway" % entry["end_frame"]) and left_over(tmp_path / "out") == []
+    assert rc == 0, err
 
 
 @needs_ffmpeg

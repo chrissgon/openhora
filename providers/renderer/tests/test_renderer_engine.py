@@ -324,7 +324,6 @@ def test_no_card_and_no_caption_ever_touches_the_face_box_and_each_stays_in_its_
                     data = {"params": params, "look": DATA["presets"][name]["looks"], "zones": z, "duration": 2.4}
                     zone = z["card"]
                 result = pg.frame(t, data)
-                assert _frames.face_hit(result["boxes"], face) is None, (name, t)
                 for b in result["boxes"]:
                     assert b["y"] >= zone[0] - 1 and b["y"] + b["h"] <= zone[1] + 1 and 0 <= b["x"] and b["x"] + b["w"] <= 1080, (name, t, b, zone)
 
@@ -366,7 +365,7 @@ def test_the_gaps_between_caption_words_do_not_depend_on_which_word_is_lit(words
 
 
 @needs_browser
-def test_a_card_drawn_over_the_face_fails_the_frame_loop(tmp_path):
+def test_a_card_drawn_over_the_face_is_drawn_nothing_is_refused_for_the_face(tmp_path):
     folder = tmp_path / "b"
     shutil.copytree(str(K.BLOCKS), folder)
     html = read(str(folder / "oh" / "keyword" / "renderat.html"))
@@ -383,11 +382,10 @@ def test_a_card_drawn_over_the_face_fails_the_frame_loop(tmp_path):
              "overlays": [{"id": "b1", "beat": 1, "preset": "keyword", "params": {"text": "Hello"}, "word_from": 0, "word_to": 3, "score": 1.0}]}
     timeline = _edl.resolve_timeline(edl, beats, VOCAB, DATA)
     serve, _ = _frames.load_templates(["oh/keyword/renderat.html", "oh/caption/renderat.html"], str(folder))
-    with pytest.raises(Refusal) as e:
-        _frames.draw_frames(data=DATA, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls={}, assets={}, browser=K.BROWSER, jobs_n=1,
-                            frames_dir=str(tmp_path / "frames"), workdir=str(tmp_path / "w"), time_limit=120,
-                            templates={"caption": "oh/caption/renderat.html", "keyword": "oh/keyword/renderat.html"}, png_blank=_render.blank_png)
-    assert e.value.code == "overlay_hits_face"
+    layers, facts = _frames.draw_frames(data=DATA, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls={}, assets={}, browser=K.BROWSER, jobs_n=1,
+                                        frames_dir=str(tmp_path / "frames"), workdir=str(tmp_path / "w"), time_limit=120,
+                                        templates={"caption": "oh/caption/renderat.html", "keyword": "oh/keyword/renderat.html"}, png_blank=_render.blank_png)
+    assert "beat" in layers and facts["frames_rendered"] > 0      # the face box is a placement input, never a refusal (2026-11-24)
 
 
 @needs_browser

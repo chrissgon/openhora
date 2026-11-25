@@ -1,5 +1,4 @@
-"""Where things may be drawn: the two bands the face box leaves, the pip's card, the split's halves, the test of a drawn box against the
-face and the test of a caption against the bottom line. Pure arithmetic on the numbers of renderer-presets.json: no browser, no frames. Both engines import this
+"""Where things may be drawn: the two bands the face box leaves, the pip's card, the split's halves, the test of a caption against the bottom line. Pure arithmetic on the numbers of renderer-presets.json: no browser, no frames. Both engines import this
 file (the ffmpeg engine's drawing loop and, in V3b, the HyperFrames gate). Standard library only.
 """
 from __future__ import annotations
@@ -194,17 +193,6 @@ def split_rows(timeline: dict) -> list:
     """The compose plan's rows of the settled splits (`_media.compose_argv`): {start_frame, end_frame, crop {x, y, w, h}, at {x, y}}."""
     return [{"start_frame": e["start_frame"], "end_frame": e["end_frame"], "crop": dict(e["split"]["crop"]),
              "at": {"x": e["split"]["speaker"]["x"], "y": e["split"]["speaker"]["y"]}} for e in timeline["beats"] if e["preset"] == "split"]
-
-
-def face_hit(boxes: list, face: dict):
-    """The zone (`card` or `caption`) of the first drawn box that touches the face box, else None. Layout presets
-    (cutaway, split) are not in a zone: they replace the picture. A pip's card box is marked `card`, so the check covers it."""
-    for b in boxes:
-        if b["zone"] in ("card", "caption") and b["w"] > 0 and b["h"] > 0 \
-                and b["x"] < face["x"] + face["w"] - 0.5 and b["x"] + b["w"] > face["x"] + 0.5 \
-                and b["y"] < face["y"] + face["h"] - 0.5 and b["y"] + b["h"] > face["y"] + 0.5:
-            return b["zone"]
-    return None
 
 
 def caption_hit(box: dict, zones: dict) -> bool:

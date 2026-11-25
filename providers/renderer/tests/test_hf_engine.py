@@ -520,7 +520,7 @@ def test_an_encode_stage_that_reports_no_gate_for_a_render_that_draws_is_a_close
     assert (none.value.code, none.value.field) == ("container_result_invalid", "encode")
 
 
-@pytest.mark.parametrize("code", ["overlay_hits_face", "caption_below_line", "face_pixels_changed", "boxes_changed"])
+@pytest.mark.parametrize("code", ["box_zone_unknown", "caption_below_line", "face_pixels_changed", "boxes_changed"])
 def test_a_refusal_of_the_gates_in_the_encode_container_is_the_same_refusal_here_and_leaves_no_run_folder(world, monkeypatch, test_blocks, code):
     with pytest.raises(Refusal) as caught:
         run(world, monkeypatch, fake=FakeRun(fail={"encode": "refuse:" + code}), base_only=False)

@@ -42,10 +42,12 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
         not pass; aligns each beat's spoken line to word indices; writes beats.json with scores and the unmatched beats.
   check --edl EDL --beats BEATS --vocabulary V [--platform-file F]
         Schema, bounds, text hardening, colours and fonts, credential shapes. Exit 1 and the closed code when refused.
-  admit-block --source DIR --component PATH --entry FILE --vocabulary V [--stage] [--confirmed]
+  admit-block (--source DIR --component PATH --entry FILE [--stage] | --port hf:NAME) --vocabulary V [--confirmed]
         Admit a HyperFrames registry component to the second page contract: lint and hash it, measure its determinism in the container
         (three forward runs and one reverse run per sample, identical frames, the exact gates), and write the registry rows, the NOTICE entry and the
         allowlist entry (or hf-runtime/staged/<id>.json, with --stage or when the name is taken). Without --confirmed it prints the plan only.
+        With --port, one of our own tier-B ports (blocks/hf/<name>/gsap.html) is measured the same way and its determinism record is written into its
+        block.json, then the blocks are pinned again: no registry row, no NOTICE entry, no download. A port is drawn by the ffmpeg engine only with that record.
   render --edl EDL --beats BEATS --in VIDEO --out DIR --platform-file F --vocabulary V [--asset SLOT=FILE]...
          [--asset-sha256 SLOT=HEX]... [--jobs 3] [--cpuset 0-3] [--dry-run] [--time-limit S] [--cover-out PNG --cover-offset-ms N]
         Writes DIR/render-<sha12>.mp4 (mode 0400, never rewritten) and prints its sha256, bytes and seconds. `--out` may name a path
@@ -199,6 +201,12 @@ def verb_block_params(args) -> dict:
 def verb_admit_block(args) -> dict:
     """Admit a HyperFrames registry component to the second page contract (PF-a3; `_admit.py` says what each step does). Without --confirmed it
     reads, edits and lints the component and prints the plan: no container is started and nothing is written."""
+    if args.port:
+        if args.source or args.component or args.entry or args.stage:
+            raise Usage("--port is exclusive with --source, --component, --entry and --stage")
+        return verb_admit_port(args)
+    if not (args.source and args.component and args.entry):
+        raise Usage("admit-block needs --source, --component and --entry, or --port")
     planned = _admit.plan(source=os.path.abspath(args.source), component=args.component, entry_path=args.entry, stage=args.stage)
     if not args.confirmed:
         return dict(planned["summary"], dry_run=True, target=os.path.relpath(planned["target"], D.HERE))
@@ -228,6 +236,28 @@ def verb_admit_block(args) -> dict:
         print("note: name_taken %s is held by another block: staged, not active" % planned["entry"]["name"], file=sys.stderr)
     return {"ok": True, "name": planned["entry"]["name"], "staged": written["staged"], "name_taken": planned["name_taken"], "determinism": record,
             "written": [os.path.relpath(p, D.HERE) if p.startswith(D.HERE) else p for p in written["written"]], "per_sample": result.get("per_sample", [])}
+
+
+def verb_admit_port(args) -> dict:
+    """Admit one of our own tier-B ports to the ffmpeg engine's second contract (PF-a4): the plan (both lints, the pin, `HEAD`, the served digest), then, with
+    --confirmed, the determinism test in the container (`admit-check --port`) and the record written into the port's block.json."""
+    planned = _admit.plan_port(args.port)
+    if not args.confirmed:
+        return dict(planned["summary"], dry_run=True, target=os.path.relpath(planned["path"], D.HERE))
+    if args.cpuset is not None:
+        try:
+            box.check_cpuset(args.cpuset)
+        except box.ContainerError:
+            raise Refusal("bad_cpuset", "cpuset") from None
+    with Job(args, 1800, "admit-check") as job:
+        inner = ["admit-check", "--port", args.port, "--vocabulary", job.stage("vocabulary.json", args.vocabulary), "--scratch", D.MOUNT_SCRATCH,
+                 "--jobs", str(max(1, min(args.jobs, 2 * max(1, job.limits()[0])))), "--time-limit", "900"]
+        inner += stage_blocks(job, _blocks.blocks_dir())
+        result = job.run(inner, "admit-check")
+        record = _admit.record_of_port(result, planned, job.image["tag"])
+    written = _admit.write_port(planned, record)
+    return {"ok": True, "name": args.port, "determinism": record, "written": [os.path.relpath(p, D.HERE) if p.startswith(D.HERE) else p for p in written["written"]],
+            "per_sample": result.get("per_sample", [])}
 
 
 def verb_render(args) -> dict:
@@ -384,9 +414,10 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--confirmed", action="store_true")
     sp = sub.add_parser("admit-block")
     add_limits(sp)
-    sp.add_argument("--source", required=True, help="a local clone of the registry repository, at the commit hf-runtime/registry.sha256 pins")
-    sp.add_argument("--component", required=True, help="the component's folder in the registry, for example registry/components/spring-pop")
-    sp.add_argument("--entry", required=True, help="our fields of the entry as JSON (name, preset, use_when, params, samples, natural_duration, bind, fixed, theme_vars, edits, font_map)")
+    sp.add_argument("--port", help="one of our own tier-B ports, hf:<name> (exclusive with --source, --component, --entry and --stage)")
+    sp.add_argument("--source", help="a local clone of the registry repository, at the commit hf-runtime/registry.sha256 pins")
+    sp.add_argument("--component", help="the component's folder in the registry, for example registry/components/spring-pop")
+    sp.add_argument("--entry", help="our fields of the entry as JSON (name, preset, use_when, params, samples, natural_duration, bind, fixed, theme_vars, edits, font_map)")
     sp.add_argument("--vocabulary", required=True, help="shared/references/video-presets.json")
     sp.add_argument("--stage", action="store_true", help="write hf-runtime/staged/<id>.json instead of the allowlist (always so when the name is taken)")
     sp.add_argument("--confirmed", action="store_true", help="measure and write; without it the plan is printed and nothing is written")

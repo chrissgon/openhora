@@ -1,12 +1,13 @@
 """The exact pixel gates of an admitted page (the second contract, R3-1).
 
 A page of the second contract can draw anywhere, so the gates are on what it drew: every frame it wrote is an 8-bit RGBA PNG of the frame's size,
-and in every frame no pixel with any alpha at all lies in the speaker's face box, and none at or below the line where the captions begin. There is no
-threshold: an alpha of 1/255 is a hit. A layer that draws nothing in all its frames is refused too (`block_not_drawn`).
+and in every frame no pixel with any alpha at all lies on or below the line (a card's is the top of the caption band, a caption's is its bottom). There is no
+threshold: an alpha of 1/255 is a hit. A layer that draws nothing in all its frames is refused too (`block_not_drawn`). There is no gate on the speaker's
+face: the maintainer removed that rule on 2026-11-24 (it was R3-2's alpha face gate), so an overlay may be drawn over the face; the face box stays a
+placement input (the bands the zones are made from) and is never a refusal.
 
-One ffmpeg pass per range: the alpha channel is taken out of the frames, split three ways, and each branch's highest value is read (`signalstats`
-YMAX; the frames stay 8-bit gray, so the value is the alpha itself): the face box rounded outward to whole pixels, the rows from `line_y` down, and
-the whole frame. The logs are written to relative names in a temporary folder, so no path is inside a filter string. Standard library only.
+One ffmpeg pass per range: the alpha channel is taken out of the frames, split two ways, and each branch's highest value is read (`signalstats`
+YMAX; the frames stay 8-bit gray, so the value is the alpha itself): the rows from `line_y` down, and the whole frame. The logs are written to relative names in a temporary folder, so no path is inside a filter string. Standard library only.
 """
 from __future__ import annotations
 
@@ -37,15 +38,6 @@ def png_header(path: str):
     return w, h, depth, colour
 
 
-def box_pixels(face: dict, w: int, h: int) -> tuple:
-    """The face box rounded outward to whole pixels and kept inside the frame: (x, y, width, height)."""
-    x0 = max(0, math.floor(face["x"]))
-    y0 = max(0, math.floor(face["y"]))
-    x1 = min(w, math.ceil(face["x"] + face["w"]))
-    y1 = min(h, math.ceil(face["y"] + face["h"]))
-    return x0, y0, max(0, x1 - x0), max(0, y1 - y0)
-
-
 def _read_max(path: str) -> list:
     try:
         with open(path, "r", encoding="utf-8") as fh:
@@ -55,9 +47,11 @@ def _read_max(path: str) -> list:
     return [int(v) for _f, v in YMAX.findall(text)]
 
 
-def check_range(frames_dir: str, start: int, end: int, face: dict, line_y, w: int, h: int, ffmpeg: str = "ffmpeg", prefix: str = "beat") -> None:
-    """The gates on frames [start, end) of one range. Refusals: `frame_not_rgba`, `overlay_hits_face`, `caption_below_line`, `block_not_drawn`
-    (the field is `frame N`, the first frame found)."""
+def check_range(frames_dir: str, start: int, end: int, line_y, w: int, h: int, ffmpeg: str = "ffmpeg", prefix: str = "beat", require_drawn: bool = True) -> None:
+    """The gates on frames [start, end) of one range. Refusals: `frame_not_rgba`, `caption_below_line`, `block_not_drawn` (the field is `frame N`, the first
+    frame found). There is no face gate: an overlay may be drawn over the speaker's face (the maintainer's decisions of 2026-11-24; the face box is a placement
+    input, never a refusal). `line_y` is the line the layer must stay on one side of: a card's is its band's top and a caption's is its band's bottom, and no
+    pixel with any alpha at all may lie on or below it. `require_drawn` false (a caption chunk too short to be read) leaves the last one out."""
     count = end - start
     if count <= 0:
         return
@@ -65,14 +59,8 @@ def check_range(frames_dir: str, start: int, end: int, face: dict, line_y, w: in
         head = png_header(os.path.join(frames_dir, "%s_%06d.png" % (prefix, n)))
         if head is None or head != (w, h, 8, 6):
             raise Refusal("frame_not_rgba", "frame %d" % n)
-    fx, fy, fw, fh = box_pixels(face, w, h)
-    parts = ["[0:v]trim=end_frame=%d,alphaextract,split=3[a][b][c]" % count]
+    parts = ["[0:v]trim=end_frame=%d,alphaextract,split=2[b][c]" % count]
     outs = []
-    if fw > 0 and fh > 0:
-        parts.append("[a]crop=%d:%d:%d:%d,signalstats,metadata=print:key=lavfi.signalstats.YMAX:file=face.txt[oa]" % (fw, fh, fx, fy))
-        outs.append("oa")
-    else:
-        parts.append("[a]nullsink")
     ly = None if line_y is None else max(0, int(math.floor(line_y)))
     if ly is not None and ly < h:
         parts.append("[b]crop=%d:%d:0:%d,signalstats,metadata=print:key=lavfi.signalstats.YMAX:file=line.txt[ob]" % (w, h - ly, ly))
@@ -90,25 +78,20 @@ def check_range(frames_dir: str, start: int, end: int, face: dict, line_y, w: in
         done = subprocess.run(argv, cwd=work, capture_output=True, text=True, timeout=600)
         if done.returncode != 0:
             raise Refusal("frame_not_rgba", "frame %d" % start)
-        face_max = _read_max(os.path.join(work, "face.txt"))
         line_max = _read_max(os.path.join(work, "line.txt"))
         all_max = _read_max(os.path.join(work, "all.txt"))
     finally:
         shutil.rmtree(work, ignore_errors=True)
     if len(all_max) != count:
         raise Refusal("frame_not_rgba", "frame %d" % start)
-    for k, v in enumerate(face_max):
-        if v > 0:
-            raise Refusal("overlay_hits_face", "frame %d" % (start + k))
     for k, v in enumerate(line_max):
         if v > 0:
             raise Refusal("caption_below_line", "frame %d" % (start + k))
-    if max(all_max) == 0:
+    if require_drawn and max(all_max) == 0:
         raise Refusal("block_not_drawn", "frame %d" % start)
 
 
-def check_layer(frames_dir: str, ranges: list, face: dict, line_y, w: int, h: int, ffmpeg: str = "ffmpeg", prefix: str = "beat") -> None:
-    """The gates on every range of one layer. `ranges` rows are {start, end[, face][, line_y]}: the face box and the line of a row are the render's
-    real ones for that range, and `face` / `line_y` here are the defaults of a row that has none."""
+def check_layer(frames_dir: str, ranges: list, w: int, h: int, ffmpeg: str = "ffmpeg", prefix: str = "beat") -> None:
+    """The gates on every range of one layer. `ranges` rows are {start, end, line_y[, require_drawn]}: the line of a row is the render's real one for that range."""
     for row in ranges:
-        check_range(frames_dir, row["start"], row["end"], row.get("face", face), row.get("line_y", line_y), w, h, ffmpeg, prefix)
+        check_range(frames_dir, row["start"], row["end"], row.get("line_y"), w, h, ffmpeg, prefix, row.get("require_drawn", True))

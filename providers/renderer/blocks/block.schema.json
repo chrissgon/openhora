@@ -1,7 +1,7 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "title": "an animation block of the catalogue: a block.json, or an entry of hf/allowlist.json",
- "description": "The loader (providers/renderer/_blocks.py) enforces this and what a schema cannot say: the name against its folder, the band against the kind, may_cross_face only for the frame band, a sample against the parameters, an implementation file against blocks/pins.json or the entry's files, the hf: keys by namespace and tier, no image or clip parameter in an hf: block.",
+ "description": "The loader (providers/renderer/_blocks.py) enforces this and what a schema cannot say: the name against its folder, the band against the kind, may_cross_face a boolean (no gate reads it but the old engine's pixel check, which leaves out the frames of a full-frame layout), a sample against the parameters, an implementation file against blocks/pins.json or the entry's files, the hf: keys by namespace and tier, no image or clip parameter in an hf: block.",
  "$defs": {
   "block": {
    "type": "object",

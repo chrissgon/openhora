@@ -187,8 +187,6 @@ def test_the_first_and_the_last_frame_of_the_beat_show_the_same_full_card(tmp_pa
             r = pg.frame(t, data)
             seen.append(r["html"])
             assert r["boxes"] == [dict(zone="card", x=card["x"], y=card["y"], w=card["w"], h=card["h"])]
-            assert _frames.face_hit(r["boxes"], UPPER_FACE) is None
-            assert _frames.face_hit(r["boxes"], {"x": 240, "y": card["y"] - 100, "w": 600, "h": 200}) == "card"      # a card on the face is found
         assert seen[0] == seen[1] == seen[2]            # a hard cut: nothing moves, fades or slides
         assert "opacity" not in seen[0]
 

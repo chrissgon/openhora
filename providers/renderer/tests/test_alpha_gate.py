@@ -1,6 +1,6 @@
-"""The exact pixel gates of an admitted page on synthetic RGBA frames: a dot of alpha 1/255 is found on exactly the frames it is on, a dot one pixel
-outside the rounded face box passes, a row at the line refuses and one above passes, a layer with no pixel drawn and a frame that is not 8-bit RGBA
-of the frame's size refuse. Needs ffmpeg."""
+"""The exact pixel gates of an admitted page on synthetic RGBA frames: a row at the line refuses (a dot of alpha 1/255 is a hit, found on exactly its frames)
+and one above passes, a layer with no pixel drawn and a frame that is not 8-bit RGBA of the frame's size refuse, a short caption chunk may draw nothing, and
+nothing is refused for being on the speaker's face (the maintainer's decisions of 2026-11-24: the face box is a placement input, not a gate). Needs ffmpeg."""
 from __future__ import annotations
 
 import os
@@ -15,7 +15,7 @@ from _text import Refusal
 
 needs_ffmpeg = pytest.mark.skipif(not K.HAVE_FFMPEG, reason=K.SKIP_MEDIA)
 W, H = 200, 300
-FACE = {"x": 40.4, "y": 60.6, "w": 50, "h": 40}          # rounded outward: x 40..91 (width 51), y 60..101 (height 41)
+FACE = {"x": 40.4, "y": 60.6, "w": 50, "h": 40}          # a speaker's face box: no pixel is refused for being in it
 LINE = 200
 
 
@@ -43,20 +43,20 @@ def write(folder, frames, start=10, **kw):
             fh.write(png(W, H, pixels, **kw))
 
 
-def check(folder, n, start=10):
-    G.check_range(str(folder), start, start + n, FACE, LINE, W, H, K.FFMPEG)
+def check(folder, n, start=10, **kw):
+    G.check_range(str(folder), start, start + n, LINE, W, H, K.FFMPEG, **kw)
 
 
 DRAWN = {(5, 5): (255, 255, 255, 255)}              # a pixel somewhere harmless, so that the layer draws something
 
 
 @needs_ffmpeg
-def test_a_dot_of_one_over_255_in_the_face_box_is_found_on_exactly_its_frames(tmp_path):
-    dot = {**DRAWN, **{(60, 80): (255, 255, 255, 1)}}
+def test_a_dot_of_one_over_255_below_the_line_is_found_on_exactly_its_frames(tmp_path):
+    dot = {**DRAWN, **{(60, LINE + 5): (255, 255, 255, 1)}}
     write(tmp_path, [DRAWN, DRAWN, dot, dot, dot, DRAWN])
     with pytest.raises(Refusal) as e:
         check(tmp_path, 6)
-    assert (e.value.code, e.value.field) == ("overlay_hits_face", "frame 12")
+    assert (e.value.code, e.value.field) == ("caption_below_line", "frame 12")
     write(tmp_path, [DRAWN, DRAWN, DRAWN, dot, DRAWN, DRAWN])
     with pytest.raises(Refusal) as e:
         check(tmp_path, 6)
@@ -64,16 +64,13 @@ def test_a_dot_of_one_over_255_in_the_face_box_is_found_on_exactly_its_frames(tm
 
 
 @needs_ffmpeg
-def test_the_face_box_is_rounded_outward_so_the_pixel_just_outside_it_passes_and_the_one_on_its_edge_does_not(tmp_path):
-    assert G.box_pixels(FACE, W, H) == (40, 60, 51, 41)
-    outside = {**DRAWN, **{(39, 80): (255, 0, 0, 255), (91, 80): (255, 0, 0, 255), (60, 59): (255, 0, 0, 255), (60, 101): (255, 0, 0, 255)}}
-    write(tmp_path, [outside])
+def test_pixels_on_the_speakers_face_are_not_refused_a_dot_a_block_and_a_whole_frame_of_them(tmp_path):
+    on_face = {**DRAWN, **{(60, 80): (255, 255, 255, 1), (41, 61): (255, 0, 0, 255), (90, 100): (255, 0, 0, 255)}}
+    write(tmp_path, [on_face, on_face])
+    check(tmp_path, 2)
+    everywhere = {(x, y): (0, 0, 0, 255) for x in range(W) for y in range(LINE)}
+    write(tmp_path, [everywhere])
     check(tmp_path, 1)
-    for edge in ((40, 80), (90, 80), (60, 60), (60, 100)):
-        write(tmp_path, [{**DRAWN, **{edge: (255, 0, 0, 1)}}])
-        with pytest.raises(Refusal) as e:
-            check(tmp_path, 1)
-        assert e.value.code == "overlay_hits_face", edge
 
 
 @needs_ffmpeg
@@ -109,11 +106,24 @@ def test_a_layer_with_nothing_drawn_refuses_and_so_does_a_frame_that_is_not_8_bi
 
 
 @needs_ffmpeg
-def test_every_range_of_a_layer_is_judged_with_its_own_face_and_line(tmp_path):
-    write(tmp_path, [DRAWN] * 6, start=10)
-    other = {"x": 0, "y": 0, "w": 20, "h": 20}                  # this range's face box covers the harmless pixel
-    rows = [{"start": 10, "end": 13}, {"start": 13, "end": 16, "face": other}]
+def test_every_range_of_a_layer_is_judged_with_its_own_line_and_its_own_drawn_floor(tmp_path):
+    write(tmp_path, [DRAWN] * 3 + [{}] * 3 + [{**DRAWN, **{(10, 120): (0, 255, 0, 255)}}] * 3, start=10)
+    rows = [{"start": 10, "end": 13, "line_y": LINE}, {"start": 13, "end": 16, "line_y": LINE, "require_drawn": False}, {"start": 16, "end": 19, "line_y": 100}]
     with pytest.raises(Refusal) as e:
-        G.check_layer(str(tmp_path), rows, FACE, LINE, W, H, K.FFMPEG)
-    assert (e.value.code, e.value.field) == ("overlay_hits_face", "frame 13")
-    G.check_layer(str(tmp_path), rows[:1], FACE, LINE, W, H, K.FFMPEG)
+        G.check_layer(str(tmp_path), rows, W, H, K.FFMPEG)
+    assert (e.value.code, e.value.field) == ("caption_below_line", "frame 16")      # the third range's line is 100: its pixel at 120 is below it
+    G.check_layer(str(tmp_path), rows[:2], W, H, K.FFMPEG)                           # a short chunk may draw nothing
+    with pytest.raises(Refusal) as e:
+        G.check_layer(str(tmp_path), [{"start": 13, "end": 16, "line_y": LINE}], W, H, K.FFMPEG)
+    assert e.value.code == "block_not_drawn"
+
+
+@needs_ffmpeg
+def test_a_caption_prefix_reads_cap_frames_and_a_caption_line_at_the_band_bottom_refuses_rows_from_it_down(tmp_path):
+    for k, pixels in enumerate([DRAWN, {**DRAWN, **{(10, 250): (0, 255, 0, 255)}}]):
+        (tmp_path / ("cap_%06d.png" % (10 + k))).write_bytes(png(W, H, pixels))
+    G.check_range(str(tmp_path), 10, 11, 250, W, H, K.FFMPEG, "cap")
+    with pytest.raises(Refusal) as e:
+        G.check_range(str(tmp_path), 10, 12, 250, W, H, K.FFMPEG, "cap")
+    assert (e.value.code, e.value.field) == ("caption_below_line", "frame 11")
+    G.check_range(str(tmp_path), 10, 12, 251, W, H, K.FFMPEG, "cap")

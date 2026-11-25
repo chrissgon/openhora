@@ -141,9 +141,9 @@ def flat_png(width: int, height: int, color: str) -> bytes:
 
 def draw_rest_frames(*, data, vocab, allow, edl, beats, browser, jobs, work, time_limit, blocks_dir=None, blocks_sha256=None, fonts_directory=None) -> dict:
     """Draw the rest frame of every beat of `beats` with the render's frame loop; every other frame of a beat goes through the page and the
-    face-box check too (a card overshoots while it pops in) and is not written. Returns {entries (the timeline's, in order), frames
+    line check too and is not written. Returns {entries (the timeline's, in order), frames
     ({beat number: PNG path}), rest ({beat number: output frame}), facts (what the loop reports), fonts, blocks, blocks_sha256}.
-    Only those frames are written; a card that touches the face box on any frame raises `overlay_hits_face`, as in a render."""
+    Only those frames are written; a card may be drawn over the face box, as in a render."""
     cfg = data["storyboard"]
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
     entries = timeline["beats"]

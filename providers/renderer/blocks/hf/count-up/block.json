@@ -28,8 +28,16 @@
  },
  "samples": [
   {
-   "value": "2.480",
-   "label": "visits in the first week"
+   "value": "7",
+   "label": "Go"
+  },
+  {
+   "value": "123.456,78",
+   "label": "visits we counted over the whole summer"
+  },
+  {
+   "value": "42",
+   "label": "Pedidos de caf\u00e9, \u00e7a va"
   }
  ],
  "natural_duration": 2.2,
@@ -38,5 +46,5 @@
  },
  "tier": "B",
  "commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
- "notice": "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hyperframes-image/NOTICE.md"
+ "notice": "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hf-runtime/NOTICE.md"
 }

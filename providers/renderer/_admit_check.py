@@ -8,8 +8,8 @@ the text lint of the first contract cannot vouch for it. What vouches is a test:
   - one run seeks the last frame first, one page, every frame after the one that follows it in time.
 
 The four lists must be identical. No request may have been blocked, no page exception thrown and no policy violation reported (the frame loop refuses
-on any of them, with its own code, so a run that returns had none), at least one frame is drawn, and the exact gates of the second contract (the alpha
-face gate and the caption-line gate) and the font check pass on the frames of the first run.
+on any of them, with its own code, so a run that returns had none), at least one frame is drawn, and the exact gates of the second contract (the RGBA check, the
+line gate and the drawn check) and the font check pass on the frames of the first run.
 
 `compare_runs` is the pure judge over the four lists. `admit_check` runs the measurement. A page that draws from `Math.random` or from a clock the shim
 does not replace gives frames that differ from run to run: the comparator refuses it with `determinism_failed` and the first frame that differs.
@@ -32,6 +32,7 @@ import _cdp
 import _edl
 import _frames
 import _hf_host
+import _hf_port
 import _preview
 import _render
 from _text import Refusal
@@ -41,6 +42,10 @@ HEX64 = re.compile(r"[0-9a-f]{64}")
 FORWARD_RUNS = 3
 LINE = "pop the one word"            # the words of the synthetic beat: four words, spoken at the storyboard's rate
 PROBE_NAME = "hf:admit-probe"
+# The lines a caption port is measured on (it has no parameters, so its samples are lines): one word; long words that force the two-line path of the
+# ports (`caption-highlight`, `caption-pill-karaoke`); and an accented line (written as escapes: the repository's text is ASCII here).
+CAPTION_LINES = ("Pop", "Extraordinarily uncharacteristically misunderstanding everything",
+                 "Caf\u00e9 cr\u00e8me br\u00fbl\u00e9e \u00e0 la carte")
 
 
 # ---------------------------------------------------------------- the comparator
@@ -149,6 +154,64 @@ def sample_state(entry: dict, sample: dict, catalogue: dict, data: dict, vocab: 
             "serve": serve, "start": beat["start_frame"], "end": min(beat["end_frame"], edl["out_frames"])}
 
 
+def probe_port_blocks(blocks_src: str, blocks_sha256, scratch: str, name: str, runtime_sha256: str) -> tuple:
+    """A copy of the staged blocks in `scratch` where the port `name` has a provisional determinism record at the real hashes (so that the render's own
+    proof check passes: the measurement is what the real record will say) and is the ffmpeg engine's default for its preset, with the `gsap` runtime on
+    the engine. No rename: the port keeps its own name. Returns (blocks folder, catalogue, the port's block)."""
+    source = _blocks.load_catalogue(blocks_src, blocks_sha256)           # the staged folder is the one the host pinned
+    block = source["blocks"].get(name)
+    if block is None or block.get("tier") != "B" or set(block["implementations"]) != {"gsap"}:
+        raise Refusal("admit_entry", "port")
+    served = _hf_port.served_digest(_hf_port.read_fragment(source, block)["raw"])
+    folder = os.path.join(scratch, "blocks")
+    shutil.copytree(blocks_src, folder)
+    ns, short = name.split(":")
+    path = os.path.join(folder, ns, short, "block.json")
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    doc["determinism"] = {"served_sha256": served, "runtime_sha256": runtime_sha256, "samples": 1, "frames": 1, "runs": 4, "blocked": 0,
+                          "date": "2000-01-01", "image": "probe", "seconds": 0}
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh, indent=1)
+    engine_path = os.path.join(folder, "engines", "ffmpeg.json")
+    with open(engine_path, encoding="utf-8") as fh:
+        engine = json.load(fh)
+    if "gsap" not in engine["runtimes"]:
+        engine["runtimes"].append("gsap")
+    engine["presets"][block["preset"]] = name
+    with open(engine_path, "w", encoding="utf-8") as fh:
+        json.dump(engine, fh, indent=1)
+    _blocks.write_pins(folder)
+    catalogue = _blocks.load_catalogue(folder)
+    return folder, catalogue, catalogue["blocks"][name]
+
+
+def caption_state(block: dict, line: str, catalogue: dict, data: dict, vocab: dict, allow: dict, vendor, browser: str) -> dict:
+    """One caption line set up as a render would set it: the synthetic words of the line (the storyboard's rate) cut into chunks, no beat, resolved on the
+    ffmpeg engine, a page per chunk, and the frames of the whole caption track (`cap_`). The rows are built with no preset; if `build_lists` refuses that, one
+    keyword row carries the line and the timeline's beats are dropped."""
+    rows = [{"beat": 1, "line": line, "preset": None, "params": {}, "slots": {}}]
+    try:
+        edl, beats, _notes, _transcript, _mentions = _preview.build_lists(rows, data, vocab, allow)
+    except Refusal:
+        rows = [_preview.beat_row(vocab, {"preset": "keyword", "params": {"text": "x"}, "line": line})]
+        edl, beats, _notes, _transcript, _mentions = _preview.build_lists(rows, data, vocab, allow)
+    timeline = _edl.resolve_timeline(edl, beats, vocab, data)
+    timeline["beats"] = []
+    if not timeline["captions"]:
+        raise Refusal("admit_unmeasurable", "captions")
+    templates, _names = _blocks.templates_for(catalogue, _render.ENGINE, timeline, vocab, with_caption=True)
+    font_serve, _used = _frames.load_fonts(edl["theme"]["fonts"], allow, data["limits"]["font_max_bytes"])
+    admitted = _render.admit_blocks(catalogue, timeline, data, edl, font_serve, vendor, "", browser)
+    if "caption" not in admitted["pages"]:
+        raise Refusal("admit_unmeasurable", "pages")
+    serve = dict(font_serve)
+    serve.update(admitted["serve"])
+    chunks = timeline["captions"]
+    return {"edl": edl, "timeline": timeline, "templates": templates, "font_urls": _render.font_urls_of(data, edl, font_serve), "admitted": admitted,
+            "serve": serve, "start": min(c["start_frame"] for c in chunks), "end": min(max(c["end_frame"] for c in chunks), edl["out_frames"]), "prefix": "cap"}
+
+
 def draw_once(state: dict, data: dict, browser: str, scratch: str, jobs: int, reverse: bool, limit: int) -> tuple:
     """One run in a fresh browser (its own profile folder): (the list of per-frame sha256 of the beat in frame order, the frames folder)."""
     work = tempfile.mkdtemp(prefix=".run-", dir=scratch)
@@ -156,7 +219,8 @@ def draw_once(state: dict, data: dict, browser: str, scratch: str, jobs: int, re
     _frames.draw_frames(data=data, edl=state["edl"], timeline=state["timeline"], serve=state["serve"], theme_fonts_urls=state["font_urls"], assets={},
                         browser=browser, jobs_n=1 if reverse else max(1, jobs), frames_dir=frames_dir, workdir=work, time_limit=limit, templates=state["templates"],
                         png_blank=_render.blank_png, admitted=state["admitted"], reverse=reverse)
-    hashes = [_sha256_file(os.path.join(frames_dir, "beat_%06d.png" % f)) for f in range(state["start"], state["end"])]
+    prefix = state.get("prefix", "beat")
+    hashes = [_sha256_file(os.path.join(frames_dir, "%s_%06d.png" % (prefix, f))) for f in range(state["start"], state["end"])]
     return hashes, work
 
 
@@ -199,4 +263,50 @@ def admit_check(*, entry: dict, component_dir: str, vocabulary: str, blocks: str
         total += count
         per_sample.append({"frames": count, "digest": hashlib.sha256("\n".join(runs[0]).encode("ascii")).hexdigest()})
     return {"ok": True, "served_sha256": entry["served_sha256"], "runtime_sha256": runtime_sha256, "samples": len(entry["samples"]), "frames": total,
+            "runs": 4, "blocked": 0, "seconds": round(time.time() - started, 2), "browser": version, "per_sample": per_sample}
+
+
+def admit_port_check(*, port: str, vocabulary: str, blocks: str, blocks_sha256, scratch: str, browser: str, ffmpeg: str, vendor=None, jobs: int = 3,
+                     time_limit: int = 900, shims_dir=None) -> dict:
+    """The determinism test of one of our own ports (PF-a4), read from the staged blocks by its pin: each sample (a card port's `samples`, a caption
+    port's `CAPTION_LINES`) is drawn three times forward and once last frame first, in fresh browsers, and the four lists of frame hashes must be identical;
+    the exact gates and the font check run on the first run. Returns what `admit_check` returns (the same keys)."""
+    started = time.time()
+    data = load_data()
+    vocab = load_vocabulary(vocabulary)
+    allow = _frames.font_allowlist()
+    here = os.path.dirname(os.path.abspath(__file__))
+    version = _cdp.browser_version(browser)
+    shims = shims_dir or os.path.join(_hf_host.runtime_dir(here), "shims")
+    vendor_dir = vendor or os.path.join(here, "vendor")
+    runtime_sha256 = _hf_host.load_runtime(vendor_dir, shims, data["frame"]["fps"], version)["runtime_sha256"]
+    _folder, catalogue, block = probe_port_blocks(blocks, blocks_sha256, scratch, port, runtime_sha256)
+    served = _hf_port.served_digest(_hf_port.read_fragment(catalogue, block)["raw"])
+    caption = block["kind"] == "caption"
+    samples = list(CAPTION_LINES) if caption else list(block["samples"])
+    per_sample, total = [], 0
+    for index, sample in enumerate(samples):
+        if caption:
+            state = caption_state(block, sample, catalogue, data, vocab, allow, vendor_dir, browser)
+        else:
+            state = sample_state(block, sample, catalogue, data, vocab, allow, vendor_dir, "", browser)
+        runs, gated = [], False
+        for _ in range(FORWARD_RUNS):
+            hashes, work = draw_once(state, data, browser, scratch, jobs, False, time_limit)
+            if not gated:
+                _render.check_admitted_layer(data, state["edl"], state["timeline"], state["admitted"], os.path.join(work, "frames"), ffmpeg)
+                gated = True
+            shutil.rmtree(work, ignore_errors=True)
+            runs.append(hashes)
+        reverse, work = draw_once(state, data, browser, scratch, 1, True, time_limit)
+        shutil.rmtree(work, ignore_errors=True)
+        try:
+            count = compare_runs(runs, reverse)
+        except Refusal as err:
+            if err.code == "determinism_failed":
+                err.field = ("sample %d %s" % (index + 1, err.field))[:80]
+            raise
+        total += count
+        per_sample.append({"frames": count, "digest": hashlib.sha256("\n".join(runs[0]).encode("ascii")).hexdigest()})
+    return {"ok": True, "served_sha256": served, "runtime_sha256": runtime_sha256, "samples": len(samples), "frames": total,
             "runs": 4, "blocked": 0, "seconds": round(time.time() - started, 2), "browser": version, "per_sample": per_sample}

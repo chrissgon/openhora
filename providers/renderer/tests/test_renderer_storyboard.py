@@ -385,7 +385,7 @@ def test_the_theme_and_the_face_box_change_the_stills(tmp_path):
 
 
 @needs_all
-def test_a_card_that_touches_the_face_box_gives_overlay_hits_face_and_a_nonzero_exit_and_no_still(tmp_path):
+def test_a_card_that_touches_the_face_box_is_drawn_and_the_still_is_written(tmp_path):
     """The templates keep a card in the band the face box leaves, so a hit is made here by a copy of the renderer whose keyword template
     puts the card at a fixed height (as the engine's own face test does); the real templates fit every preset above the default box."""
     import subprocess, sys
@@ -400,8 +400,8 @@ def test_a_card_that_touches_the_face_box_gives_overlay_hits_face_and_a_nonzero_
     env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "RENDERER_BROWSER": K.BROWSER}
     done = subprocess.run([sys.executable, str(copy / "_inner.py"), "storyboard", "--beat", str(write(tmp_path, "k.json", BEAT_KEYWORD)), "--vocabulary", str(K.VOCABULARY),
                            "--out", str(out)], capture_output=True, text=True, env=env, timeout=300)
-    assert done.returncode == 1 and done.stderr.startswith("refused: overlay_hits_face"), done.stderr
-    assert not out.exists() or not list(out.iterdir())
+    assert done.returncode == 0, done.stderr             # nothing is refused for the face (2026-11-24)
+    assert any(out.glob("beat-*.png"))
 
 
 @needs_all
@@ -466,9 +466,9 @@ def test_the_overlay_is_settled_at_the_chosen_frame_for_every_preset_at_its_larg
 
 
 @needs_all
-def test_a_card_that_overshoots_onto_the_face_box_while_it_pops_in_is_refused_although_clear_at_rest(tmp_path):
-    """Every frame of a beat goes through the page and the face-box check (the render's check), and only the chosen frame is written. A
-    copy of the renderer whose keyword card sits over the face box for its first 0.2 s (a stand-in for a pop-in overshoot) is refused."""
+def test_a_card_that_overshoots_onto_the_face_box_while_it_pops_in_is_drawn_and_only_the_rest_frame_is_written(tmp_path):
+    """Every frame of a beat goes through the page and the line check (the render's check), and only the chosen frame is written. A
+    copy of the renderer whose keyword card sits over the face box for its first 0.2 s (a stand-in for a pop-in overshoot) is not refused any more."""
     import subprocess, sys
     copy = tmp_path / "r"
     shutil.copytree(K.RENDERER, copy, ignore=shutil.ignore_patterns("tests", "__pycache__"))
@@ -481,8 +481,8 @@ def test_a_card_that_overshoots_onto_the_face_box_while_it_pops_in_is_refused_al
     env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "RENDERER_BROWSER": K.BROWSER}
     args = [sys.executable, str(copy / "_inner.py"), "storyboard", "--beat", str(write(tmp_path, "k.json", BEAT_KEYWORD)), "--vocabulary", str(K.VOCABULARY)]
     done = subprocess.run([*args, "--out", str(tmp_path / "o")], capture_output=True, text=True, env=env, timeout=300)
-    assert done.returncode == 1 and done.stderr.startswith("refused: overlay_hits_face"), done.stderr
-    assert not (tmp_path / "o").exists() or not list((tmp_path / "o").iterdir())
+    assert done.returncode == 0, done.stderr
+    assert len(list((tmp_path / "o").glob("beat-*.png"))) == 1
     edl, bl = lists_of([_preview.beat_row(VOCAB, BEAT_KEYWORD)])                      # the frame it is drawn at is clear: only the check on every frame sees it
     rest = _preview.rest_frame(_edl.resolve_timeline(edl, bl, VOCAB, DATA)["beats"][0], DATA, edl["fps"])
     assert rest / 30.0 - _edl.resolve_timeline(edl, bl, VOCAB, DATA)["beats"][0]["start_frame"] / 30.0 > 0.2

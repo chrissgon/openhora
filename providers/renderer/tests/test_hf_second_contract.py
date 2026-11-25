@@ -90,10 +90,9 @@ def test_a_dry_run_reads_proves_and_names_the_beats_without_a_browser(pipe):
 
 @needs_all
 @pytest.mark.parametrize("variant,code,offset", [
-    ("face_dot", "overlay_hits_face", 5),            # alpha 1/255 on frames 5, 6, 7 of the entry: found on frame 5, nowhere else
     ("below_line", "caption_below_line", 4),
     ("nothing", "block_not_drawn", 0),
-    ("opaque", "overlay_hits_face", 3),
+    ("opaque", "caption_below_line", 3),             # a full-frame layer (the corner cut keeps it RGBA): below the line from frame 3 of the entry (it was the face gate's until 2026-11-24)
 ])
 def test_the_exact_gates_refuse_a_pixel_where_it_must_not_be_with_the_first_frame(pipe, variant, code, offset):
     tail, env, tmp, rt = setup(pipe, variant)
@@ -101,6 +100,16 @@ def test_the_exact_gates_refuse_a_pixel_where_it_must_not_be_with_the_first_fram
     rc, out, err = render(pipe, tail, env, tmp / "o")
     assert rc == 1 and refusal(err) == (code, "frame %d" % (start + offset)), err
     assert not list((tmp / "o").glob("render-*.mp4"))
+
+
+@needs_all
+def test_a_page_that_draws_on_the_speakers_face_is_drawn_twice_byte_identical_nothing_is_refused_for_the_face(pipe):
+    """`face_dot` (alpha 1/255 at the face box's centre on frames 5-7) was found by the exact face gate; the maintainer removed that rule on 2026-11-24."""
+    tail, env, tmp, rt = setup(pipe, "face_dot")
+    rc1, one, err1 = render(pipe, tail, env, tmp / "o1")
+    rc2, two, err2 = render(pipe, tail, env, tmp / "o2")
+    assert rc1 == 0 and rc2 == 0, (err1, err2)
+    assert one["sha256"] == two["sha256"]
 
 
 @needs_all
