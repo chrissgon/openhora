@@ -101,11 +101,33 @@ jobs:
   # definition by its provider's own `build --confirmed` on the runner (the Debian base by digest, packages from the dated snapshot, the pinned browser
   # archive, whisper.cpp at its commit), then the gated live tests: the renderer's `--check` and one render of a synthetic recording in a real container
   # with no network, and the transcriber's image accepted. No model is downloaded and no model call is made.
+  #
+  # CI-1b: the job is a matrix of 3 legs that run at once, each a disjoint group of the same live tests (the groups are balanced by the durations CI-1a's run
+  # measured, docs/decisions/ ci-1b-live-legs). Each leg builds its own images (the tests read the build's record in the leg's own state folder); only the leg
+  # whose targets hold the transcriber's file builds the transcriber image. `targets` are the test files, `legs` a pytest -k expression ("" = every item of the
+  # files). The last group of the contract file is the complement of the others, so that a leg added later lands there and is never lost; the coverage
+  # oracle of scripts/tests/test_checks_wiring.py proves that the legs together collect exactly what the one job collected. Each value is on one line.
   renderer:
-    name: renderer
+    name: renderer ${{ matrix.group }} of 3
     if: inputs.renderer
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: 1
+            transcriber: true
+            targets: providers/renderer/tests/test_renderer_docker_live.py providers/transcriber/tests/test_transcriber_docker_live.py
+            legs: ""
+          - group: 2
+            transcriber: false
+            targets: providers/renderer/tests/test_engine_contract_live.py
+            legs: "test_f4_ or test_f11_ or test_f9_ or test_f5_ or test_f7_"
+          - group: 3
+            transcriber: false
+            targets: providers/renderer/tests/test_engine_contract_live.py
+            legs: "not (test_f4_ or test_f11_ or test_f9_ or test_f5_ or test_f7_)"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -122,22 +144,51 @@ jobs:
       # As in the converter job: each image built first by its provider's own `build --confirmed`, tried again when the
       # snapshot archive fails it, so that the tests' fixtures find it built.
       - name: The transcriber image, built (tried again on a transient failure of the snapshot archive)
+        if: matrix.transcriber
         run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 600 -- python3 providers/transcriber/whispercpp.py build --confirmed
       - name: The renderer image, built (tried again on a transient failure of the snapshot archive)
         run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 900 -- python3 providers/renderer/ffmpeg.py build --confirmed --platform linux64
       - name: The renderer and the transcriber images, exercised
-        run: WB_RENDERER_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q -rA --durations=0 providers/renderer/tests/test_renderer_docker_live.py providers/renderer/tests/test_engine_contract_live.py providers/transcriber/tests/test_transcriber_docker_live.py
+        env:
+          TARGETS: ${{ matrix.targets }}
+          LEGS: ${{ matrix.legs }}
+        shell: bash
+        run: WB_RENDERER_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q -rA --durations=0 $TARGETS ${LEGS:+-k "$LEGS"}
 
   # The HyperFrames engine of renderer:video (providers/renderer/hyperframes-image/): its image built from its pinned definition by the provider's own
   # `build --confirmed` on the runner (V3c-2). The first run is the first amd64 build of that image: it downloads the amd64 static ffmpeg, the Debian and
   # npm packages and the linux64 headless shell, each checked against the sha256 its pin file holds (a mismatch stops the build; nothing is re-pinned).
   # The common image is built first because a HyperFrames render encodes and verifies in it. Then the amd64 `--check` (the image's selfcheck) and the
-  # gated live tests of both engines on small synthetic recordings. test_hf_tier_a_live.py is not run: it needs survey variables this job does not set.
+  # gated live tests of the HyperFrames parameter on small synthetic recordings (WB_HYPERFRAMES_DOCKER_TESTS=1 selects that parameter only; the [ffmpeg]
+  # parameters run in the renderer job). test_hf_tier_a_live.py is not run: it needs survey variables this job does not set.
+  #
+  # CI-1b: a matrix of 5 legs that run at once, as in the renderer job: each builds both images and runs the selfcheck, then its group of the live tests. The
+  # F1 and F3 legs stay together (F3 reuses F1's renders, and F1 and F3 are the longest of the job); the last group is the complement of the others and also
+  # holds test_hf_docker_live.py. PF-b deletes this whole job (docs/decisions/ ci-1b-live-legs says what else).
   hyperframes:
-    name: hyperframes
+    name: hyperframes ${{ matrix.group }} of 5
     if: inputs.hyperframes
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: 1
+            targets: providers/renderer/tests/test_engine_contract_live.py
+            legs: "test_f1_ or test_f3_"
+          - group: 2
+            targets: providers/renderer/tests/test_engine_contract_live.py
+            legs: "test_f8_"
+          - group: 3
+            targets: providers/renderer/tests/test_engine_contract_live.py
+            legs: "test_f9_"
+          - group: 4
+            targets: providers/renderer/tests/test_engine_contract_live.py
+            legs: "test_f2_ or test_f7_"
+          - group: 5
+            targets: providers/renderer/tests/test_engine_contract_live.py providers/renderer/tests/test_hf_docker_live.py
+            legs: "not (test_f1_ or test_f2_ or test_f3_ or test_f7_ or test_f8_ or test_f9_)"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -156,8 +207,12 @@ jobs:
         run: python3 scripts/ci_retry.py --attempts 3 --delay 120 --attempt-timeout 1800 -- python3 providers/renderer/hyperframes.py build --confirmed
       - name: The HyperFrames image, checked (its selfcheck on amd64)
         run: python3 providers/renderer/hyperframes.py --check
-      - name: Both engines, exercised on synthetic recordings
-        run: WB_HYPERFRAMES_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q -rA --durations=0 providers/renderer/tests/test_engine_contract_live.py providers/renderer/tests/test_hf_docker_live.py
+      - name: The HyperFrames parameter, exercised on synthetic recordings
+        env:
+          TARGETS: ${{ matrix.targets }}
+          LEGS: ${{ matrix.legs }}
+        shell: bash
+        run: WB_HYPERFRAMES_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q -rA --durations=0 $TARGETS ${LEGS:+-k "$LEGS"}
 
   # The WhatsApp program (providers/messenger/whatsapp/): vet and tests, offline once the modules are fetched. The runner's
   # own Go downloads the toolchain go.mod names (verified by the checksum database); modules are checked against go.sum.

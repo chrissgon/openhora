@@ -275,9 +275,9 @@ report's closed schema and the memory sampler are in `tests/contract_kit.py`; th
 
 Both engines also answer `block-params` (the host-side checker of an added animation, from the same function of `_host.py`; `test_renderer_contract.py` keeps that true for every implementation of the class).
 
-Two kinds of leg. The functional legs F1-F8 run on short inputs, in CI's renderer job (the ffmpeg parameter, `WB_RENDERER_DOCKER_TESTS=1`), in CI's
+Two kinds of leg. The functional legs F1-F8 run on short inputs, in CI's renderer job (the ffmpeg parameter, `WB_RENDERER_DOCKER_TESTS=1`; three legs that run at once, CI-1b), in CI's
 `hyperframes` job (V3c-2: both images built on the runner, the amd64 `hyperframes.py --check`, then this file and `test_hf_docker_live.py` with
-`WB_HYPERFRAMES_DOCKER_TESTS=1`) and on the maintainer's machine (both, with `WB_HYPERFRAMES_DOCKER_TESTS=1`). The machine legs `test_mac_*` (M1 the short case at 4 and 8 cores,
+`WB_HYPERFRAMES_DOCKER_TESTS=1`, which runs the `[hyperframes]` parameter only; five legs that run at once, each building both images, CI-1b) and on the maintainer's machine (both, with `WB_HYPERFRAMES_DOCKER_TESTS=1`). The machine legs `test_mac_*` (M1 the short case at 4 and 8 cores,
 M2 a real-size case of about 196 s and 37 kept ranges at 4 and 8 cores, M3 a 298 s input on HyperFrames once) need 8 cores and run only with
 `WB_ENGINE_MAC_LEGS=1`, one after another; with `WB_ENGINE_REPORT=<a new file>` they write the report, `reports/engine-contract-<date>-<arch>.json`,
 checked by `contract_kit.check_report` (closed: hashes, numbers, closed words, a date; no path, no word of a transcript).
@@ -515,9 +515,9 @@ and 8 against 4 took it from 366 s to 161 s, with the same bytes.
 
 ## Tests
 
-CI paths (V3c-2): the `renderer` job builds the common image and runs the ffmpeg parameter; the `hyperframes` job builds both images and runs both parameters. A change inside `hyperframes-image/` alone starts only the `hyperframes` job; a change to `shared/references/video-presets.json`, `shared/references/platforms/instagram.json` or `skills/mkt-social-copy/scripts/check_script.py` (read by every render) starts both.
+CI paths (V3c-2): the `renderer` job builds the common image and runs the ffmpeg parameter; the `hyperframes` job builds both images and runs the HyperFrames parameter only (CI-1b: each job is a matrix of legs that run at once, each a disjoint group of the same live tests with its own builds). A change inside `hyperframes-image/` alone starts only the `hyperframes` job; a change to `shared/references/video-presets.json`, `shared/references/platforms/instagram.json` or `skills/mkt-social-copy/scripts/check_script.py` (read by every render) starts both.
 
-Live files and their variables: `WB_RENDERER_DOCKER_TESTS=1` (the ffmpeg image), `WB_HYPERFRAMES_DOCKER_TESTS=1` (both images), `WB_ENGINE_MAC_LEGS=1` and `WB_ENGINE_REPORT=<new file>` (the machine legs of `test_engine_contract_live.py`).
+Live files and their variables: `WB_RENDERER_DOCKER_TESTS=1` (the ffmpeg image), `WB_HYPERFRAMES_DOCKER_TESTS=1` (both images built, the HyperFrames parameter run), `WB_ENGINE_MAC_LEGS=1` and `WB_ENGINE_REPORT=<new file>` (the machine legs of `test_engine_contract_live.py`).
 
 `uv run --with pytest pytest providers/renderer/tests` (the whole suite takes about five minutes). Browser and ffmpeg tests
 skip with a reason where those are absent; the host side runs against a fake docker that executes `_inner.py` with a local Chromium.
