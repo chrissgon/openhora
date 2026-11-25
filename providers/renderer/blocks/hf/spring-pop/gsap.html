@@ -4,7 +4,7 @@
     .stage, .stage *, .stage *::before, .stage *::after { box-sizing: border-box; }
     .stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
     .badge { display: flex; flex-direction: row; align-items: center; gap: 0.3em; padding: 0.35em 0.6em 0.38em; border-radius: 0.36em; border: 0.07em solid var(--mark);
-             background: var(--c-chip_fill); color: var(--c-text); box-shadow: 0 0.12em 0 rgba(0, 0, 0, 0.35); transform-origin: 50% 50%; }
+             background: var(--c-chip_fill); color: var(--c-text); box-shadow: 0 0.12em 0 rgba(0, 0, 0, 0.35); transform-origin: 50% 50%; will-change: transform; }
     .dot { flex: 0 0 auto; width: 0.38em; height: 0.38em; border-radius: 50%; background: var(--mark); }
     .ic { flex: 0 0 auto; width: 0.9em; height: 0.9em; fill: var(--mark); stroke: var(--mark); stroke-linecap: round; stroke-linejoin: round; }
     .label { font-family: var(--font-display); font-weight: var(--weight-display); line-height: 1.1; letter-spacing: -0.02em; white-space: nowrap; text-align: center; }
