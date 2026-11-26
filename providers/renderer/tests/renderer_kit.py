@@ -77,8 +77,8 @@ HF_PORT = {"schema_version": 1, "name": "hf:demo-ring", "kind": "overlay", "pres
 
 
 def write_hf_fixture(folder) -> None:
-    """In a copy of the blocks: a fictional tier-A hf: block (an allowlist entry), a fictional tier-B port (a folder) and an engine that runs
-    the gsap runtime only, then pin again. The code of _blocks does not change for any of it."""
+    """In a copy of the blocks: a fictional tier-A hf: block (an allowlist entry), a fictional tier-B port (a folder) and a fictional engine
+    named `twin` that runs the gsap runtime only (a file beside the committed engines', never over one of them), then pin again. The code of _blocks does not change for any of it."""
     folder = Path(folder)
     allow = json.loads((folder / "hf" / "allowlist.json").read_text())
     allow.update(registry_commit="a" * 40, blocks=[HF_ENTRY])
@@ -86,8 +86,9 @@ def write_hf_fixture(folder) -> None:
     (folder / "hf" / "demo-ring").mkdir()
     (folder / "hf" / "demo-ring" / "block.json").write_text(json.dumps(HF_PORT, indent=1))
     (folder / "hf" / "demo-ring" / "gsap.html").write_text("<!doctype html><title>demo</title>\n")
-    (folder / "engines" / "hyperframes.json").write_text(json.dumps(
-        {"schema_version": 1, "engine": "hyperframes", "note": "a fictional engine for the tests", "runtimes": ["gsap"], "presets": {"keyword": "hf:demo-pop"}}, indent=1))
+    (folder / "engines" / "twin.json").write_text(json.dumps(
+        {"schema_version": 1, "engine": "twin", "note": "a fictional engine for the tests", "runtimes": ["gsap"], "presets": {"keyword": "hf:demo-pop"}}, indent=1))
+    (folder / "engines" / "hyperframes.json").unlink(missing_ok=True)       # the fictional engine is the one that runs gsap, whether or not a committed one still does
     _blocks.write_pins(str(folder))
 
 POP_GSAP = """<!-- hf:demo-pop: a fictional pop card, used by the tests only. -->

@@ -181,13 +181,13 @@ def test_an_hf_block_fits_the_schema_unchanged_and_is_refused_on_ffmpeg_naming_t
     K.write_hf_fixture(folder)
     cat = _blocks.load_catalogue(folder)
     listed = {e["name"]: e for e in json.loads(_blocks.catalogue_bytes(cat))["blocks"]}
-    assert listed["hf:demo-pop"]["engines"] == ["hyperframes"] and listed["hf:demo-ring"]["engines"] == ["hyperframes"]
+    assert listed["hf:demo-pop"]["engines"] == ["twin"] and listed["hf:demo-ring"]["engines"] == ["twin"]
     assert listed["oh:keyword"]["engines"] == ["ffmpeg"] and listed["hf:demo-pop"]["tier"] == "A" and listed["hf:demo-ring"]["tier"] == "B"
     assert not any({"notice", "commit", "files"} & set(e) for e in listed.values())
     e = refused(_blocks.resolve, cat, "ffmpeg", "keyword", "hf:demo-pop", "beats.b1")
     assert (e.code, e.field) == ("block_not_on_engine", "oh:keyword")
-    assert _blocks.resolve(cat, "hyperframes", "keyword", None, "beats.b1")["name"] == "hf:demo-pop"
-    assert _blocks.implementation(cat, cat["blocks"]["hf:demo-pop"], "hyperframes") == "hf/demo-pop/demo-pop.html"
+    assert _blocks.resolve(cat, "twin", "keyword", None, "beats.b1")["name"] == "hf:demo-pop"
+    assert _blocks.implementation(cat, cat["blocks"]["hf:demo-pop"], "twin") == "hf/demo-pop/demo-pop.html"
     bad_image = copy.deepcopy(K.HF_ENTRY)
     bad_image["params"]["picture"] = {"type": "image"}
     for entry in (bad_image,):
@@ -420,10 +420,13 @@ def test_an_entry_of_the_second_contract_that_breaks_a_rule_is_block_schema(chan
     assert _blocks.check_block(H.entry({H.FILE: "a" * 64}, "b" * 64, "c" * 64), "hf:allowlist[0]", "hf", registry_commit=H.COMMIT)["name"] == H.NAME
 
 
-def test_the_hyperframes_engine_cannot_draw_an_entry_that_runs_on_the_second_contract_only(tmp_path):
+def test_an_engine_that_runs_gsap_cannot_draw_an_entry_that_runs_on_the_second_contract_only(tmp_path):
     import hf_second_kit as H
     folder = hf_folder(tmp_path)
-    edit_json(folder, "engines/hyperframes.json", lambda d: d["presets"].update(keyword=H.NAME))
+    with open(os.path.join(folder, "engines", "twin.json"), "w", encoding="utf-8") as fh:
+        json.dump({"schema_version": 1, "engine": "twin", "note": "a fictional engine for the tests", "runtimes": ["gsap", "renderat"], "asset_kinds": ["image", "clip"],
+                   "presets": {"keyword": H.NAME}}, fh, indent=1)
+    _blocks.write_pins(folder)
     assert refused(_blocks.load_catalogue, folder).code == "block_schema"
 
 
