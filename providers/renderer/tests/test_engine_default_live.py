@@ -72,6 +72,12 @@ def directly(lab, tag, engine):
     return out
 
 
+def resolved(implementation):
+    """The resolver's answer for the renderer the seam starts, with the environment MediaEngine passes."""
+    r = seams.project_config.resolver(ROOT)
+    return r.resolve("renderer:video", root=ROOT, env=r.provider_environment("renderer:video", None, ()), implementation=implementation)
+
+
 def shaped(lab, engine, result, doc, out_dir):
     check_shape(lab, engine, Render(0, result, "", 0.0, out_dir, 0.0), doc)
     assert_clean(out_dir, passed=True)
@@ -81,7 +87,9 @@ def test_l1_with_no_renderer_named_the_engine_is_ffmpeg_and_its_render_is_the_ho
     assert media_animation.engine_name(ROOT) == "ffmpeg"
     result, doc, out_dir = through_the_seam(lab, None, "auto", "ffmpeg")
     shaped(lab, "ffmpeg", result, doc, out_dir)
-    assert result["engine"] == "ffmpeg" and "gate" not in result
+    chosen = resolved(None)       # the render result carries no engine key: the engine is the provider script the resolver gave the seam
+    assert chosen["implementation"] == "ffmpeg" and chosen["path"].endswith("providers/renderer/ffmpeg.py") and "retired" not in chosen
+    assert "gate" not in result
     reference = directly(lab, "ffmpeg", "ffmpeg")
     assert result["sha256"] == reference["sha256"], "the seam's render is not the same engine's render of the same inputs"
 
@@ -90,7 +98,8 @@ def test_l2_naming_hyperframes_renders_with_ffmpeg_the_same_sha256_as_l1(lab):
     assert media_animation.engine_name(ROOT, "hyperframes") == "ffmpeg"      # the retired name is read as its successor (PF-b)
     named, doc, named_out = through_the_seam(lab, "hyperframes", "hyperframes-named", "ffmpeg")
     shaped(lab, "ffmpeg", named, doc, named_out)
-    assert named["engine"] == "ffmpeg"
+    chosen = resolved("hyperframes")
+    assert chosen["implementation"] == "ffmpeg" and chosen["path"].endswith("providers/renderer/ffmpeg.py") and chosen["retired"] == "hyperframes"
     default, _, _ = through_the_seam(lab, None, "auto-again", "ffmpeg")
     assert named["sha256"] == default["sha256"], "the retired name did not draw what the default draws"
 

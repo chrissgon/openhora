@@ -62,6 +62,14 @@ def load_documents(edl_path, beats_path, platform_path, vocabulary_path, fonts_d
     return data, edl, beats, platform, vocab, allow
 
 
+def scratch_estimate(job_count: int, limits: dict, max_bytes: int) -> int:
+    """The scratch a render needs before its first frame: one PNG per frame job at `frame_bytes_estimate`, the work files, and the output at most `max_bytes`.
+    A frame the page draws again (same page state) is a hard link and costs nothing, and the blank frames are links too, so this counts the most a render can store.
+    The figure is measured (PF-b1): the distinct PNGs of a 1080x1920 transparent layer of the offline fixture are 50 kB on average and 73 kB at most, so 120000 keeps a
+    margin over the largest; the earlier 250000 refused a 300 s post (7493 frame jobs, about 2.24 GB against the 2048 MiB default scratch) that renders in 906 s."""
+    return job_count * limits["frame_bytes_estimate"] + 64 * 1024 * 1024 + max_bytes
+
+
 def font_urls_of(data, edl, font_serve) -> dict:
     """The theme's fonts as the page's setup wants them: {role: {weight, fallback[, url]}}."""
     urls = {}
@@ -272,7 +280,7 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     argv = _media.compose_argv(ffmpeg, plan)
     outdir = os.path.abspath(os.path.dirname(out) if out.endswith(".mp4") else out)
     _, jobs_list = _frames.frame_jobs(timeline, edl["out_frames"])
-    estimate = len(jobs_list) * limits["frame_bytes_estimate"] + 64 * 1024 * 1024 + plan["max_bytes"]
+    estimate = scratch_estimate(len(jobs_list), limits, plan["max_bytes"])
     advice = _advice.merge(advice, docs.get("advice"), timeline.get("advice"), block_advice)
     summary = {"ok": True, "dry_run": bool(dry_run), "out_dir": outdir, "out_seconds": round(out_seconds, 3), "out_frames": edl["out_frames"],
                "frame_jobs": len(jobs_list), "jobs": jobs, "time_limit_seconds": limit, "layers": plan["layers"],
