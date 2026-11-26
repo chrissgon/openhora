@@ -446,6 +446,15 @@ ENGINE_NAMES = ("ffmpeg", "hyperframes")
 STAGES = ("render", "page", "proxy", "hf", "encode", "measure", "pixel")
 MEMORY_KEYS = ("hf_cgroup_peak_mib", "hf_sampled_max_mib", "common_sampled_max_mib", "oom_events")
 GATE_KEYS = ("frames", "boxes", "lowest_caption_bottom", "pixel_min_psnr_db", "pixel_ranges")
+RUN_KEYS = ("engine", "cpus", "cpuset", "outcome", "code", "sha256", "bytes", "frames_ok", "wall_seconds", "stage_seconds", "memory", "gate")
+# Schema 1 is the report of the two committed engines (frozen: the two committed reports are never edited and still validate). Schema 2 is the one engine's
+# report (PF-b, plan video quality v6): no HyperFrames image, version, engine, stage, memory figure or gate. A new report is schema 2.
+SCHEMA_1 = {"top": ("schema", "date", "commit", "arch", "machine", "images", "hyperframes_version", "cases"), "images": ("common", "hyperframes"),
+            "engines": ENGINE_NAMES, "stages": STAGES, "memory": MEMORY_KEYS, "gate": GATE_KEYS, "run": RUN_KEYS}
+SCHEMA_2 = {"top": ("schema", "date", "commit", "arch", "machine", "images", "cases"), "images": ("common",),
+            "engines": ("ffmpeg",), "stages": ("render",), "memory": ("common_sampled_max_mib", "oom_events"), "gate": None,
+            "run": tuple(k for k in RUN_KEYS if k != "gate")}
+SCHEMAS = {1: SCHEMA_1, 2: SCHEMA_2}
 SHA = re.compile(r"[0-9a-f]{64}")
 HEX12 = re.compile(r"[0-9a-f]{12}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
@@ -499,10 +508,13 @@ def _no_free_text(value, where: str = "report") -> None:
 
 def check_report(doc) -> dict:
     """The one closed schema of `providers/renderer/reports/engine-contract-<date>-<arch>.json`: hashes, numbers, closed words, bools and a date;
-    no path, no word of a transcript, no host name. Raises ReportError, returns the document."""
-    _keys(doc, ("schema", "date", "commit", "arch", "machine", "images", "hyperframes_version", "cases"), "report")
-    if doc["schema"] != 1 or isinstance(doc["schema"], bool):
-        raise ReportError("schema: only 1")
+    no path, no word of a transcript, no host name. Schema 1 (two engines, frozen) and schema 2 (the one engine) are both read; the `schema` key
+    says which. Raises ReportError, returns the document."""
+    schema = doc.get("schema") if isinstance(doc, dict) else None
+    if isinstance(schema, bool) or schema not in SCHEMAS:
+        raise ReportError("schema: only 1 or 2")
+    shape = SCHEMAS[schema]
+    _keys(doc, shape["top"], "report")
     _match(doc["date"], DATE, "date")
     _match(doc["commit"], COMMIT, "commit")
     if doc["arch"] not in ("arm64", "amd64"):
@@ -510,10 +522,10 @@ def check_report(doc) -> dict:
     _keys(doc["machine"], ("docker_cpus", "docker_memory_mib"), "machine")
     if not all(_int(doc["machine"][k]) for k in doc["machine"]):
         raise ReportError("machine: whole numbers")
-    _keys(doc["images"], ("common", "hyperframes"), "images")
-    for k in ("common", "hyperframes"):
+    _keys(doc["images"], shape["images"], "images")
+    for k in shape["images"]:
         _match(doc["images"][k], HEX12, "images." + k)
-    if doc["hyperframes_version"] is not None:
+    if "hyperframes_version" in shape["top"] and doc["hyperframes_version"] is not None:
         _match(doc["hyperframes_version"], VERSION, "hyperframes_version")
     if not isinstance(doc["cases"], list) or not doc["cases"]:
         raise ReportError("cases: a list of at least one")
@@ -524,20 +536,20 @@ def check_report(doc) -> dict:
             raise ReportError(where + ".case: closed words")
         if not _num(case["input_seconds"]) or not all(_int(case[k]) for k in ("kept_ranges", "out_frames", "words")):
             raise ReportError(where + ": numbers")
-        _keys(case["same_sha256"], ENGINE_NAMES, where + ".same_sha256")
-        for e in ENGINE_NAMES:
+        _keys(case["same_sha256"], shape["engines"], where + ".same_sha256")
+        for e in shape["engines"]:
             _nullable(case["same_sha256"][e], lambda v: isinstance(v, bool), where + ".same_sha256")
         if not isinstance(case["runs"], list) or not case["runs"]:
             raise ReportError(where + ".runs: a list of at least one")
         for m, run in enumerate(case["runs"]):
-            check_run(run, "%s.runs[%d]" % (where, m))
+            check_run(run, "%s.runs[%d]" % (where, m), shape)
     _no_free_text(doc)
     return doc
 
 
-def check_run(run, where: str) -> None:
-    _keys(run, ("engine", "cpus", "cpuset", "outcome", "code", "sha256", "bytes", "frames_ok", "wall_seconds", "stage_seconds", "memory", "gate"), where)
-    if run["engine"] not in ENGINE_NAMES:
+def check_run(run, where: str, shape=SCHEMA_1) -> None:
+    _keys(run, shape["run"], where)
+    if run["engine"] not in shape["engines"]:
         raise ReportError(where + ".engine: closed words")
     if not _int(run["cpus"]):
         raise ReportError(where + ".cpus: a whole number")
@@ -552,20 +564,28 @@ def check_run(run, where: str) -> None:
     _nullable(run["frames_ok"], lambda v: isinstance(v, bool), where + ".frames_ok")
     if not _num(run["wall_seconds"]):
         raise ReportError(where + ".wall_seconds: a number")
-    for key, keys, test in (("stage_seconds", STAGES, _num), ("memory", MEMORY_KEYS, _num), ("gate", GATE_KEYS, _num)):
+    blocks = [("stage_seconds", shape["stages"]), ("memory", shape["memory"])] + ([("gate", shape["gate"])] if shape["gate"] else [])
+    for key, keys in blocks:
         block = run[key]
         if block is None:
             continue
         if not isinstance(block, dict) or not set(block) <= set(keys):
             raise ReportError("%s.%s: an unknown key" % (where, key))
         for k, v in block.items():
-            _nullable(v, test, "%s.%s.%s" % (where, key, k))
+            _nullable(v, _num, "%s.%s.%s" % (where, key, k))
     if run["outcome"] == "ok" and run["sha256"] is None:
         raise ReportError(where + ": an ok run has a sha256")
 
 
-def placeholder_report() -> dict:
-    """The example of the spec (section 6.2), the right types and no result: what the schema's tests start from."""
+def placeholder_report(schema: int = 2) -> dict:
+    """The example of the spec (section 6.2), the right types and no result: what the schema's tests start from. Schema 2 (the default) is the one
+    engine's report; schema 1 is the frozen two-engine report, kept for the tests of the committed reports' form."""
+    if schema == 2:
+        run = {"engine": "ffmpeg", "cpus": 8, "cpuset": "0-7", "outcome": "ok", "code": None, "sha256": "a" * 64, "bytes": 115000000, "frames_ok": True,
+               "wall_seconds": 600.5, "stage_seconds": {"render": 590.0}, "memory": {"common_sampled_max_mib": 900, "oom_events": 0}}
+        return {"schema": 2, "date": "2026-11-26", "commit": "b" * 40, "arch": "arm64", "machine": {"docker_cpus": 14, "docker_memory_mib": 26000},
+                "images": {"common": "c" * 12},
+                "cases": [{"case": "real", "input_seconds": 192.6, "kept_ranges": 35, "out_frames": 3773, "words": 410, "runs": [run], "same_sha256": {"ffmpeg": None}}]}
     run = {"engine": "hyperframes", "cpus": 8, "cpuset": "0-7", "outcome": "ok", "code": None, "sha256": "a" * 64, "bytes": 115000000, "frames_ok": True,
            "wall_seconds": 1200.5, "stage_seconds": {"page": 1.0, "proxy": 30.0, "hf": 500.0, "encode": 600.0, "measure": 40.0, "pixel": 170.0},
            "memory": {"hf_cgroup_peak_mib": 6144, "hf_sampled_max_mib": 3100, "common_sampled_max_mib": 900, "oom_events": 0},

@@ -234,27 +234,34 @@ def refuses(doc):
         C.check_report(doc)
 
 
-def test_the_placeholder_of_the_spec_passes_the_schema():
-    assert C.check_report(C.placeholder_report())["schema"] == 1
+@pytest.fixture(params=[1, 2], ids=["schema1", "schema2"])
+def schema(request):
+    """Schema 1 is the frozen two-engine report, schema 2 the one engine's (PF-b2): the form tests run on both."""
+    return request.param
 
 
-def test_the_schema_refuses_an_unknown_key_at_every_level_and_a_missing_one():
+def test_the_placeholder_of_the_spec_passes_the_schema(schema):
+    assert C.check_report(C.placeholder_report(schema))["schema"] == schema
+    assert C.placeholder_report()["schema"] == 2                                # the default is the one engine's report
+
+
+def test_the_schema_refuses_an_unknown_key_at_every_level_and_a_missing_one(schema):
     for path in ((), ("machine",), ("images",), ("cases", 0), ("cases", 0, "same_sha256"), ("cases", 0, "runs", 0)):
-        doc = C.placeholder_report()
+        doc = C.placeholder_report(schema)
         node = doc
         for p in path:
             node = node[p]
         node["extra"] = 1
         refuses(doc)
-    for path, key in (((), "commit"), (("cases", 0), "words"), (("cases", 0, "runs", 0), "gate")):
-        doc = C.placeholder_report()
+    for path, key in (((), "commit"), (("cases", 0), "words"), (("cases", 0, "runs", 0), "gate" if schema == 1 else "memory")):
+        doc = C.placeholder_report(schema)
         node = doc
         for p in path:
             node = node[p]
         del node[key]
         refuses(doc)
-    for block, key in (("stage_seconds", "extra"), ("memory", "extra"), ("gate", "extra")):
-        doc = C.placeholder_report()
+    for block, key in (("stage_seconds", "extra"), ("memory", "extra")) + ((("gate", "extra"),) if schema == 1 else ()):
+        doc = C.placeholder_report(schema)
         doc["cases"][0]["runs"][0][block][key] = 1.0
         refuses(doc)
 
@@ -263,9 +270,10 @@ def test_the_schema_refuses_an_unknown_key_at_every_level_and_a_missing_one():
     lambda d: d.update(commit="b" * 39),
     lambda d: d.update(date="2026-1-10"),
     lambda d: d.update(arch="x86"),
-    lambda d: d.update(schema=2),
+    lambda d: d.update(schema=3),
+    lambda d: d.update(schema=True),
+    lambda d: d.update(schema="2"),
     lambda d: d["images"].update(common="C" * 12),
-    lambda d: d.update(hyperframes_version="v0.9"),
     lambda d: d["cases"][0].update(case="huge"),
     lambda d: d["cases"][0]["runs"][0].update(cpuset="0,1"),
     lambda d: d["cases"][0]["runs"][0].update(cpuset="0-3 "),
@@ -283,21 +291,48 @@ def test_the_schema_refuses_an_unknown_key_at_every_level_and_a_missing_one():
     lambda d: d["cases"][0].update(runs=[]),
     lambda d: d.update(cases=[]),
 ])
-def test_the_schema_refuses_a_value_outside_its_type_or_pattern(edit):
-    doc = C.placeholder_report()
+def test_the_schema_refuses_a_value_outside_its_type_or_pattern(edit, schema):
+    doc = C.placeholder_report(schema)
     edit(doc)
     refuses(doc)
 
 
-def test_the_schema_refuses_a_path_a_host_name_and_a_free_text_field():
+def test_schema_1_still_refuses_a_bad_hyperframes_version_and_the_other_schema_number():
+    doc = C.placeholder_report(1)
+    doc["hyperframes_version"] = "v0.9"
+    refuses(doc)
+    doc = C.placeholder_report(1)
+    doc["schema"] = 2
+    refuses(doc)                                                                # a schema 1 body under the number 2 has keys that schema 2 does not
+    doc = C.placeholder_report(2)
+    doc["schema"] = 1
+    refuses(doc)
+
+
+def test_a_schema_2_report_with_a_hyperframes_key_is_refused():
+    def hf_image(d): d["images"]["hyperframes"] = "d" * 12
+    def hf_version(d): d["hyperframes_version"] = "0.9.19"
+    def hf_engine(d): d["cases"][0]["runs"][0]["engine"] = "hyperframes"
+    def hf_same(d): d["cases"][0]["same_sha256"]["hyperframes"] = None
+    def hf_gate(d): d["cases"][0]["runs"][0]["gate"] = None
+    def hf_stage(d): d["cases"][0]["runs"][0]["stage_seconds"]["hf"] = 1.0
+    def hf_memory(d): d["cases"][0]["runs"][0]["memory"]["hf_sampled_max_mib"] = 3000
+    assert C.check_report(C.placeholder_report(2))["schema"] == 2
+    for edit in (hf_image, hf_version, hf_engine, hf_same, hf_gate, hf_stage, hf_memory):
+        doc = C.placeholder_report(2)
+        edit(doc)
+        refuses(doc)
+
+
+def test_the_schema_refuses_a_path_a_host_name_and_a_free_text_field(schema):
     for key, value in (("code", "/Users/someone/recording"), ("cpuset", "~/x"), ("engine", "../ffmpeg")):
-        doc = C.placeholder_report()
+        doc = C.placeholder_report(schema)
         doc["cases"][0]["runs"][0][key] = value
         refuses(doc)
-    doc = C.placeholder_report()
+    doc = C.placeholder_report(schema)
     doc["machine"]["host"] = "a-laptop.local"
     refuses(doc)
-    doc = C.placeholder_report()
+    doc = C.placeholder_report(schema)
     doc["cases"][0]["note"] = "the speaker says money"
     refuses(doc)
     for text in ("/tmp/x", "a\\b", "x" * 65, "~root"):
@@ -307,7 +342,7 @@ def test_the_schema_refuses_a_path_a_host_name_and_a_free_text_field():
 
 
 def test_null_stands_for_a_key_an_engine_does_not_have_and_a_refused_run_has_no_figures():
-    doc = C.placeholder_report()
+    doc = C.placeholder_report(1)
     run = doc["cases"][0]["runs"][0]
     run.update(engine="ffmpeg", stage_seconds={"render": 31.5}, memory={"hf_cgroup_peak_mib": None, "hf_sampled_max_mib": None, "common_sampled_max_mib": 800, "oom_events": 0},
                gate=None)
@@ -330,10 +365,18 @@ def test_rows_built_from_what_a_render_printed_pass_the_schema_and_the_same_sha_
     edl = C.base_of(C.short_transcript(), DATA)
     case = C.case_row("short", C.short_transcript(), edl, rows[:4])
     assert case["same_sha256"] == {"ffmpeg": False, "hyperframes": True}
-    doc = C.placeholder_report()
+    doc = C.placeholder_report(1)
     doc["cases"] = [case, C.case_row("max", C.short_transcript(), edl, rows[4:])]
     C.check_report(doc)
     assert doc["cases"][1]["same_sha256"] == {"ffmpeg": None, "hyperframes": None}
+
+
+def test_a_schema_2_run_of_the_one_engine_passes_and_a_refused_one_has_no_figures():
+    doc = C.placeholder_report(2)
+    doc["cases"][0]["runs"].append({"engine": "ffmpeg", "cpus": 8, "cpuset": "0-7", "outcome": "refused", "code": "render_timeout", "sha256": None, "bytes": None,
+                                    "frames_ok": None, "wall_seconds": 1800.2, "stage_seconds": None, "memory": None})
+    doc["cases"][0]["same_sha256"] = {"ffmpeg": True}
+    C.check_report(doc)
 
 
 def test_every_committed_report_passes_the_schema_and_its_name_says_its_date_and_architecture():
