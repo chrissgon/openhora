@@ -17,6 +17,9 @@ from _vocab import HERE, SLOT_ID, read_json
 FONT_MAGIC = {b"wOF2": ("woff2", "font/woff2"), b"wOFF": ("woff", "font/woff"), b"\x00\x01\x00\x00": ("ttf", "font/ttf"),
               b"OTTO": ("otf", "font/otf"), b"true": ("ttf", "font/ttf")}
 FONT_ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,47}")
+# What `default` means for each role (PF-b1, B2 (a)): the three allow-listed files the retired HyperFrames engine drew for a theme that names no font, so a
+# project that never chose a font keeps its look on the one engine. A folder whose allow-list lacks the id (a test folder) keeps the system default.
+DEFAULT_FONT = {"display": "inter-800", "text": "inter-500", "mono": "jetbrains-mono-500"}
 
 
 def read_regular(path: str, max_bytes: int, code: str, field: str) -> bytes:
@@ -65,14 +68,15 @@ def font_allowlist(directory=None) -> dict:
 
 def load_fonts(theme_fonts: dict, allowlist: dict, max_bytes: int, directory=None) -> tuple:
     """Serve the fonts the theme names, each re-checked against its allow-listed sha256. Returns (serve, used) where
-    used maps a role to the file name or to `system default`."""
+    used maps a role to the allow-list id or to `system default`. `default` is the role's DEFAULT_FONT when the allow-list holds it."""
     directory = directory or fonts_dir()
     serve, used = {}, {}
     for role, f in theme_fonts.items():
-        if f["id"] == "default":
+        font_id = DEFAULT_FONT.get(role) if f["id"] == "default" else f["id"]
+        if f["id"] == "default" and font_id not in allowlist:
             used[role] = "system default"
             continue
-        row = allowlist.get(f["id"])
+        row = allowlist.get(font_id)
         if row is None:
             raise Refusal("font_not_allowed", role)
         data = read_regular(os.path.join(directory, row["file"]), max_bytes, "font_unreadable", role)
