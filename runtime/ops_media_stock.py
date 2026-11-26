@@ -570,7 +570,7 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
     scratch, path = media_stock.make_scratch(data_dir, rid)
     items = {(slot, 1): got[0] for slot, got in fetched.items()}
     fps = None
-    if any(c["kind"] == "clip" for _, c in picks):      # a clip is normalised to the edit list's rate, so both engines draw it as it is (V9b-5c)
+    if any(c["kind"] == "clip" for _, c in picks):      # a clip is normalised to the edit list's rate, so the engine draws it as it is (V9b-5c)
         fps = ops_media_edit._json(store, rid, ops_media_edit.PROPOSAL_EDL, default={}).get("fps")
         if type(fps) is not int or not 24 <= fps <= 60:
             raise _fail("engine_refused", "the edit list's frame rate cannot be read")

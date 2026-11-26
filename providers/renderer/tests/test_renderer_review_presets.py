@@ -128,16 +128,14 @@ def test_the_sticker_glyphs_are_the_twelve_names(catalogue):
     assert refused(_vocab.check_params, VOCAB, "nametag", {"name": "x" * 33}).code == "text_too_long"
 
 
-def test_both_engines_map_the_three(catalogue):
-    for engine in ("ffmpeg", "hyperframes"):
-        presets = catalogue["engines"][engine]["presets"]
-        for name in NAMES:
-            assert presets[name] == "oh:" + name
-            assert _blocks.resolve(catalogue, engine, name, None, "beats.b1")["name"] == "oh:" + name
-        assert list(presets) == sorted(presets)                 # alphabetical, as the files are
-    for engine in ("ffmpeg", "hyperframes"):
-        path = K.BLOCKS / "engines" / (engine + ".json")
-        assert json.loads(path.read_text(encoding="utf-8"))["presets"].keys() >= set(NAMES)
+def test_the_engine_maps_the_three(catalogue):
+    presets = catalogue["engines"]["ffmpeg"]["presets"]
+    for name in NAMES:
+        assert presets[name] == "oh:" + name
+        assert _blocks.resolve(catalogue, "ffmpeg", name, None, "beats.b1")["name"] == "oh:" + name
+    assert list(presets) == sorted(presets)                 # alphabetical, as the files are
+    path = K.BLOCKS / "engines" / "ffmpeg.json"
+    assert json.loads(path.read_text(encoding="utf-8"))["presets"].keys() >= set(NAMES)
     assert set(catalogue["engines"]["ffmpeg"]["presets"]) == set(VOCAB["presets"]) | {"caption"}
 
 

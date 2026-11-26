@@ -1,4 +1,4 @@
-"""The pins of the HyperFrames runtime and GSAP baked into the common image (D19, PF-a1): the npm pins equal the lockfile's (until PF-b3 retires it), every hash is
+"""The pins of the HyperFrames runtime and GSAP baked into the common image (D19, PF-a1): the npm pins are the one pin (no lockfile since PF-b3), every hash is
 whole, the registry manifest holds the commit and the LICENSE, and the shims are the committed bytes."""
 from __future__ import annotations
 
@@ -17,24 +17,15 @@ def pins():
     return json.loads((RUNTIME / "npm-pins.json").read_text(encoding="utf-8"))
 
 
-def test_the_url_and_integrity_of_each_package_are_the_lockfiles_entries():
-    lock = json.loads((K.RENDERER / "hyperframes-image" / "package-lock.json").read_text(encoding="utf-8"))["packages"]
+def test_npm_pins_json_is_the_one_pin_of_gsap_and_the_runtime():
+    """PF-b, B4: no lockfile is kept beside it. Each package has its npm registry url, a sha512 integrity and a sha256 for each member the image extracts."""
     assert pins()["schema_version"] == 1
     assert [p["name"] for p in pins()["packages"]] == ["gsap", "hyperframes"]
     for pkg in pins()["packages"]:
-        entry = lock["node_modules/" + pkg["name"]]
-        assert pkg["url"] == entry["resolved"] and pkg["integrity"] == entry["integrity"] and pkg["version"] == entry["version"], pkg["name"]
-
-
-def test_every_member_hash_is_a_whole_sha256_and_no_placeholder_is_left():
-    members = {}
-    for pkg in pins()["packages"]:
-        members.update(pkg["files"])
-    assert sorted(members) == ["package/dist/gsap.min.js", "package/dist/hyperframe.manifest.json", "package/dist/hyperframe.runtime.iife.js"]
-    assert all(HEX64.fullmatch(v) for v in members.values())
-    assert members["package/dist/hyperframe.runtime.iife.js"] == "ee05fb04973a2db6157f4a048ec66ce118cb7b2ca6e9e279295726b985ddb79d"
-    text = (RUNTIME / "npm-pins.json").read_text(encoding="utf-8")
-    assert not re.search(r"TODO|TBD|placeholder|xxxx|\.\.\.", text, re.I)
+        assert re.fullmatch(r"https://registry\.npmjs\.org/%s/-/%s-%s\.tgz" % (pkg["name"], pkg["name"], re.escape(pkg["version"])), pkg["url"]), pkg["name"]
+        assert re.fullmatch(r"sha512-[A-Za-z0-9+/]{86}==", pkg["integrity"]), pkg["name"]
+        assert pkg["files"] and all(re.fullmatch(r"[0-9a-f]{64}", digest) for digest in pkg["files"].values()), pkg["name"]
+    assert not (K.RENDERER / "hyperframes-image").exists()
 
 
 def test_the_registry_manifest_names_the_commit_and_the_license_row():

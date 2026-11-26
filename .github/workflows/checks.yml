@@ -179,7 +179,7 @@ jobs:
 
   # Which of the docker and Go jobs have anything to check: on a pull request, those whose paths changed; on a manual run and with the
   # label full-suite, all of them; on a push to main and on a draft pull request, none (the nightly runs them all, CI-1, M1 a). The paths are what each job's tests read: the eval container and its adapters,
-  # the converter and exporter images and the workcopy scan, the renderer and transcriber images, the HyperFrames image, the WhatsApp program. This file and live-jobs.yml count for all of them.
+  # the converter and exporter images and the workcopy scan, the renderer and transcriber images, the WhatsApp program. This file and live-jobs.yml count for all of them.
   changes:
     name: changes
     if: github.event.action != 'labeled' || github.event.label.name == 'full-suite'
@@ -189,7 +189,6 @@ jobs:
       container: ${{ steps.paths.outputs.container }}
       converter: ${{ steps.paths.outputs.converter }}
       renderer: ${{ steps.paths.outputs.renderer }}
-      hyperframes: ${{ steps.paths.outputs.hyperframes }}
       go: ${{ steps.paths.outputs.go }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -209,7 +208,6 @@ jobs:
             echo "container=false" >> "$GITHUB_OUTPUT"
             echo "converter=false" >> "$GITHUB_OUTPUT"
             echo "renderer=false" >> "$GITHUB_OUTPUT"
-            echo "hyperframes=false" >> "$GITHUB_OUTPUT"
             echo "go=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -218,7 +216,7 @@ jobs:
             everything=true
           fi
           if [ "$EVENT" = "push" ] && [ "$everything" = "false" ]; then # CI-1, M1 (a): a push to main runs no live job; the nightly runs them all
-            for job in container converter renderer hyperframes go; do echo "$job=false" >> "$GITHUB_OUTPUT"; done
+            for job in container converter renderer go; do echo "$job=false" >> "$GITHUB_OUTPUT"; done
             exit 0
           fi
           changed=""
@@ -226,18 +224,14 @@ jobs:
             changed="$(git diff --name-only "$BASE_SHA" HEAD)"
           fi
           touched() { [ "$everything" = "true" ] || printf '%s\n' "$changed" | grep -Eq "$1"; }
-          # touched_but PATTERN EXCLUDED: a changed file that matches PATTERN and not EXCLUDED (a change inside the HyperFrames image alone does not build the ffmpeg one)
-          touched_but() { [ "$everything" = "true" ] || printf '%s\n' "$changed" | grep -Ev "$2" | grep -Eq "$1"; }
-          container=false; converter=false; renderer=false; hyperframes=false; go=false
+          container=false; converter=false; renderer=false; go=false
           touched '^(evals/|adapters/|shared/|skills/[^/]+/evals/|providers/secrets/|scripts/stage_skills.py|scripts/ci_retry.py|runtime/workcopy.py|.github/workflows/checks.yml|.github/workflows/live-jobs.yml)' && container=true
           touched '^(providers/converter/|providers/exporter/|runtime/workcopy.py|providers/[^/]*[.]py|scripts/ci_retry.py|.github/workflows/checks.yml|.github/workflows/live-jobs.yml)' && converter=true
-          touched_but '^(providers/renderer/|providers/transcriber/|providers/[^/]*[.]py|shared/references/video-presets.json|shared/references/platforms/instagram.json|skills/mkt-social-copy/scripts/check_script.py|scripts/ci_retry.py|.github/workflows/checks.yml|.github/workflows/live-jobs.yml)' '^providers/renderer/hyperframes-image/' && renderer=true
-          touched '^(providers/renderer/|providers/[^/]*[.]py|shared/references/video-presets.json|shared/references/platforms/instagram.json|skills/mkt-social-copy/scripts/check_script.py|scripts/ci_retry.py|.github/workflows/checks.yml|.github/workflows/live-jobs.yml)' && hyperframes=true
+          touched '^(providers/renderer/|providers/transcriber/|providers/[^/]*[.]py|shared/references/video-presets.json|shared/references/platforms/instagram.json|skills/mkt-social-copy/scripts/check_script.py|scripts/ci_retry.py|.github/workflows/checks.yml|.github/workflows/live-jobs.yml)' && renderer=true
           touched '^(providers/messenger/whatsapp/|.github/workflows/checks.yml|.github/workflows/live-jobs.yml)' && go=true
           echo "container=$container" >> "$GITHUB_OUTPUT"
           echo "converter=$converter" >> "$GITHUB_OUTPUT"
           echo "renderer=$renderer" >> "$GITHUB_OUTPUT"
-          echo "hyperframes=$hyperframes" >> "$GITHUB_OUTPUT"
           echo "go=$go" >> "$GITHUB_OUTPUT"
 
   # The scheduler starts the runtime, and the runtime starts these scripts, with the system interpreter
@@ -341,6 +335,5 @@ jobs:
       container: ${{ needs.changes.outputs.container == 'true' }}
       converter: ${{ needs.changes.outputs.converter == 'true' }}
       renderer: ${{ needs.changes.outputs.renderer == 'true' }}
-      hyperframes: ${{ needs.changes.outputs.hyperframes == 'true' }}
       go: ${{ needs.changes.outputs.go == 'true' }}
       ref: ""

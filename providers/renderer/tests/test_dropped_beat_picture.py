@@ -16,8 +16,6 @@ from renderer_kit import oh_defaults  # noqa: F401  (M2: the default blocks fold
 pytestmark = pytest.mark.usefixtures("oh_defaults")
 import _docker as D
 import _edl
-import _hf_compose as C
-import _blocks
 import _render
 from _text import Refusal
 
@@ -148,40 +146,8 @@ def test_the_live_shape_with_a_longer_picture_beside_a3_drops_a3_and_the_dry_run
 
 # ---------------------------------------------------------------- the HyperFrames compose
 
-@pytest.fixture(scope="module")
-def catalogue():
-    return _blocks.load_catalogue()
-
-
-def compose(docs, catalogue, folder, rows, assets):
-    data, edl, beats, vocab = with_layouts(docs, rows)
-    folder.mkdir(parents=True, exist_ok=True)
-    return C.write_page(data, edl, beats, vocab, catalogue, str(folder), edl["fps"], assets)
-
-
-def test_hf_a_picture_of_a_dropped_beat_is_not_in_the_page_and_is_listed(docs, catalogue, tmp_path):
-    out = tmp_path / "page"
-    result = compose(docs, catalogue, out, TIED, {"s1": "a" * 64, "s0": "b" * 64})
-    assert result["assets_dropped"] == ["s1"] and result["beats_drawn"] == 5            # b3 to b6 and a0
-    assert "s1" not in json.dumps(json.loads((out / "vars.json").read_text())) and (out / "blocks" / "oh-cutaway.html").exists()
-
-
-def test_hf_a_page_with_no_dropped_picture_has_no_assets_dropped_key(docs, catalogue, tmp_path):
-    result = compose(docs, catalogue, tmp_path / "page", [layout("a1", 7, "s1", 53, 59)], {"s1": "a" * 64})
-    assert "assets_dropped" not in result
-
-
-def test_hf_the_refusals_are_unchanged(docs, catalogue, tmp_path):
-    for rows, assets, expected in ((TIED, {"s0": "c" * 64, "s1": "a" * 64, "ghost": "b" * 64}, ("asset_unused", "ghost")),
-                                   ([layout("a1", 7, "s1", 53, 59)], {}, ("asset_missing", "s1"))):
-        with pytest.raises(Refusal) as caught:
-            compose(docs, catalogue, tmp_path / ("p%d" % len(assets)), rows, assets)
-        assert (caught.value.code, caught.value.field) == expected
-
-
 # ---------------------------------------------------------------- the answer schema
 
-PAGE = {"ok": True, "page_sha256": "a" * 64, "vars_sha256": "b" * 64, "clips": 1, "zooms": 0, "duration": 1.0, "fps": 30, "layers": ["cuts"]}
 RENDER = {"ok": True, "dry_run": True, "out_seconds": 3.0, "out_frames": 90, "frame_jobs": 1, "jobs": 1, "time_limit_seconds": 60, "layers": ["cuts"], "beats_drawn": [],
           "beats_dropped": ["a1"], "unmatched_beats": [], "mentions": [], "fonts": {}, "blocks": {}, "blocks_sha256": "a" * 64, "estimated_bytes": 1,
           "sha256": "c" * 64, "bytes": 1, "output": {"container": "mp4", "codec": "h264", "width": 1080, "height": 1920, "fps": 30.0, "duration": 3.0, "bytes": 1,
@@ -189,7 +155,7 @@ RENDER = {"ok": True, "dry_run": True, "out_seconds": 3.0, "out_frames": 90, "fr
           "seconds": {}, "frames_rendered": 1, "frames_reused": 0}
 
 
-@pytest.mark.parametrize("verb, row", (("render", RENDER), ("hf-page", PAGE)))
+@pytest.mark.parametrize("verb, row", (("render", RENDER),))
 def test_the_answer_schema_keeps_assets_dropped_as_a_list_of_slots_and_refuses_anything_else(verb, row):
     schema = D.RESULT_SCHEMAS[verb]
     assert D.sanitise(dict(row, assets_dropped=["a3", "s1"]), schema, verb)["assets_dropped"] == ["a3", "s1"]
@@ -200,7 +166,7 @@ def test_the_answer_schema_keeps_assets_dropped_as_a_list_of_slots_and_refuses_a
         assert caught.value.code == "container_result_invalid"
 
 
-@pytest.mark.parametrize("verb, row", (("render", RENDER), ("hf-page", PAGE)))
+@pytest.mark.parametrize("verb, row", (("render", RENDER),))
 def test_the_effects_dropped_list_holds_the_effects_ceiling_and_the_beats_ceiling(verb, row):      # T6
     assert 198 == _edl.EFFECTS_MAX + _edl.PUNCHES_CEILING      # 99 review effects and 99 script punches (video P0b: the ceiling is 99, M3)
     schema = D.RESULT_SCHEMAS[verb]

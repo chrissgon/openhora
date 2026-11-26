@@ -157,7 +157,7 @@ def test_the_call_names_the_ffmpeg_engine_whatever_the_project_says(world, monke
             seen.append((self._renderer, cls, verb, timeout))
             return Drawing().call(cls, verb, args, timeout)
     monkeypatch.setattr(seams, "MediaEngine", Spy)
-    found = ops.video_storyboard(world["path"], POST)      # media.renderer is absent: the class default is hyperframes
+    found = ops.video_storyboard(world["path"], POST)      # media.renderer is absent: the class default is ffmpeg
     assert seen == [("ffmpeg", "renderer:video", "storyboard", 300)] and found["engine"] == "ffmpeg"
     assert seams.MediaStore(ops_core.context(world["path"])).renderer() is None
 
@@ -218,7 +218,7 @@ def test_the_return_has_the_key_the_sheet_the_beats_the_engine_and_the_advisory_
 def test_video_block_is_the_engines_block_for_the_cutaway_since_v9b_2(world, drawing):
     found = draw(world)
     [cutaway] = [b for b in found["beats"] if b["preset"] == "cutaway"]
-    assert cutaway["drawn_block"] == "oh:cutaway" and cutaway["video_block"] == "oh:cutaway"      # the HyperFrames engine draws the cutaway now; only the pip has no block there
+    assert cutaway["drawn_block"] == "oh:cutaway" and cutaway["video_block"] == "oh:cutaway"      # the engine draws the cutaway
 
 
 def test_the_terminal_gets_the_absolute_path_of_the_sheet_and_the_page_does_not(world, drawing):

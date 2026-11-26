@@ -178,57 +178,6 @@ def streams_report(image, path):
     return report
 
 
-def test_the_two_stage_encode_gives_one_sha256_at_two_and_four_cpus(image, tmp_path):
-    require_prores(image, tmp_path)
-    minimum = json.loads(K.INSTAGRAM.read_text())["video"]["min_seconds"]     # the encode refuses an output the platform would refuse
-    recording, edl_file, edl = short_edl(image, tmp_path, sentences=((0.4, "Short test line."), (0.4, "A second short line follows here.")))
-    assert edl["out_frames"] / float(edl["fps"]) >= minimum + 0.5, "the leg's edit list is shorter than the platform's minimum"
-    work = tmp_path / "work"
-    work.mkdir()
-    seconds = edl["out_frames"] / float(edl["fps"])
-    in_image(image, ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=%d:duration=%.6f" % (edl["fps"], seconds),
-                     "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=48000:duration=%.6f" % seconds,
-                     "-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le", "-c:a", "pcm_s16le", "/out/hf.mov"], work)
-    intermediate = work / "hf.mov"
-    digest = _sha256(intermediate)
-    # --cpus is a quota (the container still sees every core); the cpu set is what changes the cores it sees, which is what 4 against 8
-    # cores meant in S2. The two vary together, in turn, from one intermediate.
-    settings = [(2, "0-1"), (4, "0-3"), (4, "0-1"), (2, "0-3")] * 2
-    runs = []
-    for n, (cpus, cpuset) in enumerate(settings):
-        dest = tmp_path / ("render-%d.mp4" % n)
-        result = encode_once(image, edl_file, intermediate, digest, cpus, dest, cpuset)
-        assert result["intermediate_sha256"] == digest and _sha256(dest) == result["sha256"]
-        runs.append((cpus, cpuset, dest, result["sha256"]))
-    if len({r[3] for r in runs}) != 1:
-        first = runs[0]
-        other = next(r for r in runs if r[3] != first[3])
-        report = {"cpus %s cpuset %s" % (r[0], r[1]): streams_report(image, r[2]) for r in (first, other)}
-        frames = [decoded_frames(image, r[2]) for r in (first, other)]
-        diff = next((k for k, (x, y) in enumerate(zip(*frames)) if x != y), None)
-        report["first differing decoded video frame"] = {"index": diff, "frames": [len(f) for f in frames]}
-        pytest.fail("the encode is not independent of the cpu count: %s" % json.dumps({"sha256": [r[3] for r in runs], "streams": report}, indent=1))
-    render = runs[0][2]
-    rc, out, err = host("verify", "--in", render, "--platform-file", K.INSTAGRAM, "--edl", edl_file)
-    assert rc == 0 and out["ok"] is True, err[-2000:]
-    assert leftovers() == []
-
-
-def test_the_proxy_is_1080x1920_at_the_edit_lists_fps(image, tmp_path):
-    recording, edl_file, edl = short_edl(image, tmp_path, size="1920x1080")
-    with _host.Job(job_args(2), 600, "proxy") as job:
-        result = job.run(["proxy", "--edl", job.stage("edl.json", str(edl_file)), "--in", job.mount_recording(str(recording)),
-                          "--out", D.MOUNT_OUT + "/proxy.mp4"], "proxy")
-        job.collect("proxy.mp4", str(tmp_path / "proxy.mp4"), max_bytes=D.MAX_OUT_BYTES, mode=0o400)
-    assert (result["width"], result["height"], result["fps"]) == (1080, 1920, edl["fps"]) and result["has_audio"] is True
-    probe = in_image(image, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,avg_frame_rate:format=duration", "-of", "json",
-                             "/out/proxy.mp4"], tmp_path, mode="ro", entrypoint="ffprobe")
-    info = json.loads(probe)
-    assert (info["streams"][0]["width"], info["streams"][0]["height"]) == (1080, 1920) and info["streams"][0]["avg_frame_rate"] == "%d/1" % edl["fps"]
-    assert abs(float(info["format"]["duration"]) - edl["source"]["duration"]) <= 2.0 / edl["fps"]
-    assert leftovers() == []
-
-
 def preview_once(render, digest, cpus, cpuset, out_dir):
     """The host's `preview` verb in a container with `cpus` cores and the cpu set `cpuset`; returns its answer."""
     args = argparse.Namespace(input=str(render), sha256=digest, out=str(out_dir), memory_mb=D.DEFAULT_MEMORY_MB, cpus=cpus, scratch_mb=512,

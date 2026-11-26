@@ -1,6 +1,5 @@
-"""The five tier-B blocks ported from the HyperFrames registry (V3b-4) and the HyperFrames engine's final defaults. Offline: the committed blocks are
-loaded and linted as text, each sample is composed through the page stage (`_hf_compose`, no browser, no docker), and the licence text and the notice
-are read as files. The sample texts are fictional; the source hashes below are the hashes of the registry files at the pinned commit, which the
+"""The five tier-B blocks ported from the HyperFrames registry (V3b-4) and the ffmpeg engine's defaults. Offline: the committed blocks are
+loaded and linted as text, and the licence text and the notice are read as files (the composition tests went with the HyperFrames engine, PF-b). The sample texts are fictional; the source hashes below are the hashes of the registry files at the pinned commit, which the
 ports were written from (the files themselves are not in the repository)."""
 from __future__ import annotations
 
@@ -18,13 +17,12 @@ import pytest
 import renderer_kit as K
 import _blocks
 import _gsap_lint
-import _hf_compose as C
 from _text import Refusal
 
 COMMIT = "b4cc674f7f312e77ded32e0b53006cc0bad6723b"
 LICENSE_SHA256 = "4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8"
 HF_DIR = K.BLOCKS / "hf"
-IMAGE_DIR = K.RENDERER / "hyperframes-image"
+RUNTIME_DIR = K.RENDERER / "hf-runtime"
 NOTICE = "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hf-runtime/NOTICE.md"
 # name -> (preset, registry component, sha256 of the registry file the port was written from)
 PORTS = {
@@ -54,29 +52,6 @@ def catalogue():
     return _blocks.load_catalogue(str(K.BLOCKS))
 
 
-@pytest.fixture(scope="module")
-def docs(tmp_path_factory):
-    return K.hf_documents(tmp_path_factory.mktemp("docs"))
-
-
-def with_default(tmp_path, preset: str, name: str) -> dict:
-    """A copy of the committed blocks whose HyperFrames engine draws `preset` with `name`; pinned again."""
-    folder = tmp_path / "blocks"
-    shutil.copytree(K.BLOCKS, folder)
-    engine = json.loads((folder / "engines" / "hyperframes.json").read_text())
-    engine["presets"][preset] = name
-    (folder / "engines" / "hyperframes.json").write_text(json.dumps(engine, indent=1))
-    _blocks.write_pins(str(folder))
-    return _blocks.load_catalogue(str(folder))
-
-
-def compose(docs, catalogue, folder, beats=None):
-    data, edl, beats0, vocab = copy.deepcopy(docs)
-    os.makedirs(folder, exist_ok=True)
-    result = C.write_page(data, edl, beats if beats is not None else beats0, vocab, catalogue, str(folder), edl["fps"])
-    return result, (folder / "index.html").read_text(encoding="utf-8"), (folder / "vars.json").read_text(encoding="utf-8")
-
-
 # ---------------------------------------------------------------- the files
 
 def test_the_folder_holds_exactly_the_five_ports_and_in_each_only_two_files():
@@ -96,7 +71,7 @@ def test_a_port_loads_as_a_tier_b_block_with_the_pinned_commit_and_only_a_gsap_p
     assert block["notice"] == NOTICE and len(block["notice"]) < 200 and MAKER not in block["notice"].lower()
     assert block["preset"] == preset and block["band"] == ("caption" if preset == "caption" else "card")
     assert block["natural_duration"] is None if preset == "caption" else block["natural_duration"] >= 0.2
-    assert _blocks.engines_of(catalogue, block) == (["hyperframes"] if short in NOT_ADMITTED else ["ffmpeg", "hyperframes"])      # PF-a4b: a determinism record admits a port on the ffmpeg engine too
+    assert _blocks.engines_of(catalogue, block) == ([] if short in NOT_ADMITTED else ["ffmpeg"])      # PF-a4b: a determinism record admits a port on the ffmpeg engine
     assert not any(k in spec["type"] for spec in block["params"].values() for k in ("image", "clip"))
 
 
@@ -154,53 +129,6 @@ def test_a_caption_port_reads_the_words_the_anchor_and_the_band(short):
 
 # ---------------------------------------------------------------- every sample composes offline and draws its values from the variables
 
-@pytest.mark.parametrize("short", [n for n in sorted(PORTS) if PORTS[n][0] != "caption"])
-def test_each_sample_of_a_card_port_composes_and_its_values_are_in_vars_json_only(tmp_path, docs, short):
-    preset, _, _ = PORTS[short]
-    catalogue = with_default(tmp_path, preset, "hf:" + short)
-    sample_count = 0
-    for k, sample in enumerate(catalogue["blocks"]["hf:" + short]["samples"]):
-        beats = copy.deepcopy(docs[2])
-        beat = next(e for e in beats["overlays"] if e["preset"] == preset)
-        beat["params"] = dict(sample)
-        result, page, variables = compose(docs, catalogue, tmp_path / ("p%d" % k), beats)
-        assert result["runtimes"]["hf:" + short] == "gsap" and result["beats_drawn"] >= 1
-        drawn = json.loads(variables)["inst"]
-        assert any(entry.get("params") == sample for entry in drawn), short
-        for value in sample.values():
-            assert value in variables or json.dumps(value)[1:-1] in variables, (short, value)      # vars.json is ASCII: an accent is an escape
-            if len(value) >= 6:
-                assert value not in page, (short, value)             # index.html holds structure and numbers only
-        sample_count += 1
-    assert sample_count >= 1
-
-
-@pytest.mark.parametrize("short", CAPTION_PORTS)
-def test_a_caption_port_composes_every_chunk_and_the_words_are_in_vars_json_only(tmp_path, docs, short):
-    catalogue = with_default(tmp_path, "caption", "hf:" + short)
-    result, page, variables = compose(docs, catalogue, tmp_path / "p")
-    assert result["runtimes"]["hf:" + short] == "gsap" and result["captions_drawn"] >= 10
-    words = sorted({w["text"] for w in docs[1]["words"] if len(w["text"]) >= 6})
-    assert words
-    for word in words:
-        assert word in variables and word not in page, word
-    assert f'data-hf-block="hf:{short}"' in page and page.count("@scope (#hf-inst-") >= result["captions_drawn"]
-
-
-def test_the_committed_defaults_compose_with_four_ports_and_oh_list_and_pass_the_image_font_guard(tmp_path, docs, catalogue):
-    result, page, _ = compose(docs, catalogue, tmp_path / "p")
-    assert result["runtimes"] == {"hf:caption-highlight": "gsap", "hf:count-up": "gsap", "hf:spring-pop": "gsap", "hf:testimonial-card": "gsap",
-                                  "oh:list": "renderat"}
-    spec = importlib.util.spec_from_file_location("hf_render_for_ports", K.RENDERER / "hyperframes-image" / "hf_render.py")
-    R = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(R)
-    R.check_fonts(page)
-    for name in sorted(os.listdir(tmp_path / "p" / "blocks")):
-        R.check_fonts((tmp_path / "p" / "blocks" / name).read_text(encoding="utf-8"), "blocks:" + name)
-
-
-# ---------------------------------------------------------------- the caption ports keep every glyph above the band's bottom
-
 def _number(text: str, pattern: str) -> float:
     found = re.search(pattern, text)
     assert found, pattern
@@ -224,29 +152,16 @@ def test_a_caption_ports_declared_numbers_keep_the_lowest_line_box_above_the_ban
     assert re.search(r"lines \* fs \*", parts["script"]) and "ctx.band.height" in parts["script"]       # the type is shrunk until the lines and the padding fit the band
 
 
-@pytest.mark.parametrize("short", CAPTION_PORTS)
-def test_every_caption_instance_ends_at_the_caption_bottom_line_and_is_clipped_to_its_band(tmp_path, docs, short):
-    catalogue = with_default(tmp_path, "caption", "hf:" + short)
-    result, page, _ = compose(docs, catalogue, tmp_path / "p")
-    data = docs[0]
-    bottom = data["zones"]["caption_bottom"]
-    rows = re.findall(r'<div id="hf-inst-\d+" class="hf-inst" data-hf-zone="caption" data-hf-block="hf:%s" style="position:absolute; left:0; top:(\d+)px; '
-                      r'width:1080px; height:(\d+)px; contain:paint; overflow:clip; visibility:hidden">' % short, page)
-    assert len(rows) == result["captions_drawn"] and rows
-    for top, height in rows:
-        assert int(top) + int(height) == bottom == 1560
-
-
 # ---------------------------------------------------------------- the engines file, the ffmpeg engine and the licence texts
 
-def test_the_hyperframes_engine_runs_both_runtimes_and_its_defaults_are_the_ports_and_oh_list(catalogue):
-    engine = catalogue["engines"]["hyperframes"]
-    assert engine["runtimes"] == ["gsap", "renderat"] and engine["presets"] == DEFAULTS
-    assert engine["presets"]["cutaway"] == "oh:cutaway" and "pip" not in engine["presets"] and "split" not in engine["presets"]          # V9b-2: the cutaway is drawn; the pip stays absent until V9b-6
+def test_the_ffmpeg_engine_is_the_only_engine_and_its_defaults_are_the_ports_and_oh_pages(catalogue):
+    assert list(catalogue["engines"]) == ["ffmpeg"]
+    engine = catalogue["engines"]["ffmpeg"]
+    assert engine["runtimes"] == ["renderat", "hf", "gsap"] and engine["presets"] == dict(DEFAULTS, pip="oh:pip", split="oh:split")
     for preset, name in DEFAULTS.items():
-        block = _blocks.resolve(catalogue, "hyperframes", preset, None, "beats.b1")
+        block = _blocks.resolve(catalogue, "ffmpeg", preset, None, "beats.b1")
         assert block["name"] == name and block["preset"] == preset
-    assert _blocks.resolve(catalogue, "hyperframes", "keyword", "oh:keyword", "beats.b1")["name"] == "oh:keyword"      # an oh: block stays selectable by name
+    assert _blocks.resolve(catalogue, "ffmpeg", "keyword", "oh:keyword", "beats.b1")["name"] == "oh:keyword"      # an oh: block stays selectable by name
 
 
 @pytest.mark.parametrize("short", sorted(PORTS))
@@ -266,23 +181,22 @@ def test_an_hf_port_is_refused_on_the_ffmpeg_engine_naming_the_blocks_it_does_dr
 
 
 def test_the_registry_licence_text_is_the_file_with_the_pinned_hash_and_travels_beside_the_notice():
-    raw = (IMAGE_DIR / "LICENSE-registry-Apache-2.0.txt").read_bytes()
+    raw = (RUNTIME_DIR / "LICENSE-registry-Apache-2.0.txt").read_bytes()
     assert hashlib.sha256(raw).hexdigest() == LICENSE_SHA256
     assert b"Apache License" in raw and b"Version 2.0, January 2004" in raw
 
 
 def test_the_notice_has_one_entry_per_port_with_its_source_hash_the_commit_and_the_licence_text():
-    notice = (IMAGE_DIR / "NOTICE.md").read_text(encoding="utf-8")
-    assert "## Blocks adapted from the HyperFrames registry" in notice
+    notice = (RUNTIME_DIR / "NOTICE.md").read_text(encoding="utf-8")
+    assert "## Ports adapted from the registry" in notice
     assert COMMIT in notice and LICENSE_SHA256 in notice and "LICENSE-registry-Apache-2.0.txt" in notice
-    section = notice.split("## Blocks adapted from the HyperFrames registry", 1)[1]
+    section = notice.split("## Ports adapted from the registry", 1)[1]
     for short, (preset, component, digest) in PORTS.items():
         rows = [line for line in section.splitlines() if line.startswith("| `hf:%s` |" % short)]
         assert len(rows) == 1, short
         row = rows[0]
         assert "`%s` / `%s.html`" % (component, component) in row and digest in row and "Apache-2.0" in row and "Copyright 2026 " in row
         assert "`blocks/hf/%s/gsap.html`" % short in row
-    assert "caption-kinetic-slam" in section                         # said once: it is not ported
 
 
 def test_the_pins_file_and_the_catalogue_are_what_the_generator_writes(tmp_path):
@@ -298,19 +212,6 @@ def test_the_maker_is_named_nowhere_in_the_blocks_folder():
     for path in sorted(K.BLOCKS.rglob("*")):
         if path.is_file():
             assert MAKER not in path.read_text(encoding="utf-8").lower(), path
-
-
-def test_the_composed_scripts_of_the_ports_parse_when_node_exists(tmp_path, docs, catalogue):
-    node = shutil.which("node")
-    if not node:
-        pytest.skip("node is not installed")
-    _, page, _ = compose(docs, catalogue, tmp_path / "p")
-    scripts = re.findall(r"<script>(.*?)</script>", page, re.S)
-    assert scripts
-    source = tmp_path / "scripts.js"
-    source.write_text("\n".join(scripts), encoding="utf-8")
-    done = subprocess.run([node, "--check", str(source)], capture_output=True, text=True)
-    assert done.returncode == 0, done.stderr[:500]
 
 
 @pytest.mark.parametrize("short", sorted(PORTS))

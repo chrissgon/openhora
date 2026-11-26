@@ -146,7 +146,6 @@ def tree(folder) -> dict:
 def test_a_planted_renderat_folder_differs_from_the_plain_compose_folder_by_one_file_and_its_pins_verify(tmp_path, which):
     plain = tmp_path / "plain"
     __import__("shutil").copytree(K.oh_blocks(), plain)
-    K.write_hf_compose_blocks(plain)
     folder = C.planted_renderat(tmp_path, which)
     a, b = tree(plain), tree(folder)
     assert set(a) == set(b)
@@ -154,7 +153,7 @@ def test_a_planted_renderat_folder_differs_from_the_plain_compose_folder_by_one_
     assert changed == sorted([C.PLANTS[which][0], "pins.json"]), changed
     catalogue = _blocks.load_catalogue(str(folder))                    # every hash checked
     assert catalogue["sha256"] == C.pins_sha256(folder)
-    assert catalogue["engines"]["hyperframes"]["presets"] == dict(K.OH_PRESETS) and catalogue["engines"]["hyperframes"]["runtimes"] == ["renderat"]
+    assert list(catalogue["engines"]) == ["ffmpeg"] and set(catalogue["engines"]["ffmpeg"]["presets"].values()) == {"oh:" + p for p in catalogue["engines"]["ffmpeg"]["presets"]}
     assert C.PLANTS[which][2].strip() in b[C.PLANTS[which][0]].decode()
     assert tree(K.BLOCKS)["pins.json"] and C.pins_sha256(K.BLOCKS) == K.BLOCKS_SHA256        # the committed folder is untouched
 
@@ -163,17 +162,6 @@ def test_the_two_plants_edit_two_different_pages_and_the_cover_text_lands_inside
     assert C.PLANTS["cover"][0] != C.PLANTS["low"][0]
     face = DATA["face_box_default"]
     assert face["y"] < 650 < face["y"] + face["h"]
-
-
-def test_the_blank_caption_block_is_pinned_set_as_the_captions_of_the_hyperframes_engine_and_draws_words_at_no_size(tmp_path):
-    folder = C.planted_blank(tmp_path)
-    catalogue = _blocks.load_catalogue(str(folder))
-    assert catalogue["engines"]["hyperframes"]["presets"]["caption"] == "hf:demo-blank"
-    block = catalogue["blocks"]["hf:demo-blank"]
-    assert block["preset"] == "caption" and block["tier"] == "B"
-    page = (folder / "hf" / "demo-blank" / "gsap.html").read_text()
-    assert "font-size: 0px" in page and "font-size: 48px" not in page and "data.words" in page
-    assert not (K.BLOCKS / "hf" / "demo-blank").exists()
 
 
 # ---------------------------------------------------------------- the memory sampler
@@ -371,6 +359,20 @@ def test_rows_built_from_what_a_render_printed_pass_the_schema_and_the_same_sha_
     assert doc["cases"][1]["same_sha256"] == {"ffmpeg": None, "hyperframes": None}
 
 
+def test_schema_2_rows_built_from_what_a_render_printed_pass_the_schema():
+    ff = {"ok": True, "sha256": "f" * 64, "bytes": 900, "seconds": {"total": 12.5, "frames": 3.0}}
+    mem = {"hf_sampled_max_mib": 3000, "common_sampled_max_mib": 700, "oom_events": 0}
+    rows = [C.run_row("ffmpeg", 4, "0-3", ff, None, 12.6, mem, True, schema=2), C.run_row("ffmpeg", 8, "0-7", dict(ff, sha256="0" * 64), None, 12.0, mem, schema=2),
+            C.run_row("ffmpeg", 8, "0-7", None, "render_timeout", 1800.0, None, schema=2)]
+    assert "gate" not in rows[0] and rows[0]["memory"] == {"common_sampled_max_mib": 700, "oom_events": 0} and rows[0]["stage_seconds"] == {"render": 12.5}
+    edl = C.base_of(C.short_transcript(), DATA)
+    case = C.case_row("short", C.short_transcript(), edl, rows, schema=2)
+    assert case["same_sha256"] == {"ffmpeg": False}
+    doc = C.placeholder_report(2)
+    doc["cases"] = [case]
+    C.check_report(doc)
+
+
 def test_a_schema_2_run_of_the_one_engine_passes_and_a_refused_one_has_no_figures():
     doc = C.placeholder_report(2)
     doc["cases"][0]["runs"].append({"engine": "ffmpeg", "cpus": 8, "cpuset": "0-7", "outcome": "refused", "code": "render_timeout", "sha256": None, "bytes": None,
@@ -399,17 +401,12 @@ def test_the_report_name_takes_a_rerun_suffix_and_nothing_else():
 
 # ---------------------------------------------------------------- the live file
 
-def test_the_live_file_lists_both_engines_for_the_functional_legs_and_only_hyperframes_for_the_blank_caption():
+def test_the_live_file_runs_every_leg_on_the_one_engine_and_keeps_the_ids():
     import test_engine_contract_live as live
     legs = live.LIVE_LEGS
-    for name in ("F1", "F2", "F3", "F5", "F6", "F7"):
-        assert legs[name] == ("ffmpeg", "hyperframes"), name
-    assert legs["F8"] == ("hyperframes",)
-    for name in ("M1", "M2"):
-        assert legs[name] == ("ffmpeg", "hyperframes"), name
-    assert legs["M3"] == ("hyperframes",)
-    assert legs["M5"] == ("ffmpeg",) and legs["M6"] == ("hyperframes",)
-    assert "F4" in legs
+    assert legs and all(engines == ("ffmpeg",) for engines in legs.values()), legs
+    assert {"F1", "F2", "F3", "F5", "F6", "F7", "F9", "F10", "F11", "M1", "M2", "M4", "M5"} <= set(legs)
+    assert not {"F4", "F8", "M3", "M6"} & set(legs)                  # the old engine's legs (the proxy, the glyph advice, the 300 s input, the clip on its page)
     tests = sorted(n for n in dir(live) if n.startswith("test_"))
     assert [n for n in tests if n.startswith("test_mac_")], "the machine legs are named test_mac_*"
     assert not [n for n in tests if "mac" in n and not n.startswith("test_mac_")]
@@ -500,5 +497,4 @@ def test_the_live_file_reads_the_state_variable_at_import_only_and_every_leg_ask
 def test_a_planted_folder_asked_for_twice_in_one_lab_is_made_again(tmp_path):
     first = C.planted_renderat(tmp_path, "cover")
     second = C.planted_renderat(tmp_path, "cover")
-    assert first == second and _blocks.load_catalogue(str(second))["engines"]["hyperframes"]["runtimes"] == ["renderat"]
-    assert C.planted_blank(tmp_path) == C.planted_blank(tmp_path)
+    assert first == second and list(_blocks.load_catalogue(str(second))["engines"]) == ["ffmpeg"]

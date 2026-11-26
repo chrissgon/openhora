@@ -1,26 +1,25 @@
-"""The engine contract (V3c) in real containers: the same synthetic inputs through both renderer engines, the same assertions. Never builds, no
-network, no real recording: the recordings are test patterns that the common image's own ffmpeg makes, each carrying its own frame number as a
+"""The engine contract (V3c) in real containers: the synthetic inputs through the renderer engine, the contract's assertions (the HyperFrames
+engine's legs were retired in PF-b). Never builds, no network, no real recording: the recordings are test patterns that the common image's own ffmpeg makes, each carrying its own frame number as a
 band of black and white cells at the top of the picture (contract_kit), so what every output frame is can be read from the pixels.
 
-Gated by the variable of each image, as the other live files are (the parameter of an engine is skipped without its variable):
+Gated by the variable of the image, as the other live files are (the parameter of the engine is skipped without it):
 
-    OPENHORA_STATE_DIR=<folder> WB_RENDERER_DOCKER_TESTS=1 [WB_HYPERFRAMES_DOCKER_TESTS=1] \\
+    OPENHORA_STATE_DIR=<folder> WB_RENDERER_DOCKER_TESTS=1 \\
     uv run --with pytest==9.1.1 pytest -q providers/renderer/tests/test_engine_contract_live.py
 
-with no `-n`. The builds come first, into the same folder (the `build` verb of each host, the common image first).
+with no `-n`. The build comes first, into the same folder (the `build` verb of the host).
 
-Two kinds of leg. The functional legs (F1-F8, short inputs) run in CI's docker jobs and on the Mac. The machine legs (M1-M3, `test_mac_*`) need
+Two kinds of leg. The functional legs (F1-F11, short inputs) run in CI's docker jobs and on the Mac. The machine legs (M1, M2, M4, M5, `test_mac_*`) need
 8 cores, a long run or the real size, so they run only with `WB_ENGINE_MAC_LEGS=1` (the maintainer's machine), one after another, and write the
 committed report when `WB_ENGINE_REPORT=<a new file>` is set (a file that exists is refused):
 
     ... WB_ENGINE_MAC_LEGS=1 WB_ENGINE_REPORT=<folder>/engine-contract-<date>-<arch>.json pytest -q <this file> -k mac_
 
 Memory in the report is what `docker stats` reports once a second (usage less the inactive file cache on cgroup v2) and the OOM kills `docker
-events` counts; the HyperFrames drawing container's `memory.peak` is the render's own figure and counts page cache.
+events` counts. A new report is schema 2 (the one engine); the two committed reports are schema 1 and are never edited.
 """
 from __future__ import annotations
 
-import argparse
 import copy
 import datetime
 import hashlib
@@ -43,27 +42,24 @@ import hf_second_kit as S
 import hf_port_kit as PK
 import _docker as D
 import _edl
-import _host
 import _media
-import hyperframes as H
 
 FFMPEG_ON = os.environ.get("WB_RENDERER_DOCKER_TESTS") == "1"
-HF_ON = os.environ.get("WB_HYPERFRAMES_DOCKER_TESTS") == "1"
 MAC_ON = os.environ.get("WB_ENGINE_MAC_LEGS") == "1"
 REPORT_PATH = os.environ.get("WB_ENGINE_REPORT")
 REAL_STATE_DIR = os.environ.get("OPENHORA_STATE_DIR")
-HOSTS = {"ffmpeg": str(K.HOST), "hyperframes": str(K.RENDERER / "hyperframes.py")}
-ENV_VARIABLE = {"ffmpeg": "WB_RENDERER_DOCKER_TESTS", "hyperframes": "WB_HYPERFRAMES_DOCKER_TESTS"}
-CAPS = {"ffmpeg": FFMPEG_ON, "hyperframes": HF_ON}
-LABELS = ("org.openhora.renderer=1", "org.openhora.renderer-hyperframes=1")
+HOSTS = {"ffmpeg": str(K.HOST)}
+ENV_VARIABLE = {"ffmpeg": "WB_RENDERER_DOCKER_TESTS"}
+CAPS = {"ffmpeg": FFMPEG_ON}
+LABELS = ("org.openhora.renderer=1",)
 SAMPLED_CAP_MIB = 5530                          # 90 percent of the 6144 MiB memory limit: stop rule 4
 LIMIT_CODES = ("render_timeout", "no_space", "intermediate_too_large")
 LIVE_LEGS = {}                                  # leg name -> the engines it runs on (the offline test reads it)
-BOTH = ("ffmpeg", "hyperframes")
+BOTH = ("ffmpeg",)
 
 
 def legs(name: str, engines=BOTH):
-    """The parametrisation of one leg over its engines; an engine is skipped without its image's variable."""
+    """The parametrisation of one leg over its engines (the one, `ffmpeg`, so that the ids and `-k` stay); an engine is skipped without its image's variable."""
     LIVE_LEGS[name] = tuple(engines)
     params = [pytest.param(e, marks=pytest.mark.skipif(not CAPS[e], reason="real containers: set %s=1 (the images must be built and recorded first)" % ENV_VARIABLE[e]))
               for e in engines]
@@ -121,11 +117,11 @@ def leftovers():
 
 def run_folders():
     root = Path(D.work_root())
-    return [p.name for p in root.iterdir() if p.name.startswith(H.RUN_PREFIX)] if root.is_dir() else []
+    return [p.name for p in root.iterdir() if p.name.startswith(D.JOB_PREFIX)] if root.is_dir() else []
 
 
 def assert_clean(out_dir=None, passed=False):
-    """C11: a refusal leaves nothing (no file in its out folder, no container, no run folder); every run, passed or not, leaves no container and no run folder."""
+    """C11: a refusal leaves nothing (no file in its out folder, no container, no job folder); every run, passed or not, leaves no container and no run folder."""
     if not passed and out_dir is not None:
         assert not Path(out_dir).exists() or list(Path(out_dir).iterdir()) == [], "a refused render left files in %s" % out_dir
     assert leftovers() == [] and run_folders() == []
@@ -164,21 +160,12 @@ class Lab:
     def __init__(self, folder: Path):
         self.folder = folder
         self.common = D.check_image()
-        self.hf = None
         self.cache = {}
         self.counter = 0
-        self.blocks_hf = folder / "blocks-hf"
-        shutil.copytree(K.BLOCKS, self.blocks_hf)
-        K.write_hf_compose_blocks(self.blocks_hf)
         self.platform = json.loads(K.INSTAGRAM.read_text())
 
     def need(self, engine):
-        """The engine's images, or a failure (an image that is not ready is a failure, not a skip)."""
-        if engine == "hyperframes" and self.hf is None:
-            try:
-                self.hf = H.check_hf_image()
-            except D.NotConfigured as err:
-                pytest.fail("the HyperFrames image is not ready (%s %s): build both images first, see the top of this file" % (err.code, err.field))
+        """The engine's image is the common image, checked when the lab was made (an image that is not ready is a failure, not a skip)."""
         return self
 
     def cached(self, key, make):
@@ -228,20 +215,17 @@ class Lab:
         return self.cached(("docs", name), make)
 
     def render(self, engine, tag, recording, edl, beats, cpus=4, cpuset="0-3", blocks=None, memory=False, timeout=3600, passed_ok=True, assets=None, extra_env=None):
-        """One render through the engine's host, the way a person runs it. `blocks` is a test blocks folder (RENDERER_TEST=1); the HyperFrames
-        engine otherwise draws from the oh: pages on the renderat runtime (the test folder of this lab). `memory` samples both containers and
-        counts OOM kills. Leaves nothing: the run is checked clean before it returns."""
+        """One render through the engine's host, the way a person runs it. `blocks` is a test blocks folder (RENDERER_TEST=1); the
+        committed blocks otherwise. `memory` samples the containers and counts OOM kills. Leaves nothing: the run is checked clean before it returns."""
         self.need(engine)
-        folder = blocks or (self.blocks_hf if engine == "hyperframes" else None)
         env = dict(os.environ)
-        if folder is not None:
-            env.update(RENDERER_TEST="1", RENDERER_BLOCKS_DIR=str(folder))
+        if blocks is not None:
+            env.update(RENDERER_TEST="1", RENDERER_BLOCKS_DIR=str(blocks))
         env.update(extra_env or {})
         out_dir = self.folder / ("out-" + tag)
         args = ["render", "--edl", edl, "--beats", beats, "--in", recording, "--out", out_dir, "--platform-file", K.INSTAGRAM, "--vocabulary", K.VOCABULARY,
                 "--cpus", cpus, "--cpuset", cpuset]
-        if engine == "ffmpeg":
-            args += ["--jobs", 2]
+        args += ["--jobs", 2]
         for slot, picture in sorted((assets or {}).items()):
             args += ["--asset", "%s=%s" % (slot, picture)]
         figures, started = None, time.monotonic()
@@ -262,7 +246,7 @@ class Lab:
         return result
 
     def f1(self, engine, label):
-        """The F1 inputs through `engine` at the cpus of `label` (a: 4 cores, b: the same again, c: 2 cores), cached: F1, F3 and F8 share the renders."""
+        """The F1 inputs through `engine` at the cpus of `label` (a: 4 cores, b: the same again, c: 2 cores), cached: F1 and F3 share the renders."""
         settings = {"a": (4, "0-3"), "b": (4, "0-3"), "c": (2, "0-1")}[label]
         rec, edl, beats, doc = self.short()
         return self.cached(("f1", engine, label), lambda: self.render(engine, "f1-%s-%s" % (engine, label), rec, edl, beats, *settings))
@@ -329,21 +313,14 @@ def cutaway_picture(folder: Path) -> Path:
 
 
 def cutaway_leg(lab, engine, label, cpus, cpuset):
-    """The cutaway case through `engine` at `cpus`, cached: a post with one cutaway beat (slot beat2) and its picture. The HyperFrames engine draws it
-    from the frame band, with the gates loosened inside the cut (V9b-2); the ffmpeg engine draws it as it always did."""
+    """The cutaway case through `engine` at `cpus`, cached: a post with one cutaway beat (slot beat2) and its picture."""
     transcript = K.build_transcript(CUTAWAY_SENTENCES)
 
     def make():
         rec = lab.recording("cutaway", transcript)
         edl, beats, doc = lab.documents("cutaway", rec, transcript, CUTAWAY_POST)
-        blocks = None
-        if engine == "hyperframes":
-            blocks = lab.folder / "blocks-hf-cutaway"
-            if not blocks.exists():
-                shutil.copytree(K.BLOCKS, blocks)
-                K.write_hf_compose_blocks(blocks, cutaway=True)
         picture = cutaway_picture(lab.folder)
-        return lab.render(engine, "cutaway-%s-%s" % (engine, label), rec, edl, beats, cpus, cpuset, blocks=blocks, assets={"beat2": picture})
+        return lab.render(engine, "cutaway-%s-%s" % (engine, label), rec, edl, beats, cpus, cpuset, assets={"beat2": picture})
     return lab.cached(("cutaway", engine, label), make)
 
 
@@ -379,15 +356,6 @@ def test_f1_the_output_is_named_by_its_hash_read_only_the_platforms_shape_and_ha
     rec, edl, beats, doc = lab.short()
     run = lab.f1(engine, "a")
     check_shape(lab, engine, run, doc)
-    out = run.out
-    if engine == "hyperframes":                                                  # what the composed render of V3b-1 and V3b-2 asserted
-        assert out["engine"] == "hyperframes" and out["layers"] == ["cuts", "zoom", "captions", "beats"]
-        pins = C.pins_sha256(lab.blocks_hf)
-        assert out["blocks_sha256"] == pins and out["beats_drawn"] == 4 and out["captions_drawn"] > 0 and set(out["runtimes"].values()) == {"renderat"}
-        assert out["fonts_used"] == {"display": "inter-800.woff2", "mono": "jetbrains-mono-500.woff2", "text": "inter-500.woff2"}
-        assert {"measure", "pixel"} <= set(out["stage_seconds"]) and out["gate"]["boxes"] > 0 and out["gate"]["frames"] == out["out_frames"]
-        gate = out["gate"]
-        assert gate["lowest_caption_bottom"] <= 1560 and gate["pixel_ranges"] > 0 and gate["pixel_min_psnr_db"] >= 33.0, gate
 
 
 # ---------------------------------------------------------------- F2 frames
@@ -417,42 +385,15 @@ def test_f3_the_same_input_gives_one_sha256_twice_and_at_two_cpus(engine, lab):
     if len(set(shas)) != 1:
         listed = [("cpus %s" % s, r.out_dir, Path(r.out["path"]).name, r.out["sha256"]) for s, r in zip(("4 a", "4 b", "2"), runs)]
         pytest.fail("the render is not independent of the cpu count: %s" % json.dumps(C.mismatch_report(lab.runner(), listed), indent=1))
-    if engine == "hyperframes":
-        gates = [r.out["gate"] for r in runs]
-        assert gates[0] == gates[1] == gates[2], gates
 
 
 @legs("F9")
-def test_f9_the_cutaway_case_is_one_sha256_at_four_and_at_two_cpus_on_each_engine(engine, lab):
+def test_f9_the_cutaway_case_is_one_sha256_at_four_and_at_two_cpus(engine, lab):
     lab.need(engine)
     runs = [cutaway_leg(lab, engine, "a", 4, "0-3"), cutaway_leg(lab, engine, "b", 2, "0-1")]
     for run in runs:
         assert run.rc == 0, (run.out, run.err[-2000:])
     assert runs[0].out["sha256"] == runs[1].out["sha256"], [r.out["sha256"] for r in runs]
-    if engine == "hyperframes":
-        assert runs[0].out["gate"] == runs[1].out["gate"] and "oh:cutaway" in runs[0].out["blocks"]
-
-
-# ---------------------------------------------------------------- F4 proxy
-
-LIVE_LEGS["F4"] = ("ffmpeg",)
-
-
-@pytest.mark.skipif(not FFMPEG_ON, reason="real containers: set WB_RENDERER_DOCKER_TESTS=1")
-def test_f4_the_proxy_of_the_recording_is_one_sha256_at_two_and_at_four_cpus(lab):
-    rec, edl_file, beats, doc = lab.short()
-    shas = []
-    for n, (cpus, cpuset) in enumerate([(2, "0-1"), (4, "0-3"), (2, "0-1"), (4, "0-3")]):
-        args = argparse.Namespace(memory_mb=D.DEFAULT_MEMORY_MB, cpus=cpus, scratch_mb=512, timeout=None, cpuset=cpuset)
-        dest = lab.folder / ("proxy-%d.mp4" % n)
-        with _host.Job(args, 900, "proxy") as job:
-            result = job.run(["proxy", "--edl", job.stage("edl.json", str(edl_file)), "--in", job.mount_recording(str(rec)), "--out", D.MOUNT_OUT + "/proxy.mp4"], "proxy")
-            job.collect("proxy.mp4", str(dest), max_bytes=D.MAX_OUT_BYTES, mode=0o400, expect_sha256=result["sha256"])
-        assert (result["width"], result["height"], result["fps"]) == (1080, 1920, doc["fps"]) and result["has_audio"] is True
-        assert hashlib.sha256(dest.read_bytes()).hexdigest() == result["sha256"]
-        shas.append(result["sha256"])
-    assert len(set(shas)) == 1, "the proxy is not independent of the cpu count: %s" % shas
-    assert leftovers() == []
 
 
 # ---------------------------------------------------------------- F5, F6 planted blocks
@@ -549,16 +490,13 @@ def test_f11_one_of_our_own_ports_is_drawn_under_the_second_contract_by_the_real
 
 
 @legs("F5")
-def test_f5_a_card_over_the_face_box_is_drawn_on_ffmpeg_and_is_advice_for_a_pixel_change_of_the_face_region_on_the_old_engine(engine, lab):
-    """The face rule was removed on 2026-11-24 (nothing is refused for touching the face): the ffmpeg engine draws the card. The old engine's pixel check
-    (the face region against the undrawn base) is still there until the engine is deleted (PF-b), so it reports the same card as advice `face_pixels_changed` (video P0b: advice, not a refusal)."""
-    if engine == "ffmpeg":
-        lab.need(engine)
-        rec, edl, beats, doc = lab.short()
-        run = lab.render(engine, "planted-cover-%s" % engine, rec, edl, beats, blocks=C.planted_renderat(lab.folder, "cover"))
-        assert run.rc == 0, (run.rc, run.out, run.err[-2000:])
-    else:
-        planted_advice_leg(lab, engine, "cover", "face_pixels_changed")
+def test_f5_a_card_over_the_face_box_is_drawn(engine, lab):
+    """The face rule was removed on 2026-11-24 (nothing is refused for touching the face): the engine draws the card. The old engine's pixel advice
+    `face_pixels_changed` went with the engine (PF-b, B3)."""
+    lab.need(engine)
+    rec, edl, beats, doc = lab.short()
+    run = lab.render(engine, "planted-cover-%s" % engine, rec, edl, beats, blocks=C.planted_renderat(lab.folder, "cover"))
+    assert run.rc == 0, (run.rc, run.out, run.err[-2000:])
 
 
 @legs("F6")
@@ -594,38 +532,15 @@ def test_f7_what_the_engine_cannot_draw_and_a_recording_that_is_not_the_list_are
     edl = json.loads(Path(edl_file).read_text())
     edl["source"].update(duration=301.0, sha256=hashlib.sha256(long.read_bytes()).hexdigest(), has_audio=True)
     c = refused_with(lab, engine, "f7c-" + engine, long, K.write_json(work / "edl-long.json", edl), beats_file, "input_too_long")
-    assert (a, b, c) == ("block_unknown", "recording_changed", "input_too_long")       # the same three on both engines (stop rule 6)
-    # (d) what only the other engine draws
-    if engine == "ffmpeg":
-        spring = copy.deepcopy(beats)
-        spring["overlays"][0]["block"] = "hf:spring-pop"
-        beats_d = K.write_json(work / "beats-d.json", spring)
-        # a port with no determinism record is HyperFrames only (the committed ports all have one since PF-a4e): planted by removing the record
-        refused_with(lab, engine, "f7d-" + engine, rec, edl_file, beats_d, "block_not_on_engine", blocks=C.planted_unproven_port(work))
-        # and the committed spring-pop, with its record, is drawn by the ffmpeg engine under the second contract
-        drawn = lab.render(engine, "f7d-drawn-" + engine, rec, edl_file, beats_d)
-        assert drawn.rc == 0 and "hf:spring-pop" in drawn.out["hf_proofs"], (drawn.rc, drawn.out, drawn.err[-800:])
-    else:
-        tr = C.short_transcript()
-        (work / "post.md").write_text(K.SHORT_POST, encoding="utf-8")
-        tfile = K.write_json(work / "transcript.json", tr)
-        rc, out, err = host("ffmpeg", "align", "--post", work / "post.md", "--transcript", tfile, "--checker", K.CHECKER, "--vocabulary", K.VOCABULARY, "--out", work / "beats-cutaway.json")
-        assert rc == 0, err
-        refused_with(lab, engine, "f7d-" + engine, rec, edl_file, work / "beats-cutaway.json", "preset_not_on_engine")
-
-
-# ---------------------------------------------------------------- F8 glyphs (HyperFrames)
-
-@legs("F8", ("hyperframes",))
-def test_f8_a_caption_whose_words_draw_no_glyph_is_reported_as_advice_and_the_clean_render_has_none(engine, lab):
-    lab.need(engine)
-    clean = lab.f1(engine, "a")
-    assert clean.rc == 0 and clean.out["captions_drawn"] > 0 and clean.out["gate"]["lowest_caption_bottom"] is not None, (clean.out, clean.err[-1000:])
-    assert "caption_not_drawn" not in [row["code"] for row in clean.out.get("advice") or []]
-    rec, edl, beats, doc = lab.short()
-    run = lab.render(engine, "f8-blank", rec, edl, beats, blocks=C.planted_blank(lab.folder))
-    assert run.rc == 0, (run.rc, run.out, run.err[-2000:])
-    assert "caption_not_drawn" in [row["code"] for row in run.out.get("advice") or []], run.out.get("advice")
+    assert (a, b, c) == ("block_unknown", "recording_changed", "input_too_long")       # the contract's three codes (stop rule 6)
+    # (d) a port with no determinism record is on no engine (the committed ports all have one since PF-a4e): planted by removing the record
+    spring = copy.deepcopy(beats)
+    spring["overlays"][0]["block"] = "hf:spring-pop"
+    beats_d = K.write_json(work / "beats-d.json", spring)
+    refused_with(lab, engine, "f7d-" + engine, rec, edl_file, beats_d, "block_not_on_engine", blocks=C.planted_unproven_port(work))
+    # and the committed spring-pop, with its record, is drawn by the engine under the second contract
+    drawn = lab.render(engine, "f7d-drawn-" + engine, rec, edl_file, beats_d)
+    assert drawn.rc == 0 and "hf:spring-pop" in drawn.out["hf_proofs"], (drawn.rc, drawn.out, drawn.err[-800:])
 
 
 # ---------------------------------------------------------------- the machine legs (the maintainer's Mac)
@@ -655,17 +570,15 @@ def build_report() -> dict:
     commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(K.REPO), capture_output=True, text=True, timeout=60).stdout.strip()
     arch = {"aarch64": "arm64", "arm64": "arm64", "x86_64": "amd64", "amd64": "amd64"}.get(docker_info("{{.Architecture}}") or platform.machine(), "unknown")
     memory = docker_info("{{.MemTotal}}")
-    cases = [C.case_row(name, row["transcript"], row["edl"], row["runs"]) for name, row in ROWS.items()]
-    versions = [r["hyperframes"] for row in ROWS.values() for r in row.get("results", []) if isinstance(r.get("hyperframes"), str)]
-    return {"schema": 1, "date": datetime.date.today().isoformat(), "commit": commit, "arch": arch,
+    cases = [C.case_row(name, row["transcript"], row["edl"], row["runs"], schema=2) for name, row in ROWS.items()]
+    return {"schema": 2, "date": datetime.date.today().isoformat(), "commit": commit, "arch": arch,
             "machine": {"docker_cpus": int(docker_info("{{.NCPU}}") or 0), "docker_memory_mib": int(memory) // (1 << 20) if memory.isdigit() else 0},
-            "images": {"common": D.image_tag().split(":")[1], "hyperframes": H.hf_image.image_tag().split(":")[1]},
-            "hyperframes_version": versions[0] if versions and C.VERSION.fullmatch(versions[0]) else None, "cases": cases}
+            "images": {"common": D.image_tag().split(":")[1]}, "cases": cases}
 
 
 def record(case, transcript, edl, engine, cpus, cpuset, run, frames_ok=None):
     row = ROWS.setdefault(case, {"transcript": transcript, "edl": edl, "runs": [], "results": []})
-    row["runs"].append(C.run_row(engine, cpus, cpuset, run.out if run.rc == 0 else None, run.code, run.wall, run.memory, frames_ok))
+    row["runs"].append(C.run_row(engine, cpus, cpuset, run.out if run.rc == 0 else None, run.code, run.wall, run.memory, frames_ok, schema=2))
     if run.rc == 0:
         row["results"].append(run.out)
     return row["runs"][-1]
@@ -674,7 +587,7 @@ def record(case, transcript, edl, engine, cpus, cpuset, run, frames_ok=None):
 def stop_on_limits(row, run):
     """Stop rule 4: a limit broken at real size, or sampled memory at 90 percent of a cap, is a stop with the figures."""
     memory = row["memory"] or {}
-    sampled = [v for v in (memory.get("hf_sampled_max_mib"), memory.get("common_sampled_max_mib")) if v is not None]
+    sampled = [v for v in (memory.get("common_sampled_max_mib"),) if v is not None]
     broke = []
     if run.code in LIMIT_CODES:
         broke.append("refused %s" % run.code)
@@ -705,7 +618,7 @@ def test_mac_m1_the_short_case_composed_is_one_sha256_at_four_and_at_eight_cores
 
 @mac_only
 @legs("M4")
-def test_mac_m4_the_cutaway_case_is_one_sha256_at_four_and_at_eight_cores_on_each_engine(engine, lab, eight_cpus):
+def test_mac_m4_the_cutaway_case_is_one_sha256_at_four_and_at_eight_cores(engine, lab, eight_cpus):
     lab.need(engine)
     runs = [cutaway_leg(lab, engine, "m4-4", 4, "0-3"), cutaway_leg(lab, engine, "m4-8", 8, "0-7")]
     for run in runs:
@@ -716,8 +629,7 @@ def test_mac_m4_the_cutaway_case_is_one_sha256_at_four_and_at_eight_cores_on_eac
 
 def clip_cutaway_leg(lab, label, cpus, cpuset, shape, engine="ffmpeg"):
     """The cutaway case on `engine` with a clip on its beat (slot beat2): a synthetic moving clip (a gradient carrying its own frame number, made by the host's
-    ffmpeg), normalised by the common image's own `asset-sheet` verb, `shape` "cover" (1080x1920) or "glass" (1920x1080). Cached. On HyperFrames (V9b-5b) the clip is
-    drawn as top-level video elements under the page, from the same blocks folder as the picture case."""
+    ffmpeg), normalised by the common image's own `asset-sheet` verb, `shape` "cover" (1080x1920) or "glass" (1920x1080). Cached."""
     import clip_kit as CK
     transcript = K.build_transcript(CUTAWAY_SENTENCES)
 
@@ -730,15 +642,8 @@ def clip_cutaway_leg(lab, label, cpus, cpuset, shape, engine="ffmpeg"):
             rc, out, err = host("ffmpeg", "asset-sheet", "--asset", "slot-1:1=%s" % raw, "--mode", "full", "--out", sheet)
             assert rc == 0 and out["assets"][0]["kind"] == "clip", (out, err[-2000:])
         clip = next(sheet.glob("asset-*.mp4"))
-        blocks = None
-        if engine == "hyperframes":
-            blocks = lab.folder / "blocks-hf-cutaway"
-            if not blocks.exists():
-                shutil.copytree(K.BLOCKS, blocks)
-                K.write_hf_compose_blocks(blocks, cutaway=True)
-        tag = "clip-%s-%s" % (shape, label) if engine == "ffmpeg" else "clip-%s-%s-%s" % (engine, shape, label)
-        return lab.render(engine, tag, rec, edl, beats, cpus, cpuset, blocks=blocks, assets={"beat2": clip})
-    return lab.cached(("clip-cutaway", shape, label) if engine == "ffmpeg" else ("clip-cutaway", engine, shape, label), make)
+        return lab.render(engine, "clip-%s-%s" % (shape, label), rec, edl, beats, cpus, cpuset, assets={"beat2": clip})
+    return lab.cached(("clip-cutaway", shape, label), make)
 
 
 @mac_only
@@ -768,34 +673,6 @@ def counter_numbers(video: str, first: int, count: int) -> list:
         row = raw[i * width * 3:(i + 1) * width * 3]
         numbers.append(sum(1 << k for k in range(CK.BITS) if row[(CK.BLOCK * k + CK.BLOCK // 2) * 3 + 1] > 128))
     return numbers
-
-
-@mac_only
-@legs("M6", ("hyperframes",))
-def test_mac_m6_the_clip_cutaway_on_hyperframes_is_one_sha256_at_four_and_at_eight_cores_in_cover_and_in_glass_and_cover_is_frame_exact(engine, lab, eight_cpus):
-    """V9b-5b (Design B): a normalised moving clip under a cover cutaway and under a glass cutaway, drawn by HyperFrames as top-level video elements, the same sha256
-    at 4 and 8 cores for each shape; and, for the cover shape, every output frame `start + k` of the entry shows clip frame `k` (the frame-exact check of spike S2,
-    on the real path). A figure that fails is a stop (STOP RULE 8): reported, never tuned."""
-    import _edl
-    from _vocab import load_data, load_vocabulary
-    lab.need(engine)
-    for shape in ("cover", "glass"):
-        runs = [clip_cutaway_leg(lab, "m6-4", 4, "0-3", shape, engine), clip_cutaway_leg(lab, "m6-8", 8, "0-7", shape, engine)]
-        for run in runs:
-            assert run.rc == 0, (shape, run.out, run.err[-2000:])
-        shas = {r.out["sha256"] for r in runs}
-        assert len(shas) == 1, "STOP RULE 8, two sha256 for the %s clip cutaway on hyperframes: %s" % (shape, sorted(shas))
-        if shape != "cover":
-            continue
-        transcript = K.build_transcript(CUTAWAY_SENTENCES)
-        rec = lab.recording("cutaway", transcript)
-        edl_file, beats_file, doc = lab.documents("cutaway", rec, transcript, CUTAWAY_POST)
-        data = load_data()
-        timeline = _edl.resolve_timeline(doc, json.loads(Path(beats_file).read_text()), load_vocabulary(str(K.VOCABULARY)), data)
-        entry = next(e for e in timeline["beats"] if e["preset"] == "cutaway")
-        count = entry["end_frame"] - entry["start_frame"]
-        numbers = counter_numbers(runs[-1].out["path"], entry["start_frame"], count)
-        assert numbers == list(range(count)), "STOP RULE 8, a cover frame reads the wrong clip frame: %s" % [(k, n) for k, n in enumerate(numbers) if n != k][:12]
 
 
 REAL = {}
@@ -829,26 +706,6 @@ def test_mac_m2_the_real_size_case_composed_is_one_sha256_at_four_and_at_eight_c
         row = record("real", transcript, doc, engine, cpus, cpuset, run, frames_ok)
         stop_on_limits(row, run)
         assert run.rc == 0, (run.code, run.out, run.err[-2000:])
-        if engine == "hyperframes":
-            print("M2 hyperframes %d cores: stages %s, hf cgroup peak %s MiB, sampled %s, intermediate %s bytes" % (
-                cpus, row["stage_seconds"], (row["memory"] or {}).get("hf_cgroup_peak_mib"), row["memory"], run.out.get("intermediate_bytes")))
     assert_one_sha("real", engine)
     assert last is not None and last["bad"] == 0 and last["checked"] > 0 and last["frames"] == doc["out_frames"], \
         "STOP RULE 7, a frame the kept ranges do not name on %s: %s" % (engine, last)
-
-
-@mac_only
-@legs("M3", ("hyperframes",))
-def test_mac_m3_the_300_second_input_is_drawn_once_by_hyperframes_at_eight_cores(engine, lab, eight_cpus):
-    lab.need(engine)
-    transcript = C.max_transcript()
-    rec = lab.recording("max", transcript)
-    edl_file, beats, doc = lab.documents("max", rec, transcript, K.HF_POST)
-    assert 60 <= len(doc["kept"]) <= 80
-    run = lab.render(engine, "m3-hf", rec, edl_file, beats, 8, "0-7", memory=True, timeout=7200)
-    row = record("max", transcript, doc, engine, 8, "0-7", run)
-    print("M3 hyperframes: outcome %s code %s wall %s s, stages %s, memory %s, intermediate %s bytes" % (
-        row["outcome"], row["code"], row["wall_seconds"], row["stage_seconds"], row["memory"], (run.out or {}).get("intermediate_bytes") if run.rc == 0 else None))
-    # A limit broken here is the finding (OPEN-9): the row is already in the report, the test fails with its figures (stop rule 4) and nothing is raised.
-    stop_on_limits(row, run)
-    assert run.rc == 0, (run.code, run.out, run.err[-2000:])

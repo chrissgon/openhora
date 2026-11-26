@@ -51,7 +51,7 @@ def test_every_test_folder_of_this_repository_is_in_the_list_ci_runs():
     assert "$(python3 scripts/test_dirs.py)" in workflow
 
 
-DOCKER_JOBS = ("container", "converter", "renderer", "hyperframes", "go")  # the live jobs of live-jobs.yml; PF-b takes "hyperframes" out of here and out of each row
+DOCKER_JOBS = ("container", "converter", "renderer", "go")  # the live jobs of live-jobs.yml (the HyperFrames job was retired in PF-b)
 WORKFLOWS = sorted((REPO / ".github" / "workflows").glob("*.y*ml"))
 NIGHTLY = REPO / ".github" / "workflows" / "nightly.yml"
 LIVE = REPO / ".github" / "workflows" / "live-jobs.yml"
@@ -634,9 +634,7 @@ def test_each_image_is_built_through_the_bounded_retry_before_the_tests_that_wou
                                 ("converter", ["python3 providers/converter/container.py build --confirmed",
                                                "python3 providers/exporter/container.py build --confirmed"], "WB_CONVERTER_DOCKER_TESTS=1"),
                                 ("renderer", ["python3 providers/transcriber/whispercpp.py build --confirmed",
-                                              "python3 providers/renderer/ffmpeg.py build --confirmed --platform linux64"], "WB_RENDERER_DOCKER_TESTS=1"),
-                                ("hyperframes", ["python3 providers/renderer/ffmpeg.py build --confirmed --platform linux64",
-                                                 "python3 providers/renderer/hyperframes.py build --confirmed"], "WB_HYPERFRAMES_DOCKER_TESTS=1")):
+                                              "python3 providers/renderer/ffmpeg.py build --confirmed --platform linux64"], "WB_RENDERER_DOCKER_TESTS=1")):
         block = job_block(text, name)
         for build in builds:
             found = re.findall(r"^        run: python3 scripts/ci_retry\.py --attempts [2-5] --delay \d+ --attempt-timeout \d+ -- (.+)$", block, re.M)
@@ -644,38 +642,36 @@ def test_each_image_is_built_through_the_bounded_retry_before_the_tests_that_wou
             assert block.index(build) < block.index(tests), (name, build)
 
 
-def test_the_renderer_and_hyperframes_jobs_name_one_state_folder_for_their_builds_and_their_live_tests():
+def test_the_renderer_job_names_one_state_folder_for_its_builds_and_its_live_tests():
     """The root conftest moves XDG_STATE_HOME before the live tests read it, so a step before the builds writes OPENHORA_STATE_DIR to
     $GITHUB_ENV. The runner context is not allowed in a job's env (GitHub rejects the whole file), so none appears before `steps:`."""
     text = (LIVE).read_text()
-    for name in ("renderer", "hyperframes"):
-        block = job_block(text, name)
-        assert "runner." not in block.split("    steps:")[0], name
-        setter = block.index('echo "OPENHORA_STATE_DIR=$RUNNER_TEMP/openhora-state" >> "$GITHUB_ENV"')
-        assert setter < block.index("build --confirmed"), name
+    block = job_block(text, "renderer")
+    assert "runner." not in block.split("    steps:")[0]
+    setter = block.index('echo "OPENHORA_STATE_DIR=$RUNNER_TEMP/openhora-state" >> "$GITHUB_ENV"')
+    assert setter < block.index("build --confirmed")
 
 
-def test_the_hyperframes_job_builds_both_images_checks_the_hf_one_and_never_runs_the_survey_test():
-    """V3c-2: its first run is the first amd64 build of the HyperFrames image. Build order, the 90-minute bound, the selfcheck before the
-    tests, no --arch (the daemon's own architecture), and not test_hf_tier_a_live.py (it fails without its survey variables)."""
-    block = job_block((LIVE).read_text(), "hyperframes")
-    assert "timeout-minutes: 90" in block and "runs-on: ubuntu-24.04" in block
-    assert "--attempt-timeout 900 -- python3 providers/renderer/ffmpeg.py build --confirmed --platform linux64" in block
-    assert "--attempt-timeout 1800 -- python3 providers/renderer/hyperframes.py build --confirmed\n" in block
-    assert "--arch" not in block and "test_hf_tier_a_live" not in block
-    order = [block.index(x) for x in ("ffmpeg.py build --confirmed", "hyperframes.py build --confirmed", "hyperframes.py --check", "WB_HYPERFRAMES_DOCKER_TESTS=1")]
-    assert order == sorted(order)
-    assert "test_hf_docker_live.py" in block  # which items each leg collects is proved by the coverage oracle below (CI-1b)
+def test_no_hyperframes_job_input_or_variable_is_left_in_the_workflows():
+    """PF-b retired the HyperFrames engine and its CI job: no job, no input of the reusable workflow, no caller's line and no test variable."""
+    for path in WORKFLOWS:
+        code = [line for line in path.read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#")]      # a comment may say what was retired
+        assert not [line for line in code if "hyperframes" in line.lower()], path.name
+    assert "hyperframes" not in matrix_job_names(LIVE.read_text())
+
+
+def matrix_job_names(text):
+    jobs = text[re.search(r"^jobs:\s*$", text, re.M).end():]
+    return re.findall(r"^  ([\w-]+):\s*$", jobs, re.M)
 
 
 # ---- the live legs: together they collect exactly what the one job collected (CI-1b; SPEC-ci-speedup 6.5) --------------------------------------------------------------
 
 RENDERER_TESTS = "providers/renderer/tests/"
-UNSPLIT = {  # written here, never read from the workflow: what each live job ran before it was split into legs (the files, in the order of the old step)
+UNSPLIT = {  # written here, never read from the workflow: what the live job ran before it was split into legs (the files, in the order of the old step)
     "renderer": [RENDERER_TESTS + "test_renderer_docker_live.py", RENDERER_TESTS + "test_engine_contract_live.py", "providers/transcriber/tests/test_transcriber_docker_live.py"],
-    "hyperframes": [RENDERER_TESTS + "test_engine_contract_live.py", RENDERER_TESTS + "test_hf_docker_live.py"],
 }
-ENGINE_OF = {"renderer": "ffmpeg", "hyperframes": "hyperframes"}  # the parameter each job runs (its WB_*_DOCKER_TESTS variable selects it)
+ENGINE_OF = {"renderer": "ffmpeg"}  # the parameter the job runs (its WB_*_DOCKER_TESTS variable selects it)
 _COLLECTED = {}
 
 
@@ -707,11 +703,11 @@ def matrix_entries(text, name):
 
 
 def legs_problems(text):
-    """What is wrong with the legs of the renderer and hyperframes jobs, as a list: a group count that disagrees with the name, an image built by the wrong leg, an
+    """What is wrong with the legs of the renderer job, as a list: a group count that disagrees with the name, an image built by the wrong leg, an
     item collected by no leg or by two, a leg that runs nothing. The collections run at the same time (principle 7)."""
     from concurrent.futures import ThreadPoolExecutor
     found, plans = [], {}
-    for name in ("renderer", "hyperframes"):
+    for name in ("renderer",):
         entries, count = matrix_entries(text, name)
         if not entries or count != len(entries) or [e["group"] for e in entries] != [str(i) for i in range(1, len(entries) + 1)]:
             found.append("%s: the name says %s legs, the matrix holds %d" % (name, count, len(entries)))
@@ -750,20 +746,20 @@ def test_the_live_legs_together_collect_exactly_what_one_job_collected():
     for name in UNSPLIT:
         assert len(collect(UNSPLIT[name])) >= 10, name  # the collection found the contract's items; an empty one would pass for the wrong reason
     entries, _ = matrix_entries(text, "renderer")
-    assert len(entries) + len(matrix_entries(text, "hyperframes")[0]) <= 8  # the concurrency budget of the CI speed-up (k_r + k_h)
+    assert len(entries) <= 8  # the concurrency budget of the CI speed-up (k_r; the HyperFrames legs, k_h, went with PF-b)
 
 
 def test_vacuity_a_leg_that_drops_a_test_runs_one_twice_or_builds_the_wrong_image_is_caught():
     text = LIVE.read_text(encoding="utf-8")
     assert legs_problems(text) == []
     plants = (
-        ('legs: "test_f1_ or test_f3_"', 'legs: "test_f1_"'),                      # a -k word dropped: the complement excludes F3, so no leg collects it
-        ('legs: "test_f9_"', 'legs: "test_f9_ or test_f8_"'),                      # F8 in two groups
-        ('legs: "test_f8_"', 'legs: "test_f8_ or test_f9_"'),                      # F9 in two groups
-        ("providers/renderer/tests/test_engine_contract_live.py providers/renderer/tests/test_hf_docker_live.py", "providers/renderer/tests/test_engine_contract_live.py"),  # a file dropped
+        ('legs: "test_f11_ or test_f9_ or test_f5_ or test_f7_"', 'legs: "test_f11_ or test_f9_ or test_f5_"'),                      # a -k word dropped: the complement excludes F7, so no leg collects it
+        ('legs: "test_f11_ or test_f9_ or test_f5_ or test_f7_"', 'legs: "test_no_such_leg_"'),                                          # a group 2 leg that names no test: it runs nothing
+        ('legs: "not (test_f11_ or test_f9_ or test_f5_ or test_f7_)"', 'legs: "not (test_f11_ or test_f9_ or test_f5_)"'),             # the complement no longer complements: F7 is in two groups
+        ('legs: "not (test_f11_ or test_f9_ or test_f5_ or test_f7_)"', 'legs: "not (test_f11_ or test_f9_ or test_f5_ or test_f7_ or test_f1_)"'),  # a complement that misses one: F1 is in no group
+        ("providers/renderer/tests/test_renderer_docker_live.py providers/transcriber/tests/test_transcriber_docker_live.py", "providers/transcriber/tests/test_transcriber_docker_live.py"),  # a file dropped
         ("            transcriber: true\n", "            transcriber: false\n"),   # the transcriber's leg does not build its image
-        ("hyperframes ${{ matrix.group }} of 5", "hyperframes ${{ matrix.group }} of 4"),  # the name disagrees with the matrix
-        ('legs: "not (test_f4_ or test_f11_ or test_f9_ or test_f5_ or test_f7_)"', 'legs: "not (test_f4_ or test_f11_ or test_f9_ or test_f5_)"'),  # the complement no longer complements: F7 is in two groups
+        ("renderer ${{ matrix.group }} of 3", "renderer ${{ matrix.group }} of 4"),  # the name disagrees with the matrix
     )
     for old, new in plants:
         planted = text.replace(old, new, 1)
@@ -841,16 +837,15 @@ def test_the_docker_and_go_jobs_run_when_their_paths_changed_and_in_the_cases_of
         (["evals/container/Dockerfile"], PR, {"container"}),
         (["skills/mkt-publish/evals/evals.json"], PR, {"container"}),  # the eval container stages skills
         (["providers/secrets/resolver.py"], PR, {"container"}),
-        (["scripts/ci_retry.py"], PR, {"container", "converter", "renderer", "hyperframes"}),  # the retry both image builds go through
-        (["providers/renderer/_image.py"], PR, {"renderer", "hyperframes"}),  # the ffmpeg engine's image
-        (["providers/renderer/hyperframes-image/Dockerfile"], PR, {"hyperframes"}),  # V3c-2: the HyperFrames image has its own job, the ffmpeg one is not built for it
-        (["providers/renderer/hyperframes.py"], PR, {"renderer", "hyperframes"}),
-        (["shared/references/video-presets.json"], PR, {"container", "renderer", "hyperframes"}),  # every render reads the vocabulary
+        (["scripts/ci_retry.py"], PR, {"container", "converter", "renderer"}),  # the retry the image builds go through
+        (["providers/renderer/_image.py"], PR, {"renderer"}),  # the engine's image
+        (["providers/renderer/Dockerfile"], PR, {"renderer"}),
+        (["shared/references/video-presets.json"], PR, {"container", "renderer"}),  # every render reads the vocabulary
         (["providers/transcriber/whispercpp.py"], PR, {"renderer"}),
-        (["providers/resolve.py"], PR, {"converter", "renderer", "hyperframes"}),  # a top-level provider module reaches both image jobs
+        (["providers/resolve.py"], PR, {"converter", "renderer"}),  # a top-level provider module reaches the image jobs
         (["docs/decisions.md"], PR, set()),
         (["docs/decisions.md"], {**PR, "BASE_REF": "main"}, set()),  # CI-1: a pull request into main is read by path like any other
-        (["providers/renderer/_image.py"], {**PR, "BASE_REF": "main"}, {"renderer", "hyperframes"}),
+        (["providers/renderer/_image.py"], {**PR, "BASE_REF": "main"}, {"renderer"}),
         ([".github/workflows/live-jobs.yml"], PR, ALL),  # the file of the jobs counts for all of them
         ([".github/workflows/checks.yml"], PR, ALL),
         (["docs/decisions.md"], {**PR, "FULL_LABEL": "true"}, ALL),
@@ -880,7 +875,7 @@ def test_the_docker_and_go_jobs_run_when_their_paths_changed_and_in_the_cases_of
 def test_a_row_that_names_a_job_outside_the_live_set_is_refused():
     assert expected_live({"go"})["go"] == "true" and expected_live(set()) == {name: "false" for name in DOCKER_JOBS}
     with pytest.raises(AssertionError):
-        expected_live({"go", "hyperframes_removed"})
+        expected_live({"go", "no_such_job"})
 
 
 def test_the_triggers_of_the_workflow_include_the_label_event_and_the_manual_run():
@@ -1299,7 +1294,7 @@ def live_problems(text):
 def test_the_live_jobs_file_reads_nothing_it_should_not():
     text = LIVE.read_text(encoding="utf-8")
     assert live_problems(text) == []
-    assert "-rA --durations=0" in text and text.count("pytest==9.1.1 pytest -q -rA --durations=0") == 4  # the live steps print each test's duration (CI-1a)
+    assert "-rA --durations=0" in text and text.count("pytest==9.1.1 pytest -q -rA --durations=0") == 3  # the live steps print each test's duration (CI-1a)
 
 
 def test_vacuity_a_live_file_with_a_write_permission_an_expression_in_a_run_line_or_a_checkout_that_keeps_credentials_is_caught():

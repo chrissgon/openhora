@@ -10,7 +10,7 @@ redistribution, so it is fetched from the publisher at build and no copy is kept
 `fetch_hf.py` refuses a url outside the npm registry's pattern, a tarball over 64 MiB, an integrity or sha256 that differs, a link, an absolute
 path, a `..` or a member over 8 MiB, and leaves no output folder when it refuses. `_inner.py selfcheck` checks every file again.
 
-To raise a version: edit `npm-pins.json` (url, integrity, sha256 of each member) and the lockfile of `hyperframes-image/` together, rebuild the common image
+To raise a version: edit `npm-pins.json` (url, integrity, sha256 of each member; it is the one pin, PF-b, B4), rebuild the common image
 (`ffmpeg.py build --confirmed`). The runtime's hash changes, so every admitted block's determinism record expires and the render refuses it until it is tested again.
 
 Who reads them: `_hf_host.py` (the second page contract, PF-a2) loads the three vendor files and the five shims at render, each against its pin, serves the runtime, GSAP and the shims inline or from `/h/vendor/`, and takes the runtime's hash from them. `registry.sha256` rows are what an admitted entry's files come from; `ffmpeg.py admit-block` adds them. `entries/` holds our fields of an entry (the input of `admit-block`), `staged/` the admitted entries that are not active (validated, never loaded by the catalogue).

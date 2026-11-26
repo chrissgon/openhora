@@ -103,7 +103,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-sys.path.insert(0, os.path.dirname(HERE))      # providers/: _container.py lives there (as hyperframes.py puts it on the path)
+sys.path.insert(0, os.path.dirname(HERE))      # providers/: _container.py lives there (the host modules put it on the path the same way)
 
 import _admit  # noqa: E402
 import _assets  # noqa: E402

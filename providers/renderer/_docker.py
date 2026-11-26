@@ -40,7 +40,7 @@ STATE_ENV = "OPENHORA_STATE_DIR"
 STATE_FOLDER, BUILD_RECORD, WORK_FOLDER, JOB_PREFIX = "renderer", "image.json", "work", ".job-"
 
 # What the image's definition covers is _image.py's: the files image-manifest.json lists, and only those.
-HOST_ONLY = ("_docker.py", "_browser.py", "_image.py", "_host.py", "hyperframes.py", "_admit.py")      # modules that only the host side uses: not in the image
+HOST_ONLY = ("_docker.py", "_browser.py", "_image.py", "_host.py", "_admit.py")      # modules that only the host side uses: not in the image
 
 # The limits of one container.
 PIDS_LIMIT = 512
@@ -548,12 +548,7 @@ RESULT_SCHEMAS = {
                       sheet=dct(file=S, sha256=S, tiles=I, columns=I, width=I, height=I), face_box=dct(x=I, y=I, w=I, h=I), fonts=mp(S), blocks=mp(S), blocks_sha256=S,
                       font_fallbacks=lst(dct(role=S, asked=S, used=S, reason=S), 20), mentions=lst(S, 500), browser=opt(S), browser_sandbox=opt(S),
                       advisory=opt(lst(S, 50))),
-    "proxy": dct(ok=B, sha256=S, bytes=I, seconds=N, width=I, height=I, fps=I, has_audio=B),
     "preview": dct(ok=B, sha256=S, from_sha256=S, bytes=I, width=I, height=I, duration=N, has_audio=B, video_kbps=I, audio_kbps=I, seconds=N),
-    "encode": dct(ok=B, sha256=S, out_seconds=N, out_frames=I, intermediate_sha256=S, gate_frames=opt(I), gate_boxes=opt(I), lowest_caption_bottom=opt(N),
-                  pixel_min_psnr_db=opt(N), pixel_ranges=opt(I), pixel_seconds=opt(N), advice=opt(ADVICE)),
-    "hf-page": dct(ok=B, advice=opt(ADVICE), page_sha256=S, vars_sha256=S, clips=I, zooms=I, duration=N, fps=I, layers=lst(S, 4), blocks=opt(mp(S)), blocks_sha256=opt(S),
-                   captions_drawn=opt(I), beats_drawn=opt(I), effects_dropped=opt(lst(dct(id=S, reason=S), 198)), beats_dropped=opt(lst(S, 100)), beats_dropped_reasons=opt(lst(dct(id=S, reason=S), 100)), assets_dropped=opt(lst(S, 36)), runtimes=opt(mp(S)), fonts_used=opt(mp(S))),
     "asset-sheet": dct(ok=B, assets=lst(dct(row=S, col=I, file=opt(S), sha256=S, width=I, height=I, source_sha256=S, kind=S, seconds=N), 36), sheet=S, sheet_sha256=S, rows=lst(S, 36)),
     "admit-check": dct(ok=B, served_sha256=S, runtime_sha256=S, samples=I, frames=I, runs=I, blocked=I, seconds=N, browser=S, per_sample=lst(dct(frames=I, digest=S), 20)),
     "render": dct(ok=B, advice=opt(ADVICE), dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),

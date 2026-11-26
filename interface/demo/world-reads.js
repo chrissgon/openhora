@@ -97,7 +97,7 @@ export function captionsRead(P, id) {
 
 /** The catalogue of animation blocks as `video-catalogue` answers: three entries with the real entries' keys, one of them not addable. */
 export function videoCatalogue() {
-  const engines = ["ffmpeg", "hyperframes"];
+  const engines = ["ffmpeg"];
   const entry = (name, kind, use, params, sample, why) => ({ name, namespace: "oh", kind, preset: name.slice(3), band: kind === "layout" ? "frame" : "card", may_cross_face: kind === "layout", license: ["MIT"], source: "openhora",
     use_when: use, params, samples: [sample], natural_duration: 1.5, runtimes: ["renderat"], engines, addable: why === null, why });
   return {

@@ -1,7 +1,6 @@
 """The effects of V9a-3: the script's punches and the review's punch, flash, dip, mono and tint. How they are timed (`_edl.resolve_timeline`, whole
-frames), how the ffmpeg engine's graph draws them (`_media`), how the HyperFrames page draws the same rows (`_hf_page`) and what the face check's
-reference holds (`_hf_gate`). Offline: the edit list is a synthetic one made here, the page is read as text and one node script runs the page's own
-drive code; the one test that runs ffmpeg uses the host's own on a synthetic test pattern and skips when there is none. Every name is fictional."""
+frames), how the ffmpeg engine's graph draws them (`_media`), (the HyperFrames page's and the face check's tests went with that engine, PF-b).
+Offline: the edit list is a synthetic one made here; the tests that run ffmpeg uses the host's own on a synthetic test pattern and skips when there is none. Every name is fictional."""
 from __future__ import annotations
 
 import copy
@@ -9,15 +8,12 @@ import hashlib
 import json
 import math
 import re
-import shutil
 import subprocess
 
 import pytest
 
 import renderer_kit as K
 import _edl
-import _hf_gate
-import _hf_page
 import _inner
 import _media
 from _text import Refusal
@@ -29,7 +25,6 @@ FPS = 30
 KEPT = [[0, 150], [200, 350], [400, 520]]          # output frames 0-149, 150-299 and 300-419
 ANCHOR = (540.0, 760.0)
 needs_media = pytest.mark.skipif(not K.HAVE_FFMPEG, reason=K.SKIP_MEDIA)
-needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 
 
 def synthetic_edl(kept=KEPT, zoom=None) -> dict:
@@ -108,15 +103,10 @@ def test_no_effect_keeps_the_base_graph_bytes():
     assert _media.grade_filters([]) == []
 
 
-def test_no_effect_keeps_the_page_and_the_timeline_empty_of_effects(tmp_path):
+def test_no_effect_keeps_the_timeline_empty_of_effects(tmp_path):
     edl = synthetic_edl()
     timeline = resolve(edl, beats_of())
     assert timeline["punches"] == [] and timeline["grades"] == [] and timeline["effects_dropped"] == [] and _edl.range_effects(edl, timeline) == {}
-    parts = _hf_page.build_parts(edl, fps=FPS)
-    assert set(parts["vars"]) == {"duration", "fps", "zooms"} and not any(k.startswith("fx_") for k in parts)
-    plain = _hf_page.render_page(parts, width=1080, height=1920, fps=FPS, background="#0B0F14")
-    assert "PZ" not in plain and 'id="fx"' not in plain and "punched" not in plain
-    assert _hf_page.render_page(_hf_page.build_parts(edl, fps=FPS, effects={}), width=1080, height=1920, fps=FPS, background="#0B0F14") == plain
 
 
 # ---------------------------------------------------------------- punches
@@ -342,152 +332,6 @@ def test_the_mono_matrix_is_the_css_matrix():
     mixer = [[float(given[row + col]) for col in "rgb"] for row in "rgb"]
     assert [x for r in mixer for x in r] == pytest.approx([x for r in css for x in r], abs=1e-9) and all(abs(sum(r) - 1.0) < 1e-9 for r in mixer)
     assert "colorchannelmixer=" + _media.MONO_MATRIX in _media.grade_filters([{"kind": "mono", "a": 3, "b": 9, "alphas": None, "alpha": None, "color": None}])[1]
-    page = _hf_page.FX_JS
-    assert 'grayscale(1)' in page      # the page's mono is the CSS filter this matrix is copied from
-
-
-# ---------------------------------------------------------------- one table, three drawings
-
-def effects_edl():
-    edl = synthetic_edl()
-    beats = beats_of([punch(1, 12, 13)], [effect("e1", "flash", 3, 3), effect("e2", "mono", 20, 21), effect("e3", "tint", 24, 25), effect("e4", "punch", 2, 3)])
-    return edl, resolve(edl, beats)
-
-
-def test_the_page_and_the_reference_use_the_same_rows():
-    edl, timeline = effects_edl()
-    table = _edl.range_effects(edl, timeline)
-    assert sorted(table) == [0, 1, 2] and all(table[k]["first"] == f for k, f in ((0, 0), (1, 150), (2, 300)))
-    parts = _hf_page.build_parts(edl, fps=FPS, effects=table)
-    punched = {row[0]: row for row in parts["vars"]["punched"]}
-    ref = "\n".join(_hf_gate.reference_graph(edl, DATA, "[1:v:0]", effects=table))
-    comp = "\n".join(_media.base_graph(dict(PLAN, effects=table)))
-    for k, fx in table.items():
-        for a, b, zp in fx["punches"]:
-            assert [a, b, zp] in punched[k][6]
-            assert "between(on-1,%d,%d),%.5f" % (a, b - 1, zp) in ref and "between(on,%d,%d),%.5f" % (a, b - 1, zp) in comp      # the reference's filter counts from 1
-    grades = parts["vars"]["grades"]
-    assert [g[0] for g in grades] == ["flash", "mono", "tint"]
-    assert grades[0][1:3] == [timeline["grades"][0]["start_frame"], timeline["grades"][0]["end_frame"]]
-    for kind in ("val*(1-0.850)+235.00*0.850", "colorchannelmixer", "*0.180"):
-        assert kind in ref and kind in comp
-    one = _hf_gate.reference_graph(edl, DATA, "[1:v:0]", only=1, effects=table)           # one range alone: the same rows by the range's number
-    assert any("between(on-1,%d,%d)" % (a, b - 1) in line for line in one for a, b, _ in table[1]["punches"])
-    nothing = _hf_gate.reference_graph(edl, DATA, "[1:v:0]", only=1)
-    assert not any("between(on" in line for line in nothing)
-    pixel = _hf_gate.pixel_argv_range("ffmpeg", "i.mov", "p.mp4", edl, DATA, _edl.range_faces(edl, DATA), 1, table)
-    assert "between(on-1" in pixel[pixel.index("-filter_complex") + 1]
-
-
-def test_the_page_draws_punches_from_the_frame_index_and_keeps_the_base_zoom_for_the_other_ranges():
-    edl, timeline = effects_edl()
-    parts = _hf_page.build_parts(edl, fps=FPS, effects=_edl.range_effects(edl, timeline))
-    assert all(z[0] not in {r[0] for r in parts["vars"]["punched"]} for z in parts["vars"]["zooms"])      # a punched range has no GSAP zoom tween
-    page = _hf_page.render_page(parts, width=1080, height=1920, fps=FPS, background="#0B0F14")
-    assert page.count('<div id="fx"></div>') == 1 and "#fx {" in page and "var PZ" in page and page.index("var PZ") < page.index('window.__timelines["main"]')
-    assert page.index('<div id="fx"></div>') > page.index('id="zw2"')                       # above the video wrappers
-    assert "Date" not in page and "random" not in page and "setTimeout" not in page
-
-
-NODE_DRIVE = r"""
-var V = JSON.parse(process.argv[1]);
-var calls = [], els = {};
-var main = { fromTo: function (obj, from, to, pos) { calls.push(obj); } };
-var document = { getElementById: function (id) { els[id] = els[id] || { style: {} }; return els[id]; } };
-require('vm').runInThisContext(process.argv[2]);
-var out = {};
-JSON.parse(process.argv[3]).forEach(function (n) {
-  calls.forEach(function (c) { c.at(n / V.fps); });
-  out[n] = JSON.parse(JSON.stringify(els));
-});
-console.log(JSON.stringify(out));
-"""
-
-
-def drive(variables: dict, frames: list) -> dict:
-    """What the page's drive code leaves in each element's style at each OUTPUT frame (the timeline's time is seconds, one second a range's own seconds
-    added by the range's start in the real page: here the drive is called with the range's own time, so a range-local frame is a time n / fps)."""
-    done = subprocess.run(["node", "-e", NODE_DRIVE, json.dumps(variables), _hf_page.FX_JS, json.dumps(frames)], capture_output=True, text=True, check=True)
-    return {int(n): rows for n, rows in json.loads(done.stdout).items()}
-
-
-@needs_node
-def test_the_pages_drive_code_follows_the_same_piecewise_rule_as_the_filter():
-    edl, timeline = effects_edl()
-    table = _edl.range_effects(edl, timeline)
-    variables = _hf_page.build_parts(edl, fps=FPS, effects=table)["vars"]
-    [row] = [r for r in variables["punched"] if r[0] == 1]
-    k, start, dur, z0, z1, frames, rows = row
-    seen = drive(variables, list(range(frames)))                      # the punched range's drive is given its own frame index
-    for n in range(frames):
-        scale = float(re.search(r"scale\(([0-9.]+)\)", seen[n]["zw1"]["style"]["transform"]).group(1))
-        want = z0 + (z1 - z0) * n / max(1, frames - 1)
-        for a, b, zp in rows:
-            if a <= n < b:
-                want = zp
-        assert scale == pytest.approx(want, abs=1e-5), n
-    assert seen[0]["zw0"]["style"]["transform"].startswith("scale(1.0")                  # the other punched range moved too: both are driven
-
-
-@needs_node
-def test_the_pages_grade_code_draws_the_ramp_and_the_mono_filter_on_the_frames_of_the_rows():
-    edl, timeline = effects_edl()
-    variables = _hf_page.build_parts(edl, fps=FPS, effects=_edl.range_effects(edl, timeline))["vars"]
-    flash = [g for g in variables["grades"] if g[0] == "flash"][0]
-    mono = [g for g in variables["grades"] if g[0] == "mono"][0]
-    tint = [g for g in variables["grades"] if g[0] == "tint"][0]
-    seen = drive(variables, [flash[1] - 1, flash[1], flash[1] + 1, flash[2] - 1, flash[2], mono[1] - 1, mono[1], mono[2] - 1, mono[2], tint[1], tint[2]])
-    opacity = {n: seen[n]["fx"]["style"]["opacity"] for n in seen}
-    assert opacity[flash[1] - 1] == "0" and opacity[flash[1]] == "0.85" and opacity[flash[1] + 1] == "0.6" and opacity[flash[2] - 1] == "0.1" and opacity[flash[2]] == "0"
-    assert seen[flash[1]]["fx"]["style"]["backgroundColor"] == "#ffffff"
-    assert [seen[n]["zw%d" % mono[5]]["style"]["filter"] for n in (mono[1] - 1, mono[1], mono[2] - 1, mono[2])] == ["none", "grayscale(1)", "grayscale(1)", "none"]
-    assert opacity[tint[1]] == "0.18" and seen[tint[1]]["fx"]["style"]["backgroundColor"] == tint[4] and opacity[tint[2]] == "0"
-
-
-# ---------------------------------------------------------------- the face check
-
-def test_the_crop_covers_every_punched_row():
-    edl, timeline = effects_edl()
-    faces = _edl.range_faces(edl, DATA)
-    crops = _hf_gate.punched_faces(faces, timeline)
-    assert [(a, b) for a, b, _ in crops] == [(a, b) for a, b, _ in faces]
-    for p in timeline["punches"]:
-        box, crop = p["face"], crops[p["range"]][2]
-        assert crop["x"] <= box["x"] and crop["y"] <= box["y"] and crop["x"] + crop["w"] >= box["x"] + box["w"] and crop["y"] + crop["h"] >= box["y"] + box["h"]
-        w, h, x, y = _hf_gate.crop_box(crop, 1080, 1920)
-        assert x <= box["x"] and y <= box["y"] and x + w >= box["x"] + box["w"] - 2 and y + h >= box["y"] + box["h"] - 2
-    untouched = _hf_gate.punched_faces(faces, resolve(edl, beats_of()))
-    assert untouched is faces
-
-
-def test_a_punched_frame_is_tested_against_the_punched_face_and_a_beat_in_a_punch_clears_it():
-    edl, timeline = effects_edl()
-    faces = _edl.range_faces(edl, DATA)
-    by_zone = _hf_gate.faces_by_frame(timeline, faces, edl["out_frames"])
-    for p in timeline["punches"]:
-        for f in range(p["start_frame"], p["end_frame"]):
-            assert by_zone["card"][f] == p["face"] or all(by_zone["card"][f][k] <= p["face"][k] for k in "xy")
-    none = _hf_gate.faces_by_frame(resolve(edl, beats_of()), faces, edl["out_frames"])
-    assert none["card"][160] == faces[1][2]
-    p = timeline["punches"][0]
-    outside = _edl.span_face(edl, DATA, p["start_frame"], p["end_frame"])
-    inside = _edl.span_face(edl, DATA, p["start_frame"], p["end_frame"], timeline["punches"])
-    assert inside["y"] <= outside["y"] and inside["y"] + inside["h"] >= outside["y"] + outside["h"]
-    caption = timeline["captions"][0]
-    assert caption["face"] == _edl.span_face(edl, DATA, caption["start_frame"], caption["end_frame"], timeline["punches"])
-
-
-def test_the_explanation_of_a_refusal_names_the_effects_on_the_worst_frame():
-    edl, timeline = effects_edl()
-    p = timeline["punches"][0]
-    values = [40.0] * (150 - 0)
-    rows = _hf_gate.explain(1, edl, 150, 300, values[:150], p["start_frame"] - 150, timeline)
-    drawn = [r for r in rows if r["code"] == "drawn_at_worst"][0]
-    assert "punch" in drawn["field"]
-
-
-def test_the_gate_constants_do_not_move_with_the_effects():
-    assert _hf_gate.PIXEL_MIN_PSNR_DB == 30.0 and DATA["zones"]["card_min_height"] == 80 and DATA["zones"]["caption_bottom"] == 1560
 
 
 # ---------------------------------------------------------------- the whole composition, with the host's ffmpeg
@@ -573,52 +417,11 @@ def test_mono_under_a_tint_leaves_the_tint_coloured_as_the_page_does():
     assert all(spread(n) > 8 for n in range(32, 40)) and spread(10) > 20
 
 
-LUT = r"""lutyuv=y='val\*\(1-([0-9.]+)\)\+([0-9.]+)\*[0-9.]+':u='[^']*':v='[^']*':enable='(?:eq\(n,(\d+)\)|between\(n,(\d+),(\d+)\))\'"""
-
-
-def parse_reference(graph: list, first_global: dict) -> list:
-    """The grades a reference graph draws, as [kind, from, to] in OUTPUT frames, read from its filter text (flash and dip by their colour)."""
-    found = []
-    ranges = [line for line in graph if "trim=start_frame" in line]
-    for k, line in enumerate(ranges):
-        base = first_global[k]
-        eq = {}
-        for alpha, yc, n, lo, hi in re.findall(LUT, line):
-            if n:
-                eq.setdefault("flash" if float(yc) > 200 else "dip", []).append(base + int(n))
-            else:
-                found.append(["tint", base + int(lo), base + int(hi) + 1])
-        for kind, frames in eq.items():
-            found.append([kind, min(frames), max(frames) + 1])
-        for a, b in re.findall(r"colorchannelmixer=[^,;]*:enable='between\(n,(\d+),(\d+)\)'", line):
-            found.append(["mono", base + int(a), base + int(b) + 1])
-    return sorted(found)
-
-
-def test_the_references_grade_frames_are_the_pages_grade_rows_with_mono_and_tint_adjacent():
-    edl = synthetic_edl()
-    beats = beats_of(effects=[effect("e1", "flash", 3, 3), effect("e2", "mono", 12, 13), effect("e3", "tint", 14, 15), effect("e4", "dip", 22, 22)])
-    timeline = resolve(edl, beats)
-    table = _edl.range_effects(edl, timeline)
-    page = sorted([g[0], g[1], g[2]] for g in _hf_page.build_parts(edl, fps=FPS, effects=table)["vars"]["grades"])
-    firsts = {k: f for k, (f, _) in enumerate(_edl.range_table(edl))}
-    reference = parse_reference(_hf_gate.reference_graph(edl, DATA, "[1:v:0]", effects=table), firsts)
-    compose = parse_reference(_media.base_graph(dict(PLAN, effects=table)), firsts)
-    assert page == reference == compose
-    mono = [g for g in page if g[0] == "mono"][0]
-    tint = [g for g in page if g[0] == "tint"][0]
-    assert 0 <= tint[1] - mono[2] <= 15            # the two are neighbours in the fixture
-
-
-def test_a_punch_the_renderer_leaves_out_is_reported_and_reaches_the_page_result_and_the_runtime(tmp_path):
-    import _docker
+def test_a_punch_the_renderer_leaves_out_is_reported(tmp_path):
     edl = synthetic_edl()
     beats = beats_of([punch(1, 2, 8)], [effect("e1", "punch", 4, 4)])
     timeline = resolve(edl, beats)
     assert timeline["effects_dropped"] == [{"id": "e1", "reason": "punch_short"}]
-    clean = _docker.sanitise({"ok": True, "page_sha256": "a" * 64, "vars_sha256": "b" * 64, "clips": 1, "zooms": 0, "duration": 1.0, "fps": 30, "layers": ["cuts"],
-                              "effects_dropped": timeline["effects_dropped"]}, _docker.RESULT_SCHEMAS["hf-page"], "hf-page")
-    assert clean["effects_dropped"] == [{"id": "e1", "reason": "punch_short"}]
 
 
 def test_the_alphas_are_clamped_to_zero_and_one_and_not_to_the_specs_old_values():
@@ -628,41 +431,6 @@ def test_the_alphas_are_clamped_to_zero_and_one_and_not_to_the_specs_old_values(
     timeline = resolve(edl, beats_of(effects=[effect("e1", "flash", 2, 2), effect("e2", "dip", 9, 9), effect("e3", "tint", 14, 15)]), wide)
     by = {g["kind"]: g for g in timeline["grades"]}
     assert by["flash"]["alphas"] == [1.0, 1.0, 0.0, 0.5] and set(by["dip"]["alphas"]) == {1.0} and by["tint"]["alpha"] == 0.9
-
-
-def reference_alphas(graph: list, firsts: dict) -> dict:
-    """{output frame: (colour, alpha)} that the blends of a reference graph lay over the picture, read from the filter text."""
-    found = {}
-    for k, line in enumerate([x for x in graph if "trim=start_frame" in x]):
-        for alpha, yc, n, lo, hi in re.findall(LUT, line):
-            color = "FFFFFF" if abs(float(yc) - 235) < 1 else "000000" if abs(float(yc) - 16) < 1 else "TINT"
-            frames = [int(n)] if n else range(int(lo), int(hi) + 1)
-            for m in frames:
-                found[firsts[k] + m] = (color, float(alpha))
-    return found
-
-
-@needs_node
-def test_the_pages_alpha_of_each_grade_frame_is_the_references_drawbox_alpha_for_a_flash_a_dip_and_a_tint():
-    """Frame by frame: the opacity and colour the page's drive code sets at output frame n equal the alpha and colour of the blend the reference draws at n."""
-    edl = synthetic_edl()
-    beats = beats_of(effects=[effect("e1", "flash", 12, 12), effect("e2", "dip", 18, 18), effect("e3", "tint", 22, 23)])
-    table = _edl.range_effects(edl, resolve(edl, beats))
-    variables = _hf_page.build_parts(edl, fps=FPS, effects=table)["vars"]
-    firsts = {k: f for k, (f, _) in enumerate(_edl.range_table(edl))}
-    want = reference_alphas(_hf_gate.reference_graph(edl, DATA, "[1:v:0]", effects=table), firsts)
-    assert want == reference_alphas(_media.base_graph(dict(PLAN, effects=table)), firsts)
-    assert len([n for n, (c, a) in want.items() if c == "FFFFFF"]) == 4 and len([n for n, (c, a) in want.items() if c == "000000"]) == 6 and any(c == "TINT" for c, a in want.values())
-    seen = drive(variables, list(range(edl["out_frames"])))
-    for n in range(edl["out_frames"]):
-        style = seen[n].get("fx", {}).get("style", {})
-        opacity = float(style.get("opacity", 0))
-        if n in want:
-            color, alpha = want[n]
-            page_color = style["backgroundColor"].lstrip("#").upper()
-            assert page_color == (color if color != "TINT" else "FFC93C") and opacity == pytest.approx(alpha, abs=5e-4), n
-        else:
-            assert opacity == 0, n
 
 
 @needs_media

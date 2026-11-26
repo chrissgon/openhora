@@ -129,7 +129,7 @@ def _here() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
-CAPTION_DRAWN_MIN_FRAMES = 6      # a caption chunk shorter than this may draw nothing: the old engine's own floor (`_hf_gate.CAPTION_DRAWN_MIN_FRAMES`)
+CAPTION_DRAWN_MIN_FRAMES = 6      # a caption chunk shorter than this may draw nothing: the old engine's own floor (PF-b retired it; git history)
 
 
 def admitted_ranges(data, timeline, admitted, out_frames) -> list:

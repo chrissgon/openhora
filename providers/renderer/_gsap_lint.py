@@ -1,6 +1,6 @@
 """The contract of our own `gsap.html` (a tier-B port, or a second implementation of an `oh:` block): one fragment, not a document.
 
-    <!-- <block name>: <one line>. [Adapted from ... See providers/renderer/hyperframes-image/NOTICE.md.] -->
+    <!-- <block name>: <one line>. [Adapted from ... See providers/renderer/hf-runtime/NOTICE.md.] -->
     <template data-hf-block="<ns>:<short>">
       <style>/* selectors only under :scope */</style>
       <div class="root">...markup, no text content: text comes from data...</div>
@@ -9,7 +9,7 @@
       </script>
     </template>
 
-The HyperFrames page stage (`_hf_compose.py`) inlines the fragment once per entry: the markup in an instance element, the style inside
+The HyperFrames page stage (the retired `_hf_compose.py`) inlines the fragment once per entry: the markup in an instance element, the style inside
 `@scope (#hf-inst-N)`, the script once per block. `check(text, name)` is the one gate: it raises `Refusal("block_lint", "<name> <rule>")`
 for the first rule the fragment breaks. `parse` returns the three parts of a fragment that passed. Pure text work: no browser, nothing
 of the host. Standard library only.

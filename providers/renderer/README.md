@@ -10,14 +10,14 @@ beats come from the post file's script block.
 | File | What it is |
 |------|------------|
 | `ffmpeg.py` | The host side, the one implementation file of the folder: the drawing verbs (`render`, `storyboard`, `pin-blocks`, `block-params`), `build`, `pin-browser`, `reap` and `--check`; the verbs that need no browser come from `_host.py`. Python 3.9, standard library only. |
-| `_host.py` | The host side both engines share: one job in a container (stage the inputs into a private job folder, build the `docker run` command, run it, read the result as untrusted), the limit flags, and the common verbs `analyse`, `base`, `align`, `check`, `cover`, `still`, `verify` and `asset-sheet` (V9b-2) (`COMMON_VERBS`, `add_common_parsers`). `verify --in MP4 --platform-file F [--sha256 H] [--edl EDL]` checks a stored render in a fresh container, as `render` checks its own candidate. Not in the image. |
+| `_host.py` | The host side of the engine: one job in a container (stage the inputs into a private job folder, build the `docker run` command, run it, read the result as untrusted), the limit flags, and the common verbs `analyse`, `base`, `align`, `check`, `cover`, `still`, `verify` and `asset-sheet` (V9b-2) (`COMMON_VERBS`, `add_common_parsers`). `verify --in MP4 --platform-file F [--sha256 H] [--edl EDL]` checks a stored render in a fresh container, as `render` checks its own candidate. Not in the image. |
 | `_docker.py`, `_browser.py` | The host side's helpers: the container's limits, the build, the state folders; the browser pin and the maintainer's one-time `pin-browser`. Not in the image. |
 | `_inner.py` | The container's entry point (`python3 -I /opt/renderer/_inner.py <verb>`): `analyse`, `base`, `align`, `check`, `render`, `storyboard`, `verify`, `cover`, `still`, `asset-sheet`, `selfcheck`. The tests run it directly on the host with a local Chromium. |
 | `_asset_sheet.py` | The `asset-sheet` verb's inner side (V9b-2 and V9b-5a, common, in the image): checks and tiles pictures and clips, normalises the picked ones. Standard library and the image's ffmpeg and ffprobe only; see "The asset sheet" and "Clips" below. |
 | `_retakes.py` | The retake rule (see "Retakes" below): standard library only, in the image. |
 | `_edl.py`, `_timeline.py`, `_align.py`, `_vocab.py`, `_text.py`, `_media.py` | The common part, which imports nothing of the browser, the frames or the storyboard (a test walks the imports): the edit list and its check, the cuts, captions, the beats and their alignment, the vocabulary's typed parameters, the text rules, ffprobe/ffmpeg and the one compose command. |
 | `_layout.py`, `_assets.py`, `_output.py` | Also common: the bands the face box leaves and the 1560 caption test (`zones`, `caption_hit`; there is no face test: nothing is refused for touching the face); the allow-listed fonts and the image assets with the safe read (`font_allowlist`, `load_fonts`, `load_assets`, `read_regular`); the platform file's read, `cover`, `still` and the never-rewriting write (`read_platform`, `make_cover`, `make_still`, `png_size`, `write_once`). The old modules import the moved names back. |
-| `_cdp.py`, `_frames.py`, `_lint.py`, `_render.py` | The drawing part, the ffmpeg engine's own: the DevTools-pipe driver, the frame loop and what is served to the page, the determinism lint, the render. `_inner.py` imports them inside `render`, `storyboard` and `selfcheck` only. |
+| `_cdp.py`, `_frames.py`, `_lint.py`, `_render.py` | The drawing part: the DevTools-pipe driver, the frame loop and what is served to the page, the determinism lint, the render. `_inner.py` imports them inside `render`, `storyboard` and `selfcheck` only. |
 | `_preview.py` | The storyboard (`storyboard --post FILE --checker SCRIPT \| --beat FILE`): synthetic words at 2.5 a second, the render's own checks, the render's frame loop given only each beat's rest frame, a flat neutral picture behind it, and a contact sheet from one ffmpeg command. No recording, no transcript. The catalogue verb reuses it. |
 | `_redact.py` | A generated copy of `shared/scripts/redact.py` (the credential formats `check` scans with). |
 | `_blocks.py` | Common: the catalogue of animation blocks. Loads and checks `blocks/` (every file against `blocks/pins.json`), resolves the block that draws a beat on an engine and refuses one the engine cannot draw (`block_not_on_engine`), checks a block's parameters (the renderer-side checker, VD15), writes the pins and the generated catalogue. |
@@ -95,7 +95,7 @@ python3 providers/renderer/ffmpeg.py --check                      # docker local
 `build` refuses while the sha256 of the daemon's architecture (`linux-arm64` on Apple silicon, `linux64` elsewhere) is not pinned, and
 the image's own build (`_fetch_browser.py`) refuses an archive whose size, md5 or sha256 differs from the pin: a later build whose archive
 changed under the same version fails. The base image is pinned by digest, the packages by a dated Debian snapshot, the browser by version
-and the three values; the HyperFrames runtime and GSAP by the npm lockfile's sha512 and our sha256 (`hf-runtime/npm-pins.json`). Nothing in the repository builds, pulls or downloads by itself.
+and the three values; the HyperFrames runtime and GSAP by the sha512 integrity and our sha256 of `hf-runtime/npm-pins.json`, the one pin (no lockfile since PF-b). Nothing in the repository builds, pulls or downloads by itself.
 
 The ffmpeg engine's compose retimes the concat's output once (`settb=1/<fps>,setpts=N`) before it splits into the plain path and the speaker's crop, so a split's crop, its mask and a beat layer meet on the same frame at every edge (R3-11, PF-a1); a render made before that change differs in bytes.
 
@@ -128,109 +128,63 @@ edges are hard cuts, in picture and in sound: no fade, no crossfade, and nothing
 - **The ffmpeg engine** greys the span in the compose graph (`grade_filters`, under the beat and caption layers, so the captions and the label keep their
   colour) and echoes the joined sound (`_media.echo_filters`: the sound split in two, the wet copy through `aecho` silenced outside the span, the dry one
   inside it, summed by `amix` without normalising, so the sound outside the span is unchanged and the echo's tail stops dead at the span's end).
-- **The HyperFrames engine** greys the span on its page (the same mono rows, a CSS `grayscale(1)`), and its encode stage (`_inner.py encode`) adds the
-  echo to the intermediate's sound with the same `echo_filters`, on the timeline that stage already resolves for its gates. The echo needs the gate's flags,
-  which every composed render has; a base-only encode draws no beat, so it has no aside.
 - **`oh:aside`** (card band) draws only the optional label: a plain grey and white chip, on for every frame of the beat and off outside it. With no label it
   draws nothing and marks no zone.
 - **The image** must hold `asplit`, `aecho`, `volume` and `amix` (`_inner.REQUIRED_FILTERS`), which Debian's ffmpeg has; a change to `_media.py` and
   `_inner.py` asks for an image rebuild (`build --confirmed`). Not verified here: a render in the rebuilt image and a listening test on a real recording; the
   echo values are starting values, not tuned. Tests: `tests/test_renderer_aside.py`.
 
-## The HyperFrames engine's composed page (V3b-1)
+## The retired HyperFrames engine (PF-b)
 
-`hyperframes.py render` without `--base-only` draws the captions and the beats. `hyperframes.py` answers `block-params` like `ffmpeg.py` (the same host function, with `engine` `hyperframes`). The page stage (`hf-page` with `--blocks` and `--blocks-sha256`)
-runs in the common image: `_hf_compose.py` writes one root composition, `index.html` (structure and numbers only), `vars.json` (every text) and
-`blocks/<ns>-<name>.html` for the `renderat` blocks. A block is drawn with its `gsap.html` when the engine runs `gsap` (the fragment of
-`_gsap_lint.py`, inlined once per entry in an instance clipped to its band and scoped with `@scope`) and with its `renderat.html` otherwise (one
-iframe per block, driven by one getter/setter tween). The theme's fonts are the three allow-listed files (`fonts/`, copied into the project by
-`hyperframes-image/hf_render.py`); `default` means Inter 800, Inter 500 and JetBrains Mono 500 for display, text and mono (`fonts_used` says so).
-The staging, the `blocks_sha256` check and the engine file work as in `ffmpeg.py`. Tests: `tests/test_hf_compose.py`, `tests/test_gsap_lint.py`.
-
-Every render that draws runs the gates of V3b-2, and nothing turns them off. After the drawing, the HyperFrames container runs
-`hyperframes-image/hf_measure.mjs`: it serves the project on the loopback, seeks every frame as the renderer does and writes the boxes the page
-reports (every visible box inside a `gsap` instance clipped to its band, every `data-zone` box of a `renderat` page, and the rectangles of the text
-unclipped) into `boxes.json`. The encode container (`_hf_gate.py`, in the common image where `_layout` and `_edl` live) reads it with its sha256 and
-reports, before the encode, a caption box whose bottom is below the band's bottom, 1560 on the presets (advice `caption_below_line`), with the ffmpeg engine's own
-arithmetic, a caption that draws no glyph (advice `caption_not_drawn`), and refuses a box in a zone that does not exist (`box_zone_unknown`); it has no rule about the face (the maintainer's decisions of 2026-11-24: an overlay may
-be drawn over the speaker's face). After the encode it compares the face region of every
-kept range of the intermediate with the same region of the base the ffmpeg engine would draw (the proxy, cut and zoomed by `_media.base_graph`) frame
-by frame with `psnr`, and reports advice `face_pixels_changed` under 30 dB (the lowest figure; nothing is refused). On this engine that is still the one check that sees an overlay on the face (it also guards the base picture's parity
-with the ffmpeg engine), until the engine and its gate are deleted in PF-b. The
-proxy is hashed again in the encode container, since the drawing container could write to it. Tests: `tests/test_hf_gate.py`,
-`tests/test_hf_measure_static.py`.
+Until PF-b a second engine, `hyperframes.py`, sat behind the class (VD1 to V4). It drew the composed page (`_hf_compose.py`: one root composition, `gsap` pages
+inlined and `renderat` pages in iframes) in its own image (`hyperframes-image/`) and ran five containers per render (`hf-page`, `proxy`, the HyperFrames drawing
+container, `encode` and the verification). It also ran two gates that no flag turned off: the box check and the face-region PSNR (`_hf_gate.py`, advice
+`caption_not_drawn` and `face_pixels_changed`), and it drew a clip as top-level video elements of its page (V9b-5b, Design B). It had the registry survey (`compat`,
+the tier-A wrapper `hf_wrap.py`, `fetch_registry.py`) and an npm lockfile. All of it is deleted (decision `docs/decisions/2026-11-26-pf-b-retire-hyperframes.md`;
+git history keeps it). The class has one implementation, `ffmpeg.py`; the name `hyperframes` is read as `ffmpeg` (`RETIRED` of `providers/resolve.py`). The two advice
+codes keep their place in the closed lists with no producer. Registry components are admitted with `admit-block` (the second page contract, below), and the
+common image pins GSAP and the runtime in `hf-runtime/npm-pins.json`, the one pin. Reports that cite the retired engine's figures are marked "(retired engine,
+PF-b)" where they are named.
 
 ### The frame band and the pictures (V9b-2)
 
-A block of the `frame` band (an `oh:` layout with one picture parameter and a `renderat` page: `oh:cutaway`, `oh:screenshot`) is drawn by this engine as a
-whole-frame layer, under the cards and the captions and over the cuts (`ZONE_ORDER` is `frame`, `card`, `caption`). It is an iframe of the block's page, as
-any `renderat` block is, driven the same way; the page is the one the ffmpeg engine draws and its look (`presets.cutaway.looks`: the hard cut and the glass
-layout of V9d) comes with the payload, so nothing of it is copied. `pip` stays absent from `blocks/engines/hyperframes.json` until the package that draws a
-card on this engine. The pictures are the person's, as `asset-sheet` normalised them: `hyperframes.py render` takes `--asset SLOT=FILE` and
-`--asset-sha256 SLOT=HEX` as `ffmpeg.py` does (a beat number is the slot `beat<N>`), reads each file on the host (a regular file, never one of a reference store;
-PNG by its header bytes, bounded, the hash checked: a JPEG is `asset_type` here, since the drawing image serves PNG files only), gives `hf-page` each hash
-(`--asset-sha256`, which writes them as `assets` in `vars.json` and refuses a slot with no picture, `asset_missing`, and a picture with no slot,
-`asset_unused`) and copies each file to `project/assets/<slot>.png` once the page stage is done. `hf_render.py` accepts an `assets/` folder of at most 12
-regular PNG files named `<slot>.png`, each at most `asset_max_bytes`, each matching the sha256 `vars.json` names, and refuses any other file or name, a link, a
-hash that is not named (`asset_hash`) and a name with no file. The block's page loads each picture as `window.__imgs[slot]` and keeps the `decode()` promises
-(`window.__hfImageLoads`, also added to `window.__hfFaceLoads`, which the measure step awaits in every frame before the first one).
-
-**The gates inside a cut (decision 6).** A cutaway covers the face by design, so inside its entry, and only there, the pixel check is loosened:
-`_hf_gate.crossing_spans` takes, from the pinned catalogue the encode stage is given (`--blocks`, `--blocks-sha256`, staged and hashed by the host like the page
-stage's), the beat entries whose block is of the `frame` band with `may_cross_face` true. The pixel check counts exactly those frames as passing, so the frame before and the frame after are judged as ever; the box check has no span (a
-`frame`-zone box is allowed anywhere, since nothing is refused for the face), and captions keep the 1560 line on every frame. Without `--blocks` no frame is inside a cut: the pixel check is then stricter, never looser. Tests:
-`tests/test_hf_gate.py` (`decision 6`), `tests/test_hf_cutaway.py` (the compose, and the V9d look through it in the host's browser, with a stand-in for GSAP's
-timeline: the real timeline is in the image only), `tests/test_hf_render_inner.py`, `tests/test_hf_engine.py`.
+A block of the `frame` band (an `oh:` layout with one picture parameter and a `renderat` page: `oh:cutaway`, `oh:screenshot`) is drawn as a whole-frame layer, under
+the cards and the captions and over the cuts. The page is the one the ffmpeg engine draws and its look (`presets.cutaway.looks`: the hard cut and the glass layout of
+V9d) comes with the payload. The pictures are the person's, as `asset-sheet` normalised them: `ffmpeg.py render` takes `--asset SLOT=FILE` and `--asset-sha256 SLOT=HEX`
+(a beat number is the slot `beat<N>`).
 
 `oh:screenshot` is a second block of the `cutaway` preset (a beat names it with `block`): the picture whole, as a rounded card with a shadow over a backdrop in
 the theme's colour, with a slow push-in and the label chip; the home of a landscape or small picture. It has the cutaway's parameters, is of the `frame` band
-and may cross the face, and both engines draw it.
+and may cross the face.
 
 **A picture wins over a text overlay (V9b-3e).** The timeline has one beat track. A picture beat (a layout with an asset slot in its params) keeps its own range against every text beat (an overlay, or a layout with no slot) it overlaps: the text beat ends where the picture starts, or starts where the picture ends, or is dropped when no frame is left (`beats_dropped_reasons` gets `{id, reason: "under_picture"}`); fewer frames than its preset's `min_duration` are kept, with advice `beat_shorter_than_default`; one that spans a picture keeps the longer side, the earlier on a tie. Picture against picture and text against text: the earlier one ends where the later starts, the one left with no frame is dropped (`{id, reason: "overlap"}`). Tests: `tests/test_picture_wins.py`.
 
-**The beats left out are reported with a reason, by both engines (V9b-3f).** Every id of `beats_dropped` has exactly one row of `beats_dropped_reasons` `{id, reason}`, the reason one of `overlap`, `under_picture`, `pip_no_room`, `split_no_room` (the last two are no longer produced since video P0b: a pip or a split with no room is drawn over the face, with advice; they stay in the closed lists so that a stored document still checks; the ffmpeg engine's answer carries them when a beat is dropped; the HyperFrames page stage returns `beats_dropped` and `beats_dropped_reasons`, only when non-empty, and the host copies them into the render answer as it does `effects_dropped`; the `hf-page` schema of `_docker.py` lists both). The runtime puts them, with the effects, into one list for the person (`docs/decisions/2026-11-23-v9b-3f-left-out-notice.md`). Tests: `tests/test_left_out_reasons.py`.
+**The beats left out are reported with a reason (V9b-3f).** Every id of `beats_dropped` has exactly one row of `beats_dropped_reasons` `{id, reason}`, the reason one of `overlap`, `under_picture`, `pip_no_room`, `split_no_room` (the last two are no longer produced since video P0b: a pip or a split with no room is drawn over the face, with advice; they stay in the closed lists so that a stored document still checks; the ffmpeg engine's answer carries them when a beat is dropped; the HyperFrames page stage returns `beats_dropped` and `beats_dropped_reasons`, only when non-empty, and the host copies them into the render answer as it does `effects_dropped`; the `hf-page` schema of `_docker.py` lists both). The runtime puts them, with the effects, into one list for the person (`docs/decisions/2026-11-23-v9b-3f-left-out-notice.md`). Tests: `tests/test_left_out_reasons.py`.
 
-**Advice, not refusal (video P0b).** A creative choice that goes past a default is drawn and reported, never refused: the answer of `render` (both engines), `base` and `check` carries `advice`, a list of at most 24 rows `{code, value, default, count, ids?}`, one row per code (`_advice.py`, 16 closed codes), only when it is not empty, so an edit inside every default has the answer and the bytes it always had. The codes: `card_room_small` and `caption_room_small` (the face leaves a band under `zones.card_min_height` or `caption_min_height`; `_layout.zones` clamps the band to its minimum), `caption_below_line` (a caption below 1560), `drawn_below_line` and `block_not_drawn` (the exact gates of the second contract), `caption_not_drawn` and `face_pixels_changed` (the old engine's gates), `beats_over_default` and `punches_over_default` (past the vocabulary's `limits.beats_max`; the ceiling that refuses is 99), `aside_repeated`, `aside_with_punch`, `text_over_default` (a text over its `max`, up to 240 characters), `beat_shorter_than_default` and `punch_short` (a span under its minimum while at least one frame is left), `pip_card_over_face` and `split_band_over_face` (a pip or a split with no room beside the face is drawn over it). The container writes only the code and the numbers; the host says the sentence (`runtime/deliver_document.py`). What still refuses is security or validity: clean text, a frame that is not 8-bit RGBA, a zone that does not exist, the ceilings, the sizes, the 300 s input. Decision: `docs/decisions/2026-11-25-p0b-refusals-to-advice.md`. Tests: `tests/test_advice.py`.
+**Advice, not refusal (video P0b).** A creative choice that goes past a default is drawn and reported, never refused: the answer of `render`, `base` and `check` carries `advice`, a list of at most 24 rows `{code, value, default, count, ids?}`, one row per code (`_advice.py`, 16 closed codes), only when it is not empty, so an edit inside every default has the answer and the bytes it always had. The codes: `card_room_small` and `caption_room_small` (the face leaves a band under `zones.card_min_height` or `caption_min_height`; `_layout.zones` clamps the band to its minimum), `caption_below_line` (a caption below 1560), `drawn_below_line` and `block_not_drawn` (the exact gates of the second contract), `caption_not_drawn` and `face_pixels_changed` (the old engine's gates), `beats_over_default` and `punches_over_default` (past the vocabulary's `limits.beats_max`; the ceiling that refuses is 99), `aside_repeated`, `aside_with_punch`, `text_over_default` (a text over its `max`, up to 240 characters), `beat_shorter_than_default` and `punch_short` (a span under its minimum while at least one frame is left), `pip_card_over_face` and `split_band_over_face` (a pip or a split with no room beside the face is drawn over it). The container writes only the code and the numbers; the host says the sentence (`runtime/deliver_document.py`). What still refuses is security or validity: clean text, a frame that is not 8-bit RGBA, a zone that does not exist, the ceilings, the sizes, the 300 s input. Decision: `docs/decisions/2026-11-25-p0b-refusals-to-advice.md`. Tests: `tests/test_advice.py`.
 
 **A picture whose beat the timeline dropped (V9b-3d).** Of two picture beats that start on the same word the shorter is cut to nothing and dropped. A slot handed over with
 `--asset` is classified against `beats.json` (`_edl.classify_slots`): used by a kept beat, it is drawn; used by no beat at all, `asset_unused`; used only by dropped beats, it is not read, not
-staged (`_host.dropped_asset_slots`, in both host files: no file of it enters the job folder or the page, its `--asset-sha256` is ignored) and not drawn, and the answer of `render` (a dry run too) and of
-`hf-page` lists it in `assets_dropped`, sorted, present only when non-empty (the result schemas of `_docker.py` list it). A kept beat's slot with no file is still `asset_missing`. Tests:
-`tests/test_dropped_beat_picture.py`, `tests/test_renderer_docker.py`, `tests/test_hf_engine.py`.
-
-## Tier A: registry components (V3b-3)
-
-A component of the HyperFrames registry is drawn only after `hyperframes.py compat --survey <dir> --out <file>` ran its admission in the
-HyperFrames image (no network, the survey mounted read-only): `hf_compat.py` first refuses every planted escape (a list of more than a dozen
-fictional components, each doing one thing a block may not; one admitted fails the run, and there is no flag that skips the step), then gives each
-component of the survey `admit-candidate` or `refuse:<code>` (licence, name, files all fetched, the two files needed, kind, the lint of `hf_wrap.py`,
-parameter names). Tier A admits overlays only; a caption is only a reviewed port. An admitted block is an entry of `blocks/hf/allowlist.json` with
-its files' sha256; a render that draws one writes a placeholder and a row of `instances.json`, and `hyperframes-image/hf_render.py` reads the files from the
-image's registry folder, checks each hash, lints and wraps the component (`@scope`, a guarded `window` and `document`) and refuses
-`tier_a_file_missing`, `tier_a_hash`, `block_lint` or `block_escaped`. Tests: `tests/test_hf_wrap.py`, `tests/test_hf_compat.py`,
-`tests/test_hf_registry.py`.
+staged (`_host.dropped_asset_slots`: no file of it enters the job folder or the page, its `--asset-sha256` is ignored) and not drawn, and the answer of `render` (a dry run too) lists it in `assets_dropped`, sorted, present only when non-empty (the result schemas of `_docker.py` list it). A kept beat's slot with no file is still `asset_missing`. Tests:
+`tests/test_dropped_beat_picture.py`, `tests/test_renderer_docker.py`.
 
 ## The HyperFrames ports (V3b-4)
 
 Five blocks under `blocks/hf/` are our own rewrites of components of the HyperFrames registry at commit `b4cc674f`, each one a `gsap.html` of the
-contract of `_gsap_lint.py` and nothing else (no `renderat` page). Since PF-a4 they draw on **both** engines: the HyperFrames engine inlines them as before, and the ffmpeg engine draws each caption chunk and each beat from its own
+contract of `_gsap_lint.py` and nothing else (no `renderat` page). Since PF-a4 the ffmpeg engine draws each caption chunk and each beat from its own
 `/h/` page under the second contract (`_hf_port.py`: the same head as an admitted registry block's page, the fragment mounted through a local `<template>`, the band clip
 and the fragment lint `_gsap_lint.check` kept). The ffmpeg engine's `engines/ffmpeg.json` runs `gsap` after `renderat` and `hf`, and a `gsap` block counts there only when it is a
 `block.json` block with a recorded determinism test of its own (`determinism` in its `block.json`, written by `ffmpeg.py admit-block --port hf:<name> --vocabulary V --confirmed`:
-three forward runs and one reverse run per sample, a caption port on `_admit_check.CAPTION_LINES`); without the record it is `block_not_on_engine` there and the old engine still
-draws it. A change of the port's file, of `_hf_port.PORT_HOST_VERSION` (3 since PF-a4g, the faces of the page), of GSAP, the runtime, a shim, the host's version or the browser expires the record. All five have a record now (PF-a4b, re-measured by PF-a4e), and since M2 (PF-a4f) the ffmpeg engine's defaults of `caption`, `keyword`, `number` and `quote` are `hf:caption-highlight`, `hf:spring-pop`, `hf:count-up` and `hf:testimonial-card`, the same blocks as the HyperFrames engine's, so a render that names the ffmpeg engine and no block changes bytes; `hf:caption-pill-karaoke` stays selectable by name. They are `hf:caption-highlight` and `hf:caption-pill-karaoke` (the caption), `hf:count-up` (`number`),
+three forward runs and one reverse run per sample, a caption port on `_admit_check.CAPTION_LINES`); without the record it is `block_not_on_engine`. A change of the port's file, of `_hf_port.PORT_HOST_VERSION` (3 since PF-a4g, the faces of the page), of GSAP, the runtime, a shim, the host's version or the browser expires the record. All five have a record now (PF-a4b, re-measured by PF-a4e), and since M2 (PF-a4f) the ffmpeg engine's defaults of `caption`, `keyword`, `number` and `quote` are `hf:caption-highlight`, `hf:spring-pop`, `hf:count-up` and `hf:testimonial-card`, the same blocks as the HyperFrames engine's, so a render that names the ffmpeg engine and no block changes bytes; `hf:caption-pill-karaoke` stays selectable by name. They are `hf:caption-highlight` and `hf:caption-pill-karaoke` (the caption), `hf:count-up` (`number`),
 `hf:testimonial-card` (`quote`) and `hf:spring-pop` (`keyword`); each declares exactly its preset's parameters and draws every one of them. The
 caption ports are bottom-anchored in the caption band and size their type by arithmetic from the band's height and the words' length, so the lowest
-glyph stays above the band's bottom (1560 on the presets); the registry's slam style is not ported (S2 measured 50 face hits). The final
-`blocks/engines/hyperframes.json` runs `gsap` and `renderat` and names `hf:caption-highlight`, `hf:spring-pop`, `hf:count-up`, `hf:testimonial-card`
-and `oh:list` for `caption`, `keyword`, `number`, `quote` and `list`; any `oh:` block stays selectable by name, and since V9b-2 the engine draws `oh:cutaway` as the
-`cutaway` preset's block (the frame band, below), no `pip` and no `split`. The licence text of the registry (`hyperframes-image/LICENSE-registry-Apache-2.0.txt`) and one notice entry per port
-(`hf-runtime/NOTICE.md`, "Ports adapted from the registry"; `hyperframes-image/NOTICE.md` keeps its copy until the old engine is deleted) travel in the image folders, because nothing but pinned files may live under `blocks/`. Tests: `tests/test_hf_ports.py`.
+glyph stays above the band's bottom (1560 on the presets); the registry's slam style is not ported (S2 measured 50 face hits). The licence text of the registry (`hf-runtime/LICENSE-registry-Apache-2.0.txt`) and one notice entry per port
+(`hf-runtime/NOTICE.md`, "Ports adapted from the registry") travel in the image folders, because nothing but pinned files may live under `blocks/`. Tests: `tests/test_hf_ports.py`.
 
 Two of the ports were fixed in V9a-1. `hf:spring-pop` sets its stage's layout inline and sizes its type with a pure function `fit(text, bandHeight)` (up to 150
 px on 950 px, two lines for a text longer than 12 characters, split at the space nearest the middle), so the card draws centred and large. `hf:caption-highlight`
 gets each word's lit span from a pure function `spans(words)` (monotone starts, an end never later than the next start), so one word is lit at a time and a
-word of no length never lights. Tests: `tests/test_hf_fixes.py`. Their rows of `hyperframes-image/NOTICE.md` are the maintainer's to approve (STOP E).
+word of no length never lights. Tests: `tests/test_hf_fixes.py`. Their rows of `hf-runtime/NOTICE.md` are the maintainer's to approve (STOP E).
 
 ## Contract: replacing this implementation (lego)
 
@@ -247,7 +201,7 @@ one, an external service) replaces this one behind the same verbs and the same e
 - `render` takes both, the recording, the platform file and the person's asset files by slot, and writes `render-<sha12>.mp4`, 0400,
   never rewritten, after checking the file against the platform's video spec. What an implementation owns is only how it draws.
 - Selection: a project's `media.renderer` (`auto`, absent, or a name), then `RENDERER_VIDEO_PROVIDER` / `RENDERER_PROVIDER` for `auto`, then the class default,
-  `hyperframes` since V4.
+  `ffmpeg` (`hyperframes`, the class default from V4 to PF-b, is a retired name read as `ffmpeg`).
 
 ## The second page contract (PF-a2)
 
@@ -261,50 +215,48 @@ After `draw_frames` and before the compose, `_alpha_gate.check_layer` judges eve
 
 ## The engine contract (V3c)
 
-Both engines promise the same things about a render, and one live file, `tests/test_engine_contract_live.py`, runs the same synthetic inputs
-through `ffmpeg.py` and `hyperframes.py` (the engine is a pytest parameter) with the same assertions. The code that makes the inputs, the
+The engine promises these things about a render, and one live file, `tests/test_engine_contract_live.py`, runs synthetic inputs
+through `ffmpeg.py` (the engine is a pytest parameter with the one value `ffmpeg`, so that the ids stay) with the contract's assertions; an engine added later passes the same file. The code that makes the inputs, the
 report's closed schema and the memory sampler are in `tests/contract_kit.py`; the offline tests of the kit are `tests/test_engine_contract.py`.
 
 | # | Promise | Where it is made | Leg |
 |---|---|---|---|
 | C1 | `render-<sha12>.mp4`, mode 0400, never rewritten, checked in a fresh container before it is named | `_host.finish_render` | F1 |
 | C2 | the platform's video spec, bt709 tags, the length is `out_frames/fps` | `_inner.verb_verify`, `_media.check_output` | F1 |
-| C3 | audio is kept when the recording has it | `_media.compose_argv`, `_inner.verb_encode` | F1 |
-| C4 | the edit list is what is drawn: every output frame is the source frame the kept ranges name | `_media.base_graph`, `_hf_page` | F2 |
-| C5 | nothing drawn touches the face box | `_frames.draw_frames`, `_hf_gate.check_boxes`, `pixel_check` | F5 |
+| C3 | audio is kept when the recording has it | `_media.compose_argv` | F1 |
+| C4 | the edit list is what is drawn: every output frame is the source frame the kept ranges name | `_media.base_graph` | F2 |
+| C5 | nothing drawn touches the face box | `_frames.draw_frames` (no face rule: the old engine's pixel advice `face_pixels_changed` went with it) | F5 |
 | C6 | a caption that ends below 1560 renders and is reported as advice (`caption_below_line`) | the same | F6 |
 | C7 | a beat the engine cannot draw is refused before drawing | `_blocks.resolve` | F7 |
 | C8 | the recording is the one the list was made from, at most 300 s | `_output.check_recording` | F7 |
-| C9 | same input, same bytes, whatever the cores | `compose_argv`, `encode_argv`, `proxy_argv` | F3, F4, M1, M2 |
-| C10 | limits in code (memory, pids, workers, free space, 1800 s) | `hyperframes.py`, `_docker.py`, `_output.py` | M2, M3 |
+| C9 | same input, same bytes, whatever the cores | `compose_argv` | F3, M1, M2 |
+| C10 | limits in code (memory, pids, workers, free space, 1800 s) | `_docker.py`, `_output.py` | M2 |
 | C11 | a refusal leaves no file, no container, no run folder | `finish_render`, `Job` | every leg |
-| C12 | a caption with words that draws no glyph renders and is reported as advice (`caption_not_drawn`, HyperFrames) | `_hf_gate.check_boxes` | F8 |
+| C12 | a caption or card page that draws nothing for six frames or more is refused `block_not_drawn` (the old engine's glyph advice `caption_not_drawn` went with it) | `_alpha_gate`, `_render.CAPTION_DRAWN_MIN_FRAMES` | F10 |
 
-Both engines also answer `block-params` (the host-side checker of an added animation, from the same function of `_host.py`; `test_renderer_contract.py` keeps that true for every implementation of the class).
+The engine answers `block-params` (the host-side checker of an added animation, from the same function of `_host.py`; `test_renderer_contract.py` keeps that true for every implementation of the class).
 
-Two kinds of leg. The functional legs F1-F8 run on short inputs, in CI's renderer job (the ffmpeg parameter, `WB_RENDERER_DOCKER_TESTS=1`; three legs that run at once, CI-1b), in CI's
-`hyperframes` job (V3c-2: both images built on the runner, the amd64 `hyperframes.py --check`, then this file and `test_hf_docker_live.py` with
-`WB_HYPERFRAMES_DOCKER_TESTS=1`, which runs the `[hyperframes]` parameter only; five legs that run at once, each building both images, CI-1b) and on the maintainer's machine (both, with `WB_HYPERFRAMES_DOCKER_TESTS=1`). The machine legs `test_mac_*` (M1 the short case at 4 and 8 cores,
-M2 a real-size case of about 196 s and 37 kept ranges at 4 and 8 cores, M3 a 298 s input on HyperFrames once) need 8 cores and run only with
-`WB_ENGINE_MAC_LEGS=1`, one after another; with `WB_ENGINE_REPORT=<a new file>` they write the report, `reports/engine-contract-<date>-<arch>.json`,
-checked by `contract_kit.check_report` (closed: hashes, numbers, closed words, a date; no path, no word of a transcript).
+Two kinds of leg. The functional legs F1-F3, F5-F7, F9-F11 run on short inputs, in CI's renderer job (`WB_RENDERER_DOCKER_TESTS=1`; three legs that run at once, CI-1b)
+and on the maintainer's machine. The machine legs `test_mac_*` (M1 the short case at 4 and 8 cores, M2 a real-size case of about 196 s and 37 kept ranges at 4 and 8
+cores, M4 the cutaway, M5 the clip cutaway) need 8 cores and run only with `WB_ENGINE_MAC_LEGS=1`, one after another; with `WB_ENGINE_REPORT=<a new file>` they write the
+report, `reports/engine-contract-<date>-<arch>.json`, checked by `contract_kit.check_report` (closed: hashes, numbers, closed words, a date; no path, no word of a
+transcript). A new report is schema 2 (the one engine: no HyperFrames image, version, stage, memory figure or gate); the two committed reports are schema 1 (retired
+engine, PF-b), frozen and never edited, and they still validate.
 
 The band: the synthetic recording carries its own frame number as 14 cells of 72 px (black or white, least significant bit on the left) at the
 top of the picture, above the cards, so F2 reads which source frame every output frame is. On the real-size legs the edit list keeps the real
 shape, zoom included, so the check there covers the ranges drawn unzoomed (the band is scaled in a zoomed range).
 
-The planted blocks (`contract_kit.planted_renderat`, `planted_blank`) live only in test temp folders and reach a render through
-`RENDERER_TEST=1` and `RENDERER_BLOCKS_DIR`, which both engines now honour.
+The planted blocks (`contract_kit.planted_renderat`, `planted_unproven_port`) live only in test temp folders and reach a render through
+`RENDERER_TEST=1` and `RENDERER_BLOCKS_DIR`.
 
 ### Punches and grades (V9a-3)
 
 The script's `emphasis: punch` (beats.json `punches`, written by `align` for a beat with or without a preset) and the review's effects (beats.json
 `effects`: `punch`, `flash`, `dip`, `mono`, `tint`) change the base picture, never a zone. `_edl.resolve_timeline` turns them into whole-frame rows
-(`punches`, `grades`, `effects_dropped`), `_edl.range_effects` into one table by kept range in the range's own frame index, and three drawings read that
-table: `_media.base_graph` (the ffmpeg engine: a step in the `zoompan`/`perspective` expression, an exact per-plane blend (`lutyuv`, `_media.blend_filter`) for flash, dip and tint, `colorchannelmixer`
-with the CSS `grayscale(1)` matrix for mono), `_hf_page.build_parts` (the HyperFrames page: one drive tween per punched range, one `#fx` layer under every
-overlay, `filter: grayscale(1)` on the range's wrapper) and `_hf_gate.reference_graph` (the face check's reference holds the same punches and grades, so
-the pixel check still catches anything else drawn on the face; the crop of a punched range is the union of its faces). The taste caps are gone (video P0): the count, the length and the strength of effects are the person's. Only validity bounds stay in code: at most `_edl.EFFECTS_MAX` (99, a closed document, ids `e1` to `e99`) review effects, an alpha clamped to 0-1, a zoom up to `_edl.ZOOM_MAX` (10, the range of ffmpeg's `zoompan`), two flash, dip or tint grades never over the same words (they share one colour layer), and the face check. A render with no punch and no effect writes the bytes it always wrote (a golden test of the graph and of the page).
+(`punches`, `grades`, `effects_dropped`), `_edl.range_effects` into one table by kept range in the range's own frame index, and one drawing reads that
+table: `_media.base_graph` (a step in the `zoompan`/`perspective` expression, an exact per-plane blend (`lutyuv`, `_media.blend_filter`) for flash, dip and tint, `colorchannelmixer`
+with the CSS `grayscale(1)` matrix for mono); the HyperFrames page and the face check's reference, which read the same table until PF-b, went with that engine. The taste caps are gone (video P0): the count, the length and the strength of effects are the person's. Only validity bounds stay in code: at most `_edl.EFFECTS_MAX` (99, a closed document, ids `e1` to `e99`) review effects, an alpha clamped to 0-1, a zoom up to `_edl.ZOOM_MAX` (10, the range of ffmpeg's `zoompan`), two flash, dip or tint grades never over the same words (they share one colour layer), and the face check. A render with no punch and no effect writes the bytes it always wrote (a golden test of the graph).
 
 ## The still frame (`still`)
 
@@ -378,55 +330,11 @@ the same pictures and times and finds the same frame bytes for an image cutaway 
   for a clip entry. The loss: those themes cannot use clips yet.
 - **Only `oh:cutaway` draws a clip.** A clip on `oh:screenshot`, `oh:pip`, `oh:split` or any other block is `asset_type` naming the slot.
 - **The gate** judges a clip cutaway frame as an image cutaway frame: the page reports the same boxes (none), and the rules of every card and caption (the line at 1560) are
-  unchanged. The HyperFrames engine draws a clip since V9b-5b (below).
+  unchanged.
 
 Tests: `tests/test_asset_sheet.py` (the verb), `tests/test_clip_cutaway.py` (the compose, the page, the refusals and whole renders), `tests/clip_kit.py` (the synthetic
 clips: a moving gradient carrying its own frame number). Not verified here: the image's own ffmpeg (its av1 decoder, its `gblur`, `geq` and `tpad` behaviour), the
 bytes at 4 and 8 cores in the image, and a clip that is not synthetic.
-
-### The HyperFrames engine draws a clip (V9b-5b, Design B)
-
-`hyperframes.py render --asset SLOT=FILE` takes a normalised clip beside pictures, and draws it under an `oh:cutaway` entry. Spike S2 (the record of
-2026-11-21 in the V9b spec) chose **Design B**: the clip is a top-level `<video>` element of the composition, written the way the proxy's videos are
-(`muted playsinline data-has-audio="false" data-start data-duration data-media-start="0" data-track-index`), never a video inside the frame-band iframe (Design A
-was frame-exact only with a half-frame offset on the time, and that offset is not a fallback: a live leg that fails Design B is a stop).
-
-- **The host** (`hyperframes.py`). `read_assets` splits the files with `_assets.split_clips`: a picture stays a PNG (`asset_type` otherwise), a clip is read by
-  `_assets.read_clip` (an MP4: a WebM or a MOV is `asset_type`, since a render draws only what `asset-sheet` wrote), within `asset_max_bytes`, its `--asset-sha256`
-  matched; at most 12 files in all (`too_many_assets`). A clip is staged into the page job with `--asset SLOT=FILE` (a picture never is), and every slot keeps its
-  `--asset-sha256`. The clip is written into `project/media/clip-<slot>.mp4` (new, 0600, from the bytes the host hashed) **after the proxy stage's checks and before the
-  drawing stage**, so the proxy container, which mounts `media/` read-write, never sees it; the name carries the slot because a slot may be called `proxy`.
-- **The page stage** (`_inner.py hf-page --asset SLOT=FILE`, only with `--blocks`; with `--base-only` it is a usage error). `_render.load_clips` probes each clip with
-  the checks of the `full` output (H.264, yuv420p, constant rate, no audio and no other stream, ten seconds, sides within 3840) and reads the tint of its first frame;
-  the facts (`width`, `height`, `seconds`, `fps`, `tint`) go to `_hf_compose.write_page(..., clip_assets=...)`. The answer gains no key.
-- **The compose** (`_hf_compose.py`). With no `clip_assets` the written files do not change by a byte (a test holds the picture cutaway's two hashes).
-  `draw_plan` refuses a clip whose rate differs from the edit list's by more than 0.001 (`asset_type`: this engine does not conform it), calls
-  `_render.settle_clips` (a clip on any block but `oh:cutaway` is `asset_type`, a look that is not the hard cut is `clip_transition`) and `_render.clip_rows` (the
-  look, once, for both engines), refuses an entry longer than its clip (`clip_too_short`: whether HyperFrames holds a last frame is unknown, ffmpeg holds it) and
-  tells the page the asset is a clip (`params_kind`, `clip_size`), so the page draws only the label chip. `write_page` writes one **clip layer** per entry, as the first
-  layers of the page (under the iframe that draws the chip, over the cuts and the grade): a `div.hf-clip` in the frame zone, hidden until a drive tween shows it on the
-  entry's frames (`var CL`), holding, for **cover**, one video scaled to cover 1080x1920, and for **glass**, bottom first, the theme's background, a blurred cover copy
-  (`filter:blur(<glass_blur_px>px)` on the wrapping div, the page's cover-with-room size), the tint at `glass_tint_alpha`, a rounded black box with the page's shadow, and the
-  clip whole inside a rounded `overflow:hidden` box at `_media.glass_box`. The look is on the wrapping divs, never on the video; each video has its own track from
-  `len(kept)` up, `data-media-start="0"` (the clip plays from its first frame at the entry's first frame). `vars.json` gains `clip_slots` (sorted) only when there is a clip;
-  `assets` keeps every slot's sha256.
-- **The image** (`hyperframes-image/hf_render.py`, so the HyperFrames image is rebuilt). `check_project` collects `media/clip-<slot>.mp4` beside the pictures (at most 12
-  together; any other file in `media/` but `proxy.mp4` is still `project_unexpected_file`); `check_assets` requires `clip_slots` to be a sorted list of distinct slots, each a
-  key of `assets`, the names found to be exactly `assets/<slot>.png` and `media/clip-<slot>.mp4` for them, a clip to be an `ftyp` box with a brand of `MP4_BRANDS` (a copy of
-  `_media.MP4_BRANDS`; a test keeps the two equal) and each sha256 to match.
-- **The gates do not change.** The clip layer is not measured (`hf_measure.mjs` reads `.hf-inst` and `iframe.hf-ra` only); the boxes are the page's own (the chip and
-  `window.__box`), allowed only inside the cutaway's crossing span, and the pixel check skips exactly those frames, as for a picture.
-- **Refusals that stay:** `clip_transition`, `asset_type` for a clip on `oh:screenshot` (`oh:pip` is absent on this engine until V9b-6), for a WebM or MOV, for a rotated clip, for a
-  side over 3840, for another frame rate than the edit list's; `clip_too_short`.
-- **The gaps between the engines.** On ffmpeg a clip of another rate is conformed and a clip shorter than its cut holds its last frame; on HyperFrames both are refused. The
-  saving: no untested drawing path ships, and the runtime reaches both since V9b-5c (`asset_kinds` is `["image", "clip"]` on both engines).
-  The loss, paid by the runtime since V9b-5c: it passes the edit list's rate to `asset-sheet` and trims a clip cutaway to its clip's length, so neither engine meets the gap.
-
-Tests: `tests/test_hf_clip.py` (the compose: goldens `golden/hf-clip-cover.html` and `hf-clip-glass.html`, the picture cutaway's hashes in `golden/hf-cutaway-picture.sha256`,
-the refusals, `hf-page` with a real clip), `tests/test_hf_engine.py` (the host: the staging and the order against the proxy stage), `tests/test_hf_render_inner.py` (the
-image's checks), and the live leg `M6` of `tests/test_engine_contract_live.py`. Not verified here: that HyperFrames draws a video clipped by an ancestor's `border-radius`
-and `overflow:hidden`, blurred by an ancestor's `filter` and scaled to a size other than its own; a video two levels deep; the name `media/clip-<slot>.mp4`; whether it holds a
-clip's last frame (refused instead); two different clip files in one render, live; every time and memory figure of a render with a clip on this engine. Those are the live legs.
 
 ## The storyboard (`storyboard`)
 
@@ -496,11 +404,11 @@ patterns: 60 s in 21 s (14,101,201 bytes), 300 s in 72 s (15,053,020 bytes). Tes
 
 ## What makes a render the same bytes, and what can still differ
 
-The engine contract's legs M1 and M2 measure this on both engines, composed, at 4 and at 8 cores (`reports/`); C9 in the table above.
+The engine contract's legs M1 and M2 measure this, composed, at 4 and at 8 cores (`reports/`); C9 in the table above.
 
 Pinned in the compose command (`_media.compose_argv`): x264 on four slice threads (`-threads 4 -x264-params threads=4:lookahead_threads=1:sliced-threads=1`,
 `X264_THREADS`, `X264_PARAMS`: x264's output depends on its thread count, and the automatic count follows the cores the machine shows, 14 inside
-the container whatever the CPU quota; the proxy's and the HyperFrames final encode's x264 are pinned the same way; the preview stays on one thread; the 15 s 4K measurement below was at
+the container whatever the CPU quota; the preview stays on one thread; the 15 s 4K measurement below was at
 four frame threads on arm64, and amd64 CI differed with frame threads: 2026-11-08 the final encode, mid-stream, and 2026-11-09 the compose, frame 0;
 one thread was the first fix and cost about 2x on the proxy, so slice threads are the second: no state is shared between the frames in flight, at the cost of some compression), the filter graph's threads
 (`-filter_threads`, `-filter_complex_threads`, 4, which also fix swscale's slice count), `-sws_flags` and the flags of every explicit
@@ -522,9 +430,9 @@ and 8 against 4 took it from 366 s to 161 s, with the same bytes.
 
 ## Tests
 
-CI paths (V3c-2): the `renderer` job builds the common image and runs the ffmpeg parameter; the `hyperframes` job builds both images and runs the HyperFrames parameter only (CI-1b: each job is a matrix of legs that run at once, each a disjoint group of the same live tests with its own builds). A change inside `hyperframes-image/` alone starts only the `hyperframes` job; a change to `shared/references/video-presets.json`, `shared/references/platforms/instagram.json` or `skills/mkt-social-copy/scripts/check_script.py` (read by every render) starts both.
+CI paths: the `renderer` job builds the common image and runs the live tests (CI-1b: a matrix of three legs that run at once, each a disjoint group of the same live tests with its own builds; the `hyperframes` job and its five legs went with the engine, PF-b). A change to `shared/references/video-presets.json`, `shared/references/platforms/instagram.json` or `skills/mkt-social-copy/scripts/check_script.py` starts it too, since every render reads them.
 
-Live files and their variables: `WB_RENDERER_DOCKER_TESTS=1` (the ffmpeg image), `WB_HYPERFRAMES_DOCKER_TESTS=1` (both images built, the HyperFrames parameter run), `WB_ENGINE_MAC_LEGS=1` and `WB_ENGINE_REPORT=<new file>` (the machine legs of `test_engine_contract_live.py`).
+Live files and their variables: `WB_RENDERER_DOCKER_TESTS=1` (the image), `WB_ENGINE_MAC_LEGS=1` and `WB_ENGINE_REPORT=<new file>` (the machine legs of `test_engine_contract_live.py`).
 
 `uv run --with pytest pytest providers/renderer/tests` (the whole suite takes about five minutes). Browser and ffmpeg tests
 skip with a reason where those are absent; the host side runs against a fake docker that executes `_inner.py` with a local Chromium.
@@ -532,8 +440,8 @@ skip with a reason where those are absent; the host side runs against a fake doc
 
 ## Not verified here
 
-- The four-slice-thread x264 of the compose, the proxy and the final encode (V3c-3): its cost, its bytes (about +0.5 to +0.8 % against one thread at the same CRF) and its determinism on this Mac are in `reports/engine-contract-2026-11-10-arm64.json` and the decision file `docs/decisions/2026-11-09-v3c-3-x264-one-thread-compose.md`; on amd64 CI the renderer job passed 3 attempts at cf3fe3f.
-- The engine contract's machine legs have run only on the Mac the supervisor names in the report; the figures of M1 and M2 (the sha256 at 4 and 8 cores, the stage seconds, the memory) are in `reports/engine-contract-2026-11-09-arm64.json`: both engines give one sha256 at 4 and at 8 cores, the real-size HyperFrames render took 1011 s at 4 cores and 945 s at 8, and the 298 s input 1378 s at 8 (cap 1800); `oom_events` is null there. On amd64 the legs first run in V3c-2's `hyperframes` CI job (its first run is the first amd64 build of the HyperFrames image: until it has run, nothing here is verified on amd64). The memory in the report is `docker stats` (cache left out, one sample a second: a short peak can be missed), unverified on Docker Desktop.
+- The four-slice-thread x264 of the compose (V3c-3; the proxy and the final encode of the retired engine too): its cost, its bytes (about +0.5 to +0.8 % against one thread at the same CRF) and its determinism on this Mac are in `reports/engine-contract-2026-11-10-arm64.json` and the decision file `docs/decisions/2026-11-09-v3c-3-x264-one-thread-compose.md`; on amd64 CI the renderer job passed 3 attempts at cf3fe3f.
+- The engine contract's machine legs have run only on the Mac the supervisor names in the report; the figures of M1 and M2 (the sha256 at 4 and 8 cores, the stage seconds, the memory) are in `reports/engine-contract-2026-11-09-arm64.json` (retired engine, PF-b: schema 1, both engines gave one sha256 at 4 and at 8 cores, the real-size HyperFrames render took 1011 s at 4 cores and 945 s at 8, and the 298 s input 1378 s at 8, cap 1800); `oom_events` is null there. On amd64 the renderer job's legs run the functional legs of the one engine. The memory in the report is `docker stats` (cache left out, one sample a second: a short peak can be missed), unverified on Docker Desktop.
 
 - **The `arm64` image was built and run on one machine** (Docker 29.3.1, Apple silicon): the build, its self-check, every verb and a
   render of a real 192 s 4K 60 fps recording (104.7 s out, 197 s at 8 CPUs, 408 s at 4) ran there, with Chrome's sandbox off and
@@ -542,12 +450,8 @@ skip with a reason where those are absent; the host side runs against a fake doc
 - The quality of the presets beyond that one recording (condition C2), and the push-in's jitter.
 - **Assets are only header-checked here** (PNG or JPEG by bytes, bounded, never animated). The renderer treats every asset as untrusted
   and the browser decodes it, so P4 and P4b must normalise assets (re-encode to a metadata-free PNG at frame size) before they reach it.
-- **V9b-2 was built without an image rebuild, a live render or the maintainer's look at the HyperFrames cutaway** (C10 of `oh:cutaway` on this engine and of
-  `oh:screenshot` on both): the compose, the gates and the page's look in the host's browser are tested, with a stand-in for GSAP's timeline; HyperFrames' own
-  render of the iframe, the decode of the pictures before frame 0 in it, the loopback server's answer for a PNG, the determinism at 4 and 8 cores (`F9`, `M4` of
-  `tests/test_engine_contract_live.py`) and spike S2 (a clip in a frame-band iframe) wait for the rebuilt images.
 - The split (V9f): only the host's headless browser drew its page, and only a synthetic recording went through its crop; the look on a real recording, a face box wider than half the frame on a `left` or `right` split (the crop is not scaled, so a wide face box is cut at the seam or the frame's edge) and a render in the container are not verified. A caption chunk that runs past a split's first or last frame is cut there (`_layout.caption_pieces`), so the caption's entry animation plays again on that frame; that, and the caption's stroke and shadow reaching a few pixels above the opaque bar of a `left` or `right` split, are not verified in a browser. Its image is a PNG or JPEG, as the cutaway's; a clip in a split slot is refused `asset_type`, as in a pip.
-- On the HyperFrames engine an asset is a PNG (a clip is drawn by the ffmpeg engine's compose only, V9b-5a); the intake normalises everything else. The cutaway's default is a hard cut (V9d); its
+- The intake normalises every picture and clip. The cutaway's default is a hard cut (V9d); its
   `slide` and `zoom` stay values a theme may pick. A cutaway picture that is not vertical (width over height above `glass_ratio_max`, 0.8) or has
   `fit: contain` is drawn whole, centred, inside the safe margins, over a blurred, tinted copy of itself (`glass_blur_px`, `glass_tint_alpha`,
   `glass_radius_px` of `presets.cutaway.looks`); a clip drawn in the same look is "Clips" above. A font is used only from the allow-list (Latin subsets of three Inter and JetBrains Mono files).

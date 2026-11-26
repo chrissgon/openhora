@@ -30,10 +30,10 @@ DATA = load_data()
 VOCAB = load_vocabulary(str(K.VOCABULARY))
 FOLDER = K.RENDERER
 
-COMMON = ("_align", "_assets", "_blocks", "_edl", "_gsap_lint", "_hf_compose", "_hf_gate", "_hf_page", "_layout", "_media", "_output", "_payload", "_redact", "_text",
+COMMON = ("_align", "_assets", "_blocks", "_edl", "_gsap_lint", "_layout", "_media", "_output", "_payload", "_redact", "_text",
           "_timeline", "_vocab")
 DRAWING = ("_cdp", "_frames", "_lint", "_preview", "_render", "_browser")
-HOST = ("_docker", "_host", "_image", "ffmpeg", "hyperframes")
+HOST = ("_docker", "_host", "_image", "ffmpeg")
 needs_media = pytest.mark.skipif(not K.HAVE_FFMPEG, reason=K.SKIP_MEDIA)
 
 
@@ -53,8 +53,6 @@ def test_no_common_module_imports_a_drawing_or_a_host_module():
     for name in COMMON:
         tree = ast.parse((FOLDER / (name + ".py")).read_text(encoding="utf-8"))
         bad = imported_names(tree) & set(DRAWING + HOST)
-        if name == "_hf_compose":
-            bad -= {"_render"}        # V9b-5b: reuses _render.settle_clips/clip_rows/load_clips, the one source of the clip look (_render.py is not edited by this package)
         assert not bad, (name, sorted(bad))
 
 
@@ -75,8 +73,7 @@ def test_the_inner_entry_point_imports_the_drawing_part_only_inside_the_verbs_th
                         names |= imported_names(ast.Module(body=[sub], type_ignores=[]))
             if names & set(DRAWING):
                 inside[node.name] = sorted(names & set(DRAWING))
-    # verb_hf_page: V9b-5b: reuses _render.settle_clips/clip_rows/load_clips, the one source of the clip look (_render.py is not edited by this package)
-    assert set(inside) == {"verb_render", "verb_storyboard", "verb_selfcheck", "verb_hf_page"}, inside
+    assert set(inside) == {"verb_render", "verb_storyboard", "verb_selfcheck"}, inside
 
 
 PROBE = r"""

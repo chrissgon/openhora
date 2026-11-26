@@ -738,7 +738,7 @@ def resolve_asides(edl: dict, entries: list, vocab: dict, data: dict) -> tuple:
     """(grades, echoes) of the effect beats (`aside`) of the timeline, from their spans as the beat track left them (words, tail, cut by the next beat).
 
     The picture: one mono grade row per kept range the span touches, so the grey starts on the beat's first frame and stops on its last, a hard cut at
-    each edge whatever the cuts between; drawn by the same rows as the review's mono (the ffmpeg graph, the HyperFrames page, the face check's reference).
+    each edge whatever the cuts between; drawn by the same rows as the review's mono (the ffmpeg graph).
     The sound: one echo row on the OUTPUT timeline, {id, start_frame, end_frame, in_gain, out_gain, delays, decays}, from `presets.<name>.echo` of the
     beat's `echo` value (the vocabulary's default when the beat has none)."""
     table, grades, echoes = range_table(edl), [], []
@@ -761,8 +761,7 @@ def resolve_asides(edl: dict, entries: list, vocab: dict, data: dict) -> tuple:
 
 def range_effects(edl: dict, timeline: dict) -> dict:
     """{k: {first, frames, punches: [(a, b, zoom)], grades: [{kind, a, b, alphas, alpha, color}]}} for each kept range number k that a punch or a grade
-    touches, in the RANGE's own frame index (a to b, b excluded). The ffmpeg engine's graph, the HyperFrames page and the face check's reference
-    all draw from this one table, so the three hold the same rows. {} when the timeline has no punch and no grade."""
+    touches, in the RANGE's own frame index (a to b, b excluded). The ffmpeg engine's graph draws from this one table. {} when the timeline has no punch and no grade."""
     table, out = range_table(edl), {}
 
     def slot(k):

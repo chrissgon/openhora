@@ -544,11 +544,8 @@ def test_a_bad_cpu_set_is_refused_bad_cpuset_before_any_container(world, tmp_pat
 
 
 def test_the_ffmpeg_engine_stages_the_test_blocks_folder_only_in_test_mode(world, tmp_path):
-    import shutil
-    folder = tmp_path / "test-blocks"
-    shutil.copytree(K.BLOCKS, folder)
-    K.write_hf_compose_blocks(folder)
-    pins = __import__("contract_kit").pins_sha256(folder)
+    folder = K.oh_blocks()                      # a copy of the committed blocks whose engine draws the oh: pages: other pins than the committed ones
+    pins = K.oh_blocks_sha256()
     assert pins != K.BLOCKS_SHA256
     flag = "--blocks-sha256"
     rc, out, err = dry_render(world, tmp_path, env={"RENDERER_TEST": "1", "RENDERER_BLOCKS_DIR": str(folder)})

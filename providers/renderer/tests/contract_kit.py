@@ -264,14 +264,12 @@ PLANTS = {
 
 
 def planted_renderat(tmp, which: str) -> Path:
-    """A copy of the committed blocks with both engines on the `oh:` presets (the HyperFrames engine on the renderat runtime, so both engines draw
-    the same pages) and one edit that breaks a rule, pinned again: `cover` puts the keyword card at y 650 (the face box is y 620-1180),
+    """A copy of the committed blocks with the engine on the `oh:` presets and one edit that breaks a rule, pinned again: `cover` puts the keyword card at y 650 (the face box is y 620-1180),
     `low` puts the caption 40 px under the caption band's bottom. Used with RENDERER_TEST=1 and RENDERER_BLOCKS_DIR=<the folder>."""
     rel, old, new = PLANTS[which]
     folder = Path(tmp) / ("renderat-" + which)
     shutil.rmtree(str(folder), ignore_errors=True)               # both engines' legs ask for the same folder in one lab
     shutil.copytree(K.oh_blocks(), folder)
-    K.write_hf_compose_blocks(folder)
     path = folder / rel
     html = path.read_text(encoding="utf-8")
     assert html.count(old) == 1, "the line to edit is not in %s exactly once" % rel
@@ -283,8 +281,8 @@ def planted_renderat(tmp, which: str) -> Path:
 
 
 def planted_unproven_port(tmp, port: str = "spring-pop") -> Path:
-    """A copy of the committed blocks (with the ffmpeg engine on its `oh:` pages, as the first test of M2 needs: the committed default is the port) where the port `hf:<port>` has no determinism record, pinned again: the catalogue then lists it on the HyperFrames
-    engine only, so the ffmpeg engine refuses it with `block_not_on_engine` (every committed port has a record since PF-a4e)."""
+    """A copy of the committed blocks (with the ffmpeg engine on its `oh:` pages, as the first test of M2 needs: the committed default is the port) where the port `hf:<port>` has no determinism record, pinned again: the catalogue then lists it on no
+    engine, so the ffmpeg engine refuses it with `block_not_on_engine` (every committed port has a record since PF-a4e)."""
     folder = Path(tmp) / ("blocks-unproven-" + port)
     shutil.rmtree(str(folder), ignore_errors=True)
     shutil.copytree(K.oh_blocks(), folder)
@@ -293,31 +291,6 @@ def planted_unproven_port(tmp, port: str = "spring-pop") -> Path:
     assert "determinism" in block
     del block["determinism"]
     path.write_text(json.dumps(block, indent=1), encoding="utf-8")
-    _blocks.write_pins(str(folder))
-    return folder
-
-
-def planted_blank(tmp) -> Path:
-    """HyperFrames only: a copy of the committed blocks plus a fictional caption block, `hf:demo-blank`, whose words are drawn at
-    `font-size: 0px`, set as the engine's caption. The gates report it as advice `caption_not_drawn` (video P0b); it is drawn."""
-    folder = Path(tmp) / "blocks-blank"
-    shutil.rmtree(str(folder), ignore_errors=True)
-    shutil.copytree(K.BLOCKS, folder)
-    name = "hf:demo-blank"
-    block = dict(K.PLANTED_BLOCK, name=name, kind="caption", preset="caption", band="caption", params={}, samples=[{}], natural_duration=None,
-                 use_when="a fictional caption whose words have no size, used by the live tests only")
-    fragment = K.PLANTED_FRAGMENT % {"name": name, "zone": "caption", "down": 0,
-                                     "text": 'data.words.map(function (w) { return w.text; }).join(" ")'}
-    blank = fragment.replace("font-size: 48px;", "font-size: 0px;")
-    assert blank != fragment
-    (folder / "hf" / "demo-blank").mkdir()
-    (folder / "hf" / "demo-blank" / "block.json").write_text(json.dumps(block, indent=1), encoding="utf-8")
-    (folder / "hf" / "demo-blank" / "gsap.html").write_text(blank, encoding="utf-8")
-    presets = dict(K.OH_PRESETS)
-    presets["caption"] = name
-    (folder / "engines" / "hyperframes.json").write_text(json.dumps(
-        {"schema_version": 1, "engine": "hyperframes", "note": "a fictional engine for the tests", "runtimes": ["gsap", "renderat"], "presets": presets}, indent=1),
-        encoding="utf-8")
     _blocks.write_pins(str(folder))
     return folder
 
@@ -596,9 +569,9 @@ def placeholder_report(schema: int = 2) -> dict:
                        "same_sha256": {"ffmpeg": None, "hyperframes": None}}]}
 
 
-def run_row(engine: str, cpus: int, cpuset: str, result, code, wall: float, memory, frames_ok=None) -> dict:
+def run_row(engine: str, cpus: int, cpuset: str, result, code, wall: float, memory, frames_ok=None, schema: int = 1) -> dict:
     """One row of a case's `runs`, from what a render printed: `result` is its JSON when it succeeded (else None) and `code` the closed code of a
-    refusal. `memory` is {hf_sampled_max_mib, common_sampled_max_mib, oom_events}."""
+    refusal. `memory` is {hf_sampled_max_mib, common_sampled_max_mib, oom_events}. `schema` 2 is the one engine's row: no `gate`, and the memory keys of that schema."""
     ok = isinstance(result, dict) and result.get("ok") is True
     row = {"engine": engine, "cpus": cpus, "cpuset": cpuset, "outcome": "ok" if ok else "refused", "code": None if ok else code,
            "sha256": result["sha256"] if ok else None, "bytes": result.get("bytes") if ok else None, "frames_ok": frames_ok if ok else None,
@@ -612,15 +585,17 @@ def run_row(engine: str, cpus: int, cpuset: str, result, code, wall: float, memo
         peak = result.get("memory_peak_bytes")
         memory = dict(memory or {}, hf_cgroup_peak_mib=None if peak is None else int(peak) // (1 << 20))
     if memory is not None:
-        row["memory"] = {k: memory.get(k) for k in MEMORY_KEYS}
+        row["memory"] = {k: memory.get(k) for k in SCHEMAS[schema]["memory"]}
+    if schema == 2:
+        del row["gate"]
     return row
 
 
-def case_row(name: str, transcript: dict, edl: dict, runs: list) -> dict:
-    """One element of the report's `cases`: the facts of the input and the runs, with, for each engine, whether every ok run has the same sha256
-    (None when fewer than two ok runs)."""
+def case_row(name: str, transcript: dict, edl: dict, runs: list, schema: int = 1) -> dict:
+    """One element of the report's `cases`: the facts of the input and the runs, with, for each engine of the schema, whether every ok run has the
+    same sha256 (None when fewer than two ok runs)."""
     same = {}
-    for engine in ENGINE_NAMES:
+    for engine in SCHEMAS[schema]["engines"]:
         shas = [r["sha256"] for r in runs if r["engine"] == engine and r["outcome"] == "ok"]
         same[engine] = None if len(shas) < 2 else len(set(shas)) == 1
     return {"case": name, "input_seconds": round(transcript["duration"], 1), "kept_ranges": len(edl["kept"]), "out_frames": edl["out_frames"],

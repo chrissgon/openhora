@@ -50,10 +50,9 @@ def test_the_record_is_accepted_on_a_tier_b_hf_gsap_block_and_the_catalogue_list
     with_record = P.blocks_folder(world["tmp"], ("card", "caption"), world["sha"], name="b")
     cat_a, cat_b = _blocks.load_catalogue(without), _blocks.load_catalogue(with_record)
     assert "determinism" not in cat_a["blocks"][P.CARD] and "determinism" in cat_b["blocks"][P.CARD]
-    assert _blocks.engines_of(cat_a, cat_a["blocks"][P.CARD]) == ["hyperframes"] and "ffmpeg" in _blocks.engines_of(cat_b, cat_b["blocks"][P.CARD])
-    assert _blocks.runtime_of(cat_b, cat_b["blocks"][P.CARD], "ffmpeg") == "gsap" and _blocks.runtime_of(cat_b, cat_b["blocks"][P.CARD], "hyperframes") == "gsap"
+    assert _blocks.engines_of(cat_a, cat_a["blocks"][P.CARD]) == [] and _blocks.engines_of(cat_b, cat_b["blocks"][P.CARD]) == ["ffmpeg"]
+    assert _blocks.runtime_of(cat_b, cat_b["blocks"][P.CARD], "ffmpeg") == "gsap"
     assert refused(_blocks.runtime_of, cat_a, cat_a["blocks"][P.CARD], "ffmpeg").code == "block_not_on_engine"
-    assert _blocks.resolve(cat_a, "hyperframes", "keyword", P.CARD, "beats.b1")["name"] == P.CARD          # the old engine still draws a port with no record
 
 
 def test_an_engine_default_on_a_second_contract_runtime_without_a_record_is_block_schema(world):

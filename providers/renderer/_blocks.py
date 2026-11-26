@@ -5,7 +5,7 @@ A block is named `<namespace>:<name>`. `oh:` blocks are ours (blocks/oh/<name>/)
 admitted by the committed allowlist (blocks/hf/allowlist.json) or ported under blocks/hf/<name>/ (V3b). An engine
 (blocks/engines/<engine>.json) runs one or more drawing runtimes and names the block that draws each preset by default; it draws a block
 that has an implementation for a runtime it runs and refuses any other (`block_not_on_engine`, naming its own block for the preset).
-The catalogue file (blocks/catalogue.json) is generated from these files, never by hand (VD13). Both engines import this module; it
+The catalogue file (blocks/catalogue.json) is generated from these files, never by hand (VD13). The engine imports this module; it
 imports nothing of the browser, the frames or the host. Standard library only.
 """
 from __future__ import annotations
@@ -388,8 +388,9 @@ def load_catalogue(blocks_dir: str = BLOCKS_DIR, expect_sha256=None) -> dict:
 
 def usable(engine: dict, block: dict, runtime: str) -> bool:
     """Whether `engine` can draw `block` with `runtime`: the block implements it, and, for our own `gsap` page on an engine that also runs the second
-    contract's `hf`, the block is a `block.json` block (no `files`, not tier A) with a recorded determinism test. The old engine (no `hf`) keeps its
-    rule: it draws a `gsap` page it runs, with no record."""
+    contract's `hf`, the block is a `block.json` block (no `files`, not tier A) with a recorded determinism test. An engine that runs `gsap` and not `hf`
+    keeps the first contract's rule, a page it runs and no record: no committed engine is one since PF-b retired the HyperFrames engine, and the tests'
+    fictional engine `twin` is (the branch is kept for an engine added later and for that fixture)."""
     if runtime not in block["implementations"]:
         return False
     if runtime == "gsap" and "hf" in engine["runtimes"]:

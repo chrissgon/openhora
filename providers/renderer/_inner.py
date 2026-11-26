@@ -11,13 +11,7 @@ only writable mount) and /scratch (memory-backed), with no network.
   render   --edl EDL --beats BEATS --in VIDEO --out DIR --platform-file F --vocabulary V ...    the video
   storyboard (--post FILE --checker SCRIPT | --beat FILE) --vocabulary V --out DIR   a still per beat and a contact sheet, no recording
   verify   --in MP4 --platform-file F --sha256 H [--expect-seconds S]   a finished render against the platform's spec
-  proxy    --edl EDL --in VIDEO --out FILE.mp4         a 1080x1920 H.264 proxy of the recording, at the edit list's fps (the HyperFrames engine)
-  encode   --in MOV --sha256 H --edl EDL --platform-file F --out DIR [--boxes B --boxes-sha256 H --beats BEATS --vocabulary V --proxy P
-           --proxy-sha256 H [--blocks DIR --blocks-sha256 H]]   a ProRes intermediate to the final H.264, with fixed threads; with the five flags of the gate (all or none) it first
-           refuses a box on the face or a caption below the line, and after the encode a face region that differs from the undrawn base
   preview  --in MP4 --sha256 H --out FILE.mp4             a 720x1280 copy of a finished render, at most 15 MiB, one encoder thread
-  hf-page  --edl EDL --beats B --vocabulary V --platform-file F --out DIR (--base-only | --blocks DIR --blocks-sha256 H [--asset-sha256 SLOT=HEX]... [--asset SLOT=FILE]...)   the HyperFrames
-           engine's page: the cuts and the zoom, or with the blocks the captions and the beats too
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
   asset-sheet --asset ROW:COL=FILE ... --mode preview|full [--fps N] --out DIR   the pictures and clips to pick from, checked and tiled; in full mode normalised too
   still    --in VIDEO --at-ms N --out PNG                    one frame of a recording, framed as the render frames it (1080x1920)
@@ -51,9 +45,6 @@ import _asset_sheet  # noqa: E402
 import _assets  # noqa: E402
 import _blocks  # noqa: E402
 import _edl  # noqa: E402
-import _hf_compose  # noqa: E402
-import _hf_gate  # noqa: E402
-import _hf_page  # noqa: E402
 import _media  # noqa: E402
 import _output  # noqa: E402
 import _timeline  # noqa: E402
@@ -376,108 +367,6 @@ def verb_verify(args) -> dict:
     return {"ok": True, "sha256": args.sha256, "output": facts}
 
 
-def verb_proxy(args) -> dict:
-    """A 1080x1920 H.264 proxy of the recording at the edit list's fps, for the HyperFrames engine's browser (the whole timeline, no cut).
-    The recording is checked against the edit list first, as the render checks it."""
-    ffmpeg, ffprobe = tools(args)
-    data = load_data()
-    edl = read_json(args.edl, data["limits"]["json_max_bytes"])
-    started = time.time()
-    facts = _output.check_recording(ffprobe, args.input, edl, data["limits"])
-    fps, has_audio = edl["fps"], bool(edl["source"]["has_audio"])
-    _media.run(_media.proxy_argv(ffmpeg, args.input, edl["source"]["color_matrix"], args.out, fps=fps, has_audio=has_audio), 3600)
-    proxy = _media.probe(ffprobe, args.out)
-    if proxy["duration"] < facts["duration"] - 2.0 / fps:
-        raise Refusal("proxy_truncated", "proxy")
-    return {"ok": True, "sha256": _media.sha256_file(args.out), "bytes": proxy["bytes"], "seconds": round(time.time() - started, 2),
-            "width": proxy["width"], "height": proxy["height"], "fps": fps, "has_audio": proxy["has_audio"]}
-
-
-def encode_gate(args, edl: dict, data: dict, platform: dict, ffprobe: str):
-    """The inputs of the HyperFrames engine's gates, all or none (`Usage` otherwise): None for an encode with none of them (the base-only
-    path), else (the document of boxes, the kept ranges' face boxes) after the rules on the boxes have passed. Refusals: `boxes_changed`,
-    `boxes_unreadable`, `boxes_frames_differ`, `font_not_allowed`, `proxy_changed`, `proxy_truncated`, `box_zone_unknown` (a caption below the line or with no glyph is advice, not a refusal).
-    `--blocks` and `--blocks-sha256` (both or neither) are the staged catalogue the gate reads the entries whose frames the pixel check leaves out from (`_hf_gate.crossing_spans`)."""
-    flags = (args.boxes, args.boxes_sha256, args.beats, args.vocabulary, args.proxy, args.proxy_sha256)
-    if bool(args.blocks) != bool(args.blocks_sha256) or (args.blocks and not any(flags)):
-        raise Usage("encode takes --blocks and --blocks-sha256 together, and only with the flags of the gate")
-    if not any(flags):
-        return None
-    if not all(flags):
-        raise Usage("encode takes --boxes, --boxes-sha256, --beats, --vocabulary, --proxy and --proxy-sha256 together, or none of them")
-    vocab = load_vocabulary(args.vocabulary)
-    beats = read_json(args.beats, data["limits"]["json_max_bytes"])
-    _output.check_documents(data, edl, beats, platform, vocab, _assets.font_allowlist())
-    doc = _hf_gate.read_boxes(args.boxes, args.boxes_sha256, edl["out_frames"])
-    timeline = _edl.resolve_timeline(edl, beats, vocab, data)
-    faces = _edl.range_faces(edl, data)
-    if _media.sha256_file(args.proxy) != args.proxy_sha256:                      # the drawing container could write to the proxy it was given
-        raise Refusal("proxy_changed", "proxy")
-    if _media.probe(ffprobe, args.proxy)["duration"] < edl["kept"][-1][1] / float(edl["fps"]) - 2.0 / edl["fps"]:
-        raise Refusal("proxy_truncated", "proxy")                                # a short proxy would be padded by the filter graph, never compared
-    # Which entries may cover the face (a full-frame cutaway) is read from the staged, pinned catalogue. Without `--blocks` none may: a `frame` box and a
-    # changed face region are then refused on every frame, so leaving the flags out can only make the gate stricter.
-    catalogue = _blocks.load_catalogue(args.blocks, expect_sha256=args.blocks_sha256) if args.blocks else None
-    crossing = _hf_gate.crossing_spans(timeline, catalogue) if catalogue else []
-    return dict(_hf_gate.check_boxes(doc, timeline, faces, data), faces=faces, timeline=timeline, crossing=crossing)
-
-
-def verb_encode(args) -> dict:
-    """The final H.264 encode of a ProRes intermediate: the intermediate is the file the host named by its sha256 and has the frame the
-    edit list says; the encode uses the ffmpeg engine's output options with a fixed thread count, so the same intermediate gives the
-    same bytes whatever the cores. The result is written once as render-<sha12>.mp4.
-
-    With the gate's flags (a composed render always has them; see `_hf_gate`) the boxes are checked before the encode and the pixels
-    of the face region after it, and the candidate is written only when both pass."""
-    ffmpeg, ffprobe = tools(args)
-    data = load_data()
-    edl = read_json(args.edl, data["limits"]["json_max_bytes"])
-    platform = _output.read_platform(args.platform_file)
-    if _media.sha256_file(args.input) != args.sha256:
-        raise Refusal("intermediate_differs", "intermediate")
-    facts = _media.probe(ffprobe, args.input, video_codecs=_media.PRORES_CODECS)
-    fps, out_frames = edl["fps"], edl["out_frames"]
-    frame = data["frame"]
-    if (facts["width"], facts["height"]) != (frame["width"], frame["height"]) or abs(facts["fps"] - fps) > 0.01 \
-            or abs(facts["duration"] - out_frames / float(fps)) > 2.0 / fps:
-        raise Refusal("intermediate_mismatch", "intermediate")
-    has_audio = bool(edl["source"]["has_audio"])
-    if has_audio and not facts["has_audio"]:
-        raise Refusal("intermediate_no_audio", "intermediate")
-    gate = encode_gate(args, edl, data, platform, ffprobe)
-    plan = {"fps": fps, "out_frames": out_frames, "max_bytes": _media.byte_limit(platform), "has_audio": has_audio}
-    if gate is not None and has_audio and gate["timeline"].get("echoes"):
-        plan["echoes"] = gate["timeline"]["echoes"]      # an aside's echo: the page's sound is dry, so the encode adds it (the picture's grey is the page's)
-    out_dir = os.path.abspath(args.out)
-    os.makedirs(out_dir, mode=0o700, exist_ok=True)
-    work = tempfile.mkdtemp(prefix=".encode-", dir=out_dir)
-    pixels, pixel_seconds = None, None
-    try:
-        part = os.path.join(work, "out.mp4")
-        _media.run(_media.encode_argv(ffmpeg, args.input, part, plan), 3600)
-        if gate is not None:
-            started = time.time()
-            pixels = _hf_gate.pixel_check(ffmpeg, args.input, args.proxy, edl, data, gate["faces"], work, timeline=gate["timeline"], crossing=gate["crossing"])
-            pixel_seconds = round(time.time() - started, 2)
-        verdict = _media.check_output(ffprobe, part, platform)
-        if verdict["failures"]:
-            raise Refusal("platform_spec", ",".join(verdict["failures"]))
-        digest = _media.sha256_file(part)
-        _output.write_once(part, os.path.join(out_dir, "render-%s.mp4" % digest[:12]), digest)
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
-    result = {"ok": True, "sha256": digest, "out_seconds": round(out_frames / float(fps), 3), "out_frames": out_frames, "intermediate_sha256": args.sha256}
-    if gate is not None:
-        result.update(gate_frames=gate["frames"], gate_boxes=gate["boxes"], pixel_min_psnr_db=pixels["pixel_min_psnr_db"],
-                      pixel_ranges=pixels["pixel_ranges"], pixel_seconds=pixel_seconds)
-        if gate["lowest_caption_bottom"] is not None:
-            result["lowest_caption_bottom"] = gate["lowest_caption_bottom"]
-        found = _advice.merge(gate.get("advice"), pixels.get("advice"))
-        if found:
-            result["advice"] = found
-    return result
-
-
 def verb_preview(args) -> dict:
     """A smaller copy of a finished render for a phone (renderer-presets.json `preview`): the render is the file the host named by its
     sha256 and at most the input limit long; the copy is spec width x height, at most spec max_bytes, as long as the render within
@@ -517,44 +406,6 @@ def verb_preview(args) -> dict:
     return {"ok": True, "sha256": digest, "from_sha256": args.sha256, "bytes": size, "width": made["width"], "height": made["height"],
             "duration": made["duration"], "has_audio": made["has_audio"], "video_kbps": video_kbps,
             "audio_kbps": spec["audio_kbps"] if facts["has_audio"] else 0, "seconds": round(time.time() - started, 2)}
-
-
-def verb_hf_page(args) -> dict:
-    """The page of the HyperFrames engine. The four documents are checked as `check` checks them. With `--base-only`: the cuts and the zoom
-    (the beats are checked and not drawn). Without it: `--blocks` and `--blocks-sha256` are required, the catalogue is loaded from that folder
-    (every hash checked there, the pins file's sha256 against the one given) and the captions and the beats are drawn with the blocks the
-    HyperFrames engine runs (`_hf_compose`)."""
-    if (args.asset_sha256 or args.asset) and args.base_only:
-        raise Usage("hf-page takes --asset-sha256 and --asset only with the blocks")
-    if args.base_only == bool(args.blocks or args.blocks_sha256):
-        raise Usage("hf-page takes --base-only, or --blocks and --blocks-sha256 together, not both and not neither")
-    if not args.base_only and not (args.blocks and args.blocks_sha256):
-        raise Usage("hf-page without --base-only needs --blocks and --blocks-sha256")
-    data = load_data()
-    vocab = load_vocabulary(args.vocabulary)
-    platform = _output.read_platform(args.platform_file)
-    edl = read_json(args.edl, data["limits"]["json_max_bytes"])
-    beats = read_json(args.beats, data["limits"]["json_max_bytes"])
-    _output.check_documents(data, edl, beats, platform, vocab, _assets.font_allowlist())
-    os.makedirs(args.out, mode=0o700, exist_ok=True)
-    frame = data["frame"]
-    if args.base_only:
-        page = _hf_page.write_page(edl, args.out, width=frame["width"], height=frame["height"], fps=edl["fps"], background=data["theme"]["colors"]["bg"])
-    else:
-        catalogue = _blocks.load_catalogue(args.blocks, expect_sha256=args.blocks_sha256)
-        hashes = {slot_key(k): v for k, v in pairs(args.asset_sha256, "--asset-sha256").items()}
-        clips = {}
-        files = {slot_key(k): v for k, v in pairs(args.asset, "--asset").items()}
-        if files:                                          # the clips of the render (V9b-5b): a picture is never given here, the host puts it into assets/
-            import _render
-            pictures, clip_files = _assets.split_clips(files)
-            if pictures:
-                raise Refusal("asset_type", sorted(pictures)[0][:32])
-            ffmpeg, ffprobe = tools(args)
-            loaded = _render.load_clips(clip_files, hashes, data["limits"], ffmpeg, ffprobe)
-            clips = {slot: {key: c[key] for key in ("width", "height", "seconds", "fps", "tint")} for slot, c in sorted(loaded.items())}
-        page = _hf_compose.write_page(data, edl, beats, vocab, catalogue, args.out, edl["fps"], hashes, clip_assets=clips)
-    return dict(page, ok=True)
 
 
 def verb_selfcheck(args) -> dict:
@@ -741,42 +592,11 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--platform-file", required=True)
     sp.add_argument("--sha256", required=True)
     sp.add_argument("--expect-seconds", type=float)
-    sp = sub.add_parser("proxy")
-    common(sp)
-    sp.add_argument("--edl", required=True)
-    sp.add_argument("--in", dest="input", required=True)
-    sp.add_argument("--out", required=True, help="the proxy file (.mp4), inside the writable folder")
-    sp = sub.add_parser("encode")
-    common(sp)
-    sp.add_argument("--in", dest="input", required=True, help="the ProRes intermediate")
-    sp.add_argument("--sha256", required=True, help="the intermediate's sha256, as the host hashed it")
-    sp.add_argument("--edl", required=True)
-    sp.add_argument("--platform-file", required=True)
-    sp.add_argument("--out", required=True, help="the folder that gets render-<sha12>.mp4")
-    sp.add_argument("--boxes", help="the boxes the page reported (boxes.json); the gate's flags come all together or not at all")
-    sp.add_argument("--boxes-sha256", help="the sha256 of boxes.json, as the host hashed it")
-    sp.add_argument("--beats", help="the beats document, for the entries on the timeline")
-    sp.add_argument("--vocabulary", help="the vocabulary file, for the entries on the timeline")
-    sp.add_argument("--proxy", help="the proxy of the recording (the undrawn base the pixel check compares with)")
-    sp.add_argument("--proxy-sha256", help="the sha256 of the proxy, as the host hashed it before the drawing")
-    sp.add_argument("--blocks", help="the staged blocks folder: which blocks may cover the face (the gate's flags are needed too)")
-    sp.add_argument("--blocks-sha256", help="the sha256 of that folder's pins.json, as the host computed it")
     sp = sub.add_parser("preview")
     common(sp)
     sp.add_argument("--in", dest="input", required=True, help="the finished render (an MP4)")
     sp.add_argument("--sha256", required=True, help="the render's sha256, as the host hashed it")
     sp.add_argument("--out", required=True, help="the preview file (.mp4), inside the writable folder")
-    sp = sub.add_parser("hf-page")
-    sp.add_argument("--edl", required=True)
-    sp.add_argument("--beats", required=True)
-    sp.add_argument("--vocabulary", required=True)
-    sp.add_argument("--platform-file", required=True)
-    sp.add_argument("--out", required=True, help="an empty folder that gets index.html and vars.json (and blocks/ with the renderat pages)")
-    sp.add_argument("--base-only", action="store_true", help="the cuts and the zoom only")
-    sp.add_argument("--blocks", help="the staged blocks folder (the captions and the beats are drawn with the blocks the engine runs)")
-    sp.add_argument("--blocks-sha256", help="the sha256 of that folder's pins.json, as the host computed it")
-    sp.add_argument("--asset-sha256", action="append", metavar="SLOT=HEX", help="the sha256 of a picture or clip the frame blocks draw (the host puts a picture into assets/ and a clip into media/)")
-    sp.add_argument("--asset", action="append", metavar="SLOT=FILE", help="a normalised clip (MP4) the frame blocks draw, probed here; a picture is never given")
     sp = sub.add_parser("asset-sheet")
     common(sp)
     sp.add_argument("--asset", action="append", metavar="ROW:COL=FILE")
@@ -798,7 +618,7 @@ def parser() -> argparse.ArgumentParser:
 
 VERBS = {"verify": verb_verify, "selfcheck": verb_selfcheck, "analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents,
          "render": verb_render, "storyboard": verb_storyboard, "cover": verb_cover, "still": verb_still,
-         "proxy": verb_proxy, "encode": verb_encode, "preview": verb_preview, "hf-page": verb_hf_page, "asset-sheet": verb_asset_sheet,
+         "preview": verb_preview, "asset-sheet": verb_asset_sheet,
          "admit-check": verb_admit_check}
 
 

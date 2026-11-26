@@ -1,5 +1,5 @@
 """The `asset-sheet` verb, inside the common image (packages V9b-2 and V9b-5a): the pictures and clips a person may pick from, checked and tiled, and, once one
-is picked, normalised into the one form both engines draw. No browser, no network, no recording; the only programs are the image's pinned ffmpeg and
+is picked, normalised into the one form the engine draws. No browser, no network, no recording; the only programs are the image's pinned ffmpeg and
 ffprobe, run with one thread and bit-exact scaling and encoding, so the same bytes come out at any core count. Standard library only; imports only common modules.
 
 Two modes:

@@ -1,37 +1,20 @@
-"""The common image's two new media verbs, `proxy` and `encode`, on synthetic inputs (the container entry point run on the host, as the
-other verb tests do), the closed result rows, and the extra mounts of the box. Every media file is a generated test pattern and tone."""
+"""The recording check that moved to `_output`, the closed result rows and the extra mounts of the box, on synthetic inputs (the container entry point run on
+the host, as the other verb tests do). The `proxy` and `encode` verbs' tests went with the HyperFrames engine (PF-b). Every media file is a generated test pattern and tone."""
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 
 import pytest
 
 import renderer_kit as K
 import _docker as D
-import _edl
 import _host
-import _media
 import _output
 from _text import Refusal
 from _vocab import load_data
 
 needs_ffmpeg = pytest.mark.skipif(not K.HAVE_FFMPEG, reason=K.SKIP_MEDIA)
 DATA = load_data()
-INSTAGRAM = json.loads(K.INSTAGRAM.read_text())
-
-
-def ffmpeg(*args):
-    subprocess.run([K.FFMPEG, "-y", "-hide_banner", "-loglevel", "error", *map(str, args)], check=True, timeout=300)
-
-
-def prores(path, seconds, size="1080x1920", rate=30, audio=True):
-    argv = ["-f", "lavfi", "-i", "testsrc2=size=%s:rate=%d:duration=%s" % (size, rate, seconds)]
-    if audio:
-        argv += ["-f", "lavfi", "-i", "sine=frequency=330:sample_rate=48000:duration=%s" % seconds]
-    argv += ["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le"] + (["-c:a", "pcm_s16le"] if audio else [])
-    ffmpeg(*argv, path)
 
 
 @pytest.fixture
@@ -46,139 +29,6 @@ def world(tmp_path):
     assert rc == 0, err
     edl = json.loads((tmp_path / "edl.json").read_text())
     return tmp_path, src, edl
-
-
-def sha(path):
-    return _media.sha256_file(str(path))
-
-
-def encode(tmp, intermediate, edl_path, out, digest=None, *more):
-    return K.run_verb("encode", "--in", intermediate, "--sha256", digest or sha(intermediate), "--edl", edl_path, "--platform-file", K.INSTAGRAM,
-                      "--out", out, *more)
-
-
-# ---------------------------------------------------------------- proxy
-
-@needs_ffmpeg
-def test_the_proxy_is_1080x1920_at_the_edit_lists_fps_and_keeps_the_whole_timeline(world):
-    tmp, src, edl = world
-    rc, out, err = K.run_verb("proxy", "--edl", tmp / "edl.json", "--in", src, "--out", tmp / "proxy.mp4")
-    assert rc == 0, err
-    clean = D.sanitise(out, D.RESULT_SCHEMAS["proxy"], "proxy")
-    assert (clean["width"], clean["height"], clean["fps"], clean["has_audio"]) == (1080, 1920, edl["fps"], True)
-    facts = _media.probe(K.FFPROBE, str(tmp / "proxy.mp4"))
-    assert abs(facts["duration"] - edl["source"]["duration"]) <= 2.0 / edl["fps"] and clean["sha256"] == sha(tmp / "proxy.mp4")
-
-
-@needs_ffmpeg
-def test_a_recording_that_is_not_the_edit_lists_is_refused_before_a_proxy_is_made(world):
-    tmp, src, edl = world
-    edl["source"]["sha256"] = "0" * 64
-    K.write_json(tmp / "other.json", edl)
-    rc, out, err = K.run_verb("proxy", "--edl", tmp / "other.json", "--in", src, "--out", tmp / "proxy.mp4")
-    assert rc == 1 and out["code"] == "recording_changed" and not (tmp / "proxy.mp4").exists()
-
-
-@needs_ffmpeg
-def test_a_proxy_shorter_than_the_recording_is_refused_as_truncated(world, monkeypatch):
-    tmp, src, edl = world
-    import _inner
-    real = _media.probe
-
-    def short(ffprobe, path, *a, **k):
-        facts = real(ffprobe, path, *a, **k)
-        return dict(facts, duration=facts["duration"] - 1.0) if path.endswith("proxy.mp4") else facts
-
-    monkeypatch.setattr(_media, "probe", short)
-    args = _inner.parser().parse_args(["proxy", "--edl", str(tmp / "edl.json"), "--in", str(src), "--out", str(tmp / "proxy.mp4")])
-    with pytest.raises(Refusal) as caught:
-        _inner.verb_proxy(args)
-    assert caught.value.code == "proxy_truncated"
-
-
-# ---------------------------------------------------------------- encode
-
-@needs_ffmpeg
-def test_the_encode_writes_one_named_file_and_its_result_passes_the_closed_schema(world):
-    tmp, src, edl = world
-    mov = tmp / "hf.mov"
-    prores(mov, edl["out_frames"] / edl["fps"])
-    rc, out, err = encode(tmp, mov, tmp / "edl.json", tmp / "out")
-    assert rc == 0, err
-    clean = D.sanitise(out, D.RESULT_SCHEMAS["encode"], "encode")
-    assert clean["intermediate_sha256"] == sha(mov) and clean["out_frames"] == edl["out_frames"]
-    assert sorted(os.listdir(tmp / "out")) == ["render-%s.mp4" % clean["sha256"][:12]]
-    assert sha(tmp / "out" / ("render-%s.mp4" % clean["sha256"][:12])) == clean["sha256"]
-
-
-@needs_ffmpeg
-def test_one_intermediate_encoded_twice_gives_one_sha256(world):
-    tmp, src, edl = world
-    mov = tmp / "hf.mov"
-    prores(mov, edl["out_frames"] / edl["fps"])
-    first = encode(tmp, mov, tmp / "edl.json", tmp / "o1")[1]["sha256"]
-    second = encode(tmp, mov, tmp / "edl.json", tmp / "o2")[1]["sha256"]
-    assert first == second
-
-
-@needs_ffmpeg
-def test_an_intermediate_that_is_not_the_one_the_host_hashed_is_refused(world):
-    tmp, src, edl = world
-    mov = tmp / "hf.mov"
-    prores(mov, edl["out_frames"] / edl["fps"])
-    rc, out, err = encode(tmp, mov, tmp / "edl.json", tmp / "out", "0" * 64)
-    assert rc == 1 and out["code"] == "intermediate_differs" and not os.path.exists(tmp / "out")
-
-
-@needs_ffmpeg
-def test_an_intermediate_of_another_size_is_refused(world):
-    tmp, src, edl = world
-    mov = tmp / "small.mov"
-    prores(mov, edl["out_frames"] / edl["fps"], size="720x1280")
-    rc, out, err = encode(tmp, mov, tmp / "edl.json", tmp / "out")
-    assert rc == 1 and out["code"] == "intermediate_mismatch"
-
-
-@needs_ffmpeg
-def test_an_intermediate_of_another_length_or_rate_is_refused(world):
-    tmp, src, edl = world
-    long = tmp / "long.mov"
-    prores(long, edl["out_frames"] / edl["fps"] + 2)
-    assert encode(tmp, long, tmp / "edl.json", tmp / "o1")[1]["code"] == "intermediate_mismatch"
-    slow = tmp / "slow.mov"
-    prores(slow, edl["out_frames"] / edl["fps"], rate=25)
-    assert encode(tmp, slow, tmp / "edl.json", tmp / "o2")[1]["code"] == "intermediate_mismatch"
-
-
-@needs_ffmpeg
-def test_an_intermediate_without_the_audio_the_edit_list_has_is_refused(world):
-    tmp, src, edl = world
-    assert edl["source"]["has_audio"] is True
-    mov = tmp / "mute.mov"
-    prores(mov, edl["out_frames"] / edl["fps"], audio=False)
-    rc, out, err = encode(tmp, mov, tmp / "edl.json", tmp / "out")
-    assert rc == 1 and out["code"] == "intermediate_no_audio"
-
-
-@needs_ffmpeg
-def test_an_output_shorter_than_the_platforms_minimum_is_refused_with_platform_spec_min_seconds(world):
-    tmp, src, edl = world
-    minimum = INSTAGRAM["video"]["min_seconds"]
-    assert edl["out_frames"] / edl["fps"] > minimum
-    short = json.loads(json.dumps(edl))
-    short["out_frames"] = int((minimum - 1) * short["fps"])
-    K.write_json(tmp / "short.json", short)
-    mov = tmp / "short.mov"
-    prores(mov, short["out_frames"] / short["fps"])
-    rc, out, err = encode(tmp, mov, tmp / "short.json", tmp / "out")
-    assert rc == 1 and (out["code"], out["field"]) == ("platform_spec", "min_seconds") and not any(f.startswith("render-") for f in os.listdir(tmp / "out"))
-
-
-@needs_ffmpeg
-def test_a_video_that_is_not_prores_is_not_an_intermediate(world):
-    tmp, src, edl = world
-    rc, out, err = encode(tmp, src, tmp / "edl.json", tmp / "out")
-    assert rc == 1 and out["code"] == "video_codec"
 
 
 # ---------------------------------------------------------------- the recording checks moved to _output

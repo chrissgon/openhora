@@ -331,12 +331,10 @@ def test_the_block_declares_the_presets_kind_band_and_parameters():
     assert block["params"] == VOCAB["presets"]["split"]["params"]
     assert "ffmpeg" in _blocks.engines_of(cat, block)
     assert cat["engines"]["ffmpeg"]["presets"]["split"] == "oh:split"
-    assert "split" not in cat["engines"]["hyperframes"]["presets"]
 
 
-def test_the_hyperframes_engine_refuses_a_split():
+def test_the_engine_draws_a_split():
     cat = _blocks.load_catalogue(str(K.BLOCKS))
-    assert refused(_blocks.resolve, cat, "hyperframes", "split", None, "beats.b1").code == "preset_not_on_engine"
     assert _blocks.resolve(cat, "ffmpeg", "split", None, "beats.b1")["name"] == "oh:split"
 
 

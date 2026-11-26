@@ -14,9 +14,7 @@ import renderer_kit as K
 from renderer_kit import oh_defaults  # noqa: F401  (M2: the default blocks folder is the oh: copy)
 
 pytestmark = pytest.mark.usefixtures("oh_defaults")
-import _blocks
 import _edl
-import _hf_compose as C
 import _render
 from test_dropped_beat_picture import NOT_A_PNG, a_png, layout, live_shape, with_slots
 
@@ -134,16 +132,6 @@ def test_a_layout_with_no_slot_in_its_params_is_a_text_beat(docs):
     timeline = _edl.resolve_timeline(edl, only, vocab, data)
     assert timeline["dropped"] == ["a9"] and timeline["dropped_reasons"] == [{"id": "a9", "reason": "overlap"}]          # the shorter of two text beats loses, as before
     assert by_id(timeline)["b4"]["start_frame"] == _edl.resolve_timeline(edl, beats, vocab, data)["beats"][1]["start_frame"]
-
-
-def test_hf_the_live_shape_composes_with_a3_drawn(docs, tmp_path):
-    data, edl, beats, vocab = live_shape(docs)
-    folder = tmp_path / "page"
-    folder.mkdir()
-    result = C.write_page(data, edl, beats, vocab, _blocks.load_catalogue(), str(folder), edl["fps"], {"s1": "a" * 64, "s2": "b" * 64, "s3": "c" * 64})
-    assert "assets_dropped" not in result and result["beats_drawn"] == 7            # a1, a2, a3, b1, b2, b3 and b4: b1 and b2 are shorter than their minimum and are drawn, with advice
-    assert [r["code"] for r in result["advice"]] == ["beat_shorter_than_default"]
-    assert (folder / "blocks" / "oh-cutaway.html").exists()
 
 
 def least(docs, preset):

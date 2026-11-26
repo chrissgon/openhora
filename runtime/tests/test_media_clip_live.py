@@ -1,22 +1,21 @@
-"""A clip through the runtime and both renderer engines, in the real containers (package V9b-5c, live leg L1). Synthetic only, no network, no model, no real recording:
+"""A clip through the runtime and the renderer engine, in the real containers (package V9b-5c, live leg L1). Synthetic only, no network, no model, no real recording:
 three counter clips made by the host's ffmpeg (2.5 s and 12 s at 1080x1920, 6 s at 1920x1080) go through the runtime's `fetch-picks` (a fake source copies the clip into
 `full-*`; the renderer's own `asset-sheet` in the common image normalises it) and the approval, `step_media.fit_clip_entries` ends the cutaway of the contract lab's
-recording with its clip, and the host's `render` draws it on both engines with the runtime's `.mp4` and its sha256.
+recording with its clip, and the host's `render` draws it with the runtime's `.mp4` and its sha256.
 
-Skipped unless all three variables are set (the ones of providers/renderer/tests/test_engine_contract_live.py, whose lab and helpers this file reuses):
+Skipped unless both variables are set (the ones of providers/renderer/tests/test_engine_contract_live.py, whose lab and helpers this file reuses):
 
-    OPENHORA_STATE_DIR=<folder> WB_RENDERER_DOCKER_TESTS=1 WB_HYPERFRAMES_DOCKER_TESTS=1 \\
+    OPENHORA_STATE_DIR=<folder> WB_RENDERER_DOCKER_TESTS=1 \\
     uv run --with pytest==9.1.1 pytest -q runtime/tests/test_media_clip_live.py
 
-with no `-n`, after the two images are built and recorded. If the runtime's engine call cannot reach the built images from here, stop and report (stop rule 9).
-Asserted on each engine: the render is verified; for the cover clips, output frame `start + k` reads clip frame `k` for every `k` of the entry; a clip shorter than its
+with no `-n`, after the image is built and recorded. If the runtime's engine call cannot reach the built images from here, stop and report (stop rule 9).
+Asserted: the render is verified; for the cover clips, output frame `start + k` reads clip frame `k` for every `k` of the entry; a clip shorter than its
 beat ends the entry at least two frames before the clip does, and the next frame does not read a clip frame; a clip longer than the beat leaves the beat as its words end it.
 """
 from __future__ import annotations
 
 import json
 import os
-import shutil
 import sys
 from pathlib import Path
 
@@ -28,8 +27,8 @@ from media_stock_kit import LIBRARY, media_stock, ops_media_stock, pick, review_
 
 REPO = st.REPO
 REAL_STATE = os.environ.get("OPENHORA_STATE_DIR")      # read at import: a fixture of the runtime tests points the variable at a temporary folder before each test
-ENABLED = all(os.environ.get(v) for v in ("WB_RENDERER_DOCKER_TESTS", "WB_HYPERFRAMES_DOCKER_TESTS", "OPENHORA_STATE_DIR"))
-pytestmark = pytest.mark.skipif(not ENABLED, reason="real containers: set WB_RENDERER_DOCKER_TESTS=1, WB_HYPERFRAMES_DOCKER_TESTS=1 and OPENHORA_STATE_DIR (the images built and recorded first)")
+ENABLED = all(os.environ.get(v) for v in ("WB_RENDERER_DOCKER_TESTS", "OPENHORA_STATE_DIR"))
+pytestmark = pytest.mark.skipif(not ENABLED, reason="real containers: set WB_RENDERER_DOCKER_TESTS=1 and OPENHORA_STATE_DIR (the image built and recorded first)")
 CLIPS = {"short": (1080, 1920, 75), "long": (1080, 1920, 360), "glass": (1920, 1080, 180)}      # 2.5 s, 12 s and 6 s at 30 fps
 SLOT = "beat2"
 
@@ -44,20 +43,11 @@ def render_with_hash(live, lab, engine, tag, rec, edl, beats, clip, digest):
     """The host's `render` the way `Lab.render` runs it, with `--asset-sha256` as the runtime passes it."""
     import renderer_kit as K
     lab.need(engine)
-    folder = None
-    if engine == "hyperframes":      # the blocks folder with the cutaway preset, made once per lab as M6 does (the lab's own `blocks_hf` has none)
-        folder = lab.folder / "blocks-hf-cutaway"
-        if not folder.exists():
-            shutil.copytree(K.BLOCKS, folder)
-            K.write_hf_compose_blocks(folder, cutaway=True)
     env = dict(os.environ)
-    if folder is not None:
-        env.update(RENDERER_TEST="1", RENDERER_BLOCKS_DIR=str(folder))
     out_dir = lab.folder / ("out-" + tag)
     args = ["render", "--edl", edl, "--beats", beats, "--in", rec, "--out", out_dir, "--platform-file", K.INSTAGRAM, "--vocabulary", K.VOCABULARY, "--cpus", 4, "--cpuset", "0-3",
             "--asset", "%s=%s" % (SLOT, clip), "--asset-sha256", "%s=%s" % (SLOT, digest)]
-    if engine == "ffmpeg":
-        args += ["--jobs", 2]
+    args += ["--jobs", 2]
     rc, out, err = live.host(engine, *args, timeout=3600, env=env)
     assert rc == 0 and out["verified"] is True, (engine, tag, out, err[-2000:])
     live.assert_clean(out_dir, passed=True)
@@ -95,7 +85,7 @@ def through_the_runtime(world, monkeypatch, raw: Path):
 
 
 @pytest.mark.parametrize("shape", sorted(CLIPS))
-def test_a_clip_through_the_runtime_is_drawn_by_both_engines_and_ends_with_its_clip(shape, world, monkeypatch, tmp_path):
+def test_a_clip_through_the_runtime_is_drawn_and_ends_with_its_clip(shape, world, monkeypatch, tmp_path):
     monkeypatch.setenv("OPENHORA_STATE_DIR", REAL_STATE)      # the images and recordings the builds made live in the person's state folder
     put_renderer_on_path()
     import clip_kit as CK
@@ -123,12 +113,12 @@ def test_a_clip_through_the_runtime_is_drawn_by_both_engines_and_ends_with_its_c
     entry = next(e for e in timeline["beats"] if e["preset"] == "cutaway")
     count = entry["end_frame"] - entry["start_frame"]
     assert count <= clip_frames - 1
-    for engine in ("ffmpeg", "hyperframes"):
-        out = render_with_hash(live, lab, engine, "%s-%s" % (shape, engine), rec, edl_file, fitted, clip, asset["sha256"])
-        if shape == "glass":      # drawn whole inside the frame over a blurred copy: the counter is not at 1:1, so only the verified render and the entry's length are checked here
-            continue
-        numbers = live.counter_numbers(out["path"], entry["start_frame"], count)
-        assert numbers == list(range(count)), "%s: a frame reads the wrong clip frame: %s" % (engine, [(k, n) for k, n in enumerate(numbers) if n != k][:12])
-        if shortened:      # the entry ended before its clip: the next frame is the speaker's, not a clip frame (a held or continued clip would read `count`)
-            assert count <= clip_frames - step_media.CLIP_SPARE_FRAMES
-            assert live.counter_numbers(out["path"], entry["end_frame"], 1)[0] != count
+    engine = "ffmpeg"
+    out = render_with_hash(live, lab, engine, "%s-%s" % (shape, engine), rec, edl_file, fitted, clip, asset["sha256"])
+    if shape == "glass":      # drawn whole inside the frame over a blurred copy: the counter is not at 1:1, so only the verified render and the entry's length are checked here
+        return
+    numbers = live.counter_numbers(out["path"], entry["start_frame"], count)
+    assert numbers == list(range(count)), "%s: a frame reads the wrong clip frame: %s" % (engine, [(k, n) for k, n in enumerate(numbers) if n != k][:12])
+    if shortened:      # the entry ended before its clip: the next frame is the speaker's, not a clip frame (a held or continued clip would read `count`)
+        assert count <= clip_frames - step_media.CLIP_SPARE_FRAMES
+        assert live.counter_numbers(out["path"], entry["end_frame"], 1)[0] != count

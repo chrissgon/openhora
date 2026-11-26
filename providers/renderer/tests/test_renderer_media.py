@@ -88,7 +88,7 @@ def test_the_render_is_tagged_bt709_and_composed_in_rgb():
     assert "out_color_matrix=bt709" in graph and "format=gbrp" in graph and "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv" in graph
 
 
-# ---------------------------------------------------------------- the two-stage encode's builders (V3a-1)
+# ---------------------------------------------------------------- the output options (the compose's encode)
 
 def contains_run(whole, part):
     return any(whole[i:i + len(part)] == part for i in range(len(whole) - len(part) + 1))
@@ -112,71 +112,11 @@ def test_the_output_options_hold_the_pinned_encoder_and_the_bitexact_flags():
     assert "-map" not in options and "out.mp4" not in options
 
 
-def test_the_proxy_argv_is_1080x1920_with_fixed_threads_and_bitexact_scaling():
-    argv = _media.proxy_argv("ffmpeg", "/in/recording", "bt709", "/out/proxy.mp4", fps=30, has_audio=True)
-    assert argv[argv.index("-threads") + 1] == "4" and argv[argv.index("-filter_threads") + 1] == "4" and argv.count("-threads") == 2
-    i = argv.index("libx264")
-    assert argv[i + 1:i + 5] == ["-threads", "4", "-x264-params", _media.X264_PARAMS]      # x264 on four slice threads; the decoder keeps four
-    vf = argv[argv.index("-vf") + 1]
-    assert vf.startswith("fps=30:start_time=0,scale=2160:3840") and "scale=1080:1920:flags=" + _media.SWS in vf and vf.endswith(_media.TAGS)
-    assert all("flags=" + _media.SWS in x for x in re.findall(r"scale=[^,;\[]*", vf))
-    assert argv[argv.index("-crf") + 1] == "14" and argv[argv.index("-fs") + 1] == "2147483648" and argv[argv.index("-preset") + 1] == "medium"
-    assert argv.count("+bitexact") == 3 and "-an" not in argv and argv[-1] == "/out/proxy.mp4"
-    assert argv[argv.index("-i") - 6:argv.index("-i")] == ["-f", "mov", "-enable_drefs", "0", "-protocol_whitelist", "file"]
-    assert argv[argv.index("-map_metadata") + 1] == "-1"
-
-
-def test_a_proxy_of_a_silent_recording_has_no_audio():
-    argv = _media.proxy_argv("ffmpeg", "/in/recording", "auto", "/out/proxy.mp4", fps=24, has_audio=False)
-    assert "-an" in argv and "-c:a" not in argv and "fps=24:start_time=0," in argv[argv.index("-vf") + 1] and "in_color_matrix=auto" in argv[argv.index("-vf") + 1]
-
-
-def test_the_encode_argv_maps_the_intermediate_and_uses_the_shared_output_options():
-    plan = {"fps": 30, "out_frames": 231, "max_bytes": 300000000, "has_audio": True}
-    argv = _media.encode_argv("ffmpeg", "/job/hf.mov", "/out/o.mp4", plan)
-    assert argv[argv.index("-i") + 1] == "/job/hf.mov" and argv[-1] == "/out/o.mp4"
-    assert contains_run(argv, ["-map", "0:v:0", "-map", "0:a:0?"])
-    assert contains_run(argv, _media.output_options(plan, 4, shortest=False, x264_params="threads=4:lookahead_threads=1:sliced-threads=1"))
-    assert _media.X264_THREADS == 4 and _media.ENCODE_THREADS == 1 and _media.THREADS == 4
-
-
-def test_the_encode_argv_names_every_count_that_could_follow_the_machine_and_ends_both_streams_exactly():
-    plan = {"fps": 30, "out_frames": 231, "max_bytes": 300000000, "has_audio": True}
-    argv = _media.encode_argv("ffmpeg", "/job/hf.mov", "/out/o.mp4", plan)
-    i = argv.index("-i")
-    assert argv[:i].count("-threads") == 1 and argv.index("-threads") < i       # the decoder's
-    assert argv[argv.index("-threads") + 1] == "1"                      # one thread: nothing at the end of the stream can race
-    assert argv[argv.index("-filter_threads") + 1] == "1" and argv[argv.index("-filter_complex_threads") + 1] == "1"
-    assert argv.index("-filter_threads") < i and argv.index("-filter_complex_threads") < i
-    assert argv[argv.index("libx264") + 1:argv.index("libx264") + 3] == ["-threads", "4"]      # x264: four slice threads (the decoder's and the graph's stay one)
-    assert argv[argv.index("-x264-params") + 1] == "threads=4:lookahead_threads=1:sliced-threads=1"
-    assert argv[argv.index("-sws_flags") + 1] == _media.SWS and argv.count("+bitexact") == 3
-    assert "-shortest" not in argv and argv[argv.index("-frames:v") + 1] == "231" and argv[argv.index("-t") + 1] == "7.700000"
-    assert argv.index("-t") > argv.index("-frames:v")
-
-
 def test_compose_keeps_its_shortest_and_the_output_options_default_is_the_sliced_x264():
     plan = plain_plan()
     options = _media.output_options(plan)
     assert "-shortest" in options and options[options.index("-x264-params") + 1] == _media.X264_PARAMS     # the default is x264 on four slice threads since V3c-3
     assert contains_run(_media.compose_argv("ffmpeg", plan), options)
-
-
-def test_a_silent_encode_pins_the_same_counts_and_has_no_audio_options():
-    argv = _media.encode_argv("ffmpeg", "/job/hf.mov", "/out/o.mp4", {"fps": 24, "out_frames": 48, "max_bytes": 1000, "has_audio": False})
-    assert "-c:a" not in argv and "-shortest" not in argv and argv[argv.index("-t") + 1] == "2.000000"
-
-
-def test_the_probe_takes_the_codecs_it_accepts_and_refuses_prores_by_default(tmp_path):
-    if not K.HAVE_FFMPEG:
-        pytest.skip(K.SKIP_MEDIA)
-    path = os.path.join(str(tmp_path), "p.mov")
-    subprocess.run([K.FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=10:duration=1",
-                    "-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le", path], check=True, timeout=60)
-    with pytest.raises(Refusal) as caught:
-        _media.probe(K.FFPROBE, path)
-    assert caught.value.code == "video_codec"
-    assert _media.probe(K.FFPROBE, path, video_codecs=_media.PRORES_CODECS)["codec"] == "prores"
 
 
 # ---------------------------------------------------------------- probe

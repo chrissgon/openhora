@@ -272,14 +272,14 @@ def test_stage_blocks_copies_only_the_pinned_files_and_hashes_the_copy(tmp_path)
     assert refused(_host.stage_blocks, other, changed).code == "block_hash"
 
 
-# ---------------------------------------------------------------- the cutaway on both engines, the screenshot block and the engines' asset kinds (V9b-2)
+# ---------------------------------------------------------------- the cutaway, the screenshot block and the engine's asset kinds (V9b-2)
 
-def test_the_catalogue_names_what_each_engine_draws_as_a_picture():
+def test_the_catalogue_names_what_the_engine_draws_as_a_picture():
     cat = _blocks.load_catalogue()
-    assert cat["engines"]["ffmpeg"]["asset_kinds"] == ["image", "clip"] and cat["engines"]["hyperframes"]["asset_kinds"] == ["image", "clip"]
+    assert cat["engines"]["ffmpeg"]["asset_kinds"] == ["image", "clip"] and list(cat["engines"]) == ["ffmpeg"]
     doc = json.load(open(os.path.join(BLOCKS, "catalogue.json"), encoding="utf-8"))
-    assert doc["asset_kinds_by_engine"] == {"ffmpeg": ["image", "clip"], "hyperframes": ["image", "clip"]}
-    assert doc["engines"]["hyperframes"]["presets"]["cutaway"] == "oh:cutaway" and "pip" not in doc["engines"]["hyperframes"]["presets"]
+    assert doc["asset_kinds_by_engine"] == {"ffmpeg": ["image", "clip"]}
+    assert doc["engines"]["ffmpeg"]["presets"]["cutaway"] == "oh:cutaway"
     assert doc["engines"]["ffmpeg"]["presets"]["pip"] == "oh:pip"
 
 
@@ -295,15 +295,14 @@ def test_an_engine_file_without_asset_kinds_draws_images_only_and_a_bad_list_is_
         assert refused(_blocks.load_catalogue, folder).code == "block_schema", bad
 
 
-def test_the_screenshot_block_has_the_cutaways_parameters_and_draws_the_cutaway_preset_on_both_engines():
+def test_the_screenshot_block_has_the_cutaways_parameters_and_draws_the_cutaway_preset():
     cat = _blocks.load_catalogue()
     shot, cut = cat["blocks"]["oh:screenshot"], cat["blocks"]["oh:cutaway"]
     assert shot["params"] == cut["params"] == VOCAB["presets"]["cutaway"]["params"]
     assert (shot["preset"], shot["kind"], shot["band"], shot["may_cross_face"], shot["license"], shot["source"]) == ("cutaway", "layout", "frame", True, ["MIT"], "openhora")
-    assert len(shot["samples"]) == 1 and shot["natural_duration"] == 1.5 and _blocks.engines_of(cat, shot) == ["ffmpeg", "hyperframes"]
-    for engine in ("ffmpeg", "hyperframes"):
-        assert _blocks.resolve(cat, engine, "cutaway", "oh:screenshot", "beats.b1")["name"] == "oh:screenshot"
-        assert _blocks.resolve(cat, engine, "cutaway", None, "beats.b1")["name"] == "oh:cutaway"                  # the default stays the cutaway
+    assert len(shot["samples"]) == 1 and shot["natural_duration"] == 1.5 and _blocks.engines_of(cat, shot) == ["ffmpeg"]
+    assert _blocks.resolve(cat, "ffmpeg", "cutaway", "oh:screenshot", "beats.b1")["name"] == "oh:screenshot"
+    assert _blocks.resolve(cat, "ffmpeg", "cutaway", None, "beats.b1")["name"] == "oh:cutaway"                  # the default stays the cutaway
     assert _blocks.check_params(shot, {"asset": "slot-1", "fit": "contain", "label": "The page on screen"}, VOCAB) == {"asset": "slot-1", "fit": "contain", "label": "The page on screen"}
     assert refused(_blocks.check_params, shot, {"asset": "slot-1", "position": "top"}, VOCAB).code == "undeclared_param"
     assert refused(_blocks.check_params, shot, {"fit": "cover"}, VOCAB).code == "missing_param"

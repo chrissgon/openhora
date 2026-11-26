@@ -1,6 +1,5 @@
 """The data each drawing page is given for one frame: the caption chunk's words and bands, a beat's parameters, looks and bands, a pip's
-geometry. Plain data from the checked documents and the layout arithmetic, no browser and no frames, so both engines (and the HyperFrames
-page stage, which runs in the common image) build the same payload. Moved from `_frames.py` byte for byte (decision V3b-1); `_frames`
+geometry. Plain data from the checked documents and the layout arithmetic, no browser and no frames, so the engine (and the second contract's port pages) build the same payload. Moved from `_frames.py` byte for byte (decision V3b-1); `_frames`
 imports the three names back. Standard library only.
 """
 from __future__ import annotations
