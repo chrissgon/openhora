@@ -1,17 +1,17 @@
-"""The class default and the project's renderer key (V4) in real containers: what the runtime's `MediaEngine` does with no renderer named (the class
-default, hyperframes), with `ffmpeg` named, for `block-params`, and with the HyperFrames image missing. Never builds, no network, no real recording:
-the inputs are the short case of the engine contract (contract_kit), made by the common image's own ffmpeg.
+"""The class default and the project's renderer key (V4, PF-b) in a real container: what the runtime's `MediaEngine` does with no renderer named (the
+class default, ffmpeg), with the retired name `hyperframes` named (read as ffmpeg), for `block-params`, and with the ffmpeg image missing. Never builds, no
+network, no real recording: the inputs are the short case of the engine contract (contract_kit), made by the common image's own ffmpeg.
 
-Skipped unless both images' variables are set; the images must be built and recorded first, into the same state folder:
+Skipped unless the variable is set; the image must be built and recorded first, into the state folder:
 
-    OPENHORA_STATE_DIR=<folder> WB_RENDERER_DOCKER_TESTS=1 WB_HYPERFRAMES_DOCKER_TESTS=1 \\
+    OPENHORA_STATE_DIR=<folder> WB_RENDERER_DOCKER_TESTS=1 \\
     uv run --with pytest==9.1.1 pytest -q providers/renderer/tests/test_engine_default_live.py
 
 with no `-n`. The helpers are the engine contract's (`test_engine_contract_live.py`): the lab, the shape check, the cleanliness check (C11).
 
 The seam starts the provider with the resolver's minimum environment (providers/resolve.py `provider_environment`), so a test blocks folder
 (RENDERER_TEST, RENDERER_BLOCKS_DIR) never reaches it: the renders here draw with the committed blocks. The reference render of each leg is therefore a
-direct call of the host with the same minimum environment, not leg F1 of the contract file (which draws the HyperFrames engine from a test folder).
+direct call of the host with the same minimum environment, not leg F1 of the contract file (which draws from a test folder).
 """
 from __future__ import annotations
 
@@ -25,14 +25,13 @@ import pytest
 
 import renderer_kit as K
 import _docker as D
-import hyperframes as H
-from test_engine_contract_live import (FFMPEG_ON, HF_ON, Lab, Render, assert_clean, check_shape, fresh, host, lab, leftovers, real_state)  # noqa: F401
+from test_engine_contract_live import (FFMPEG_ON, Lab, Render, assert_clean, check_shape, fresh, host, lab, leftovers, real_state)  # noqa: F401
 
 sys.path.insert(0, str(K.REPO / "runtime"))
 import ops_step_seams as seams  # noqa: E402
 import media_animation  # noqa: E402
 
-pytestmark = pytest.mark.skipif(not (FFMPEG_ON and HF_ON), reason="real containers: set WB_RENDERER_DOCKER_TESTS=1 and WB_HYPERFRAMES_DOCKER_TESTS=1 (both images built and recorded first)")
+pytestmark = pytest.mark.skipif(not FFMPEG_ON, reason="real container: set WB_RENDERER_DOCKER_TESTS=1 (the image built and recorded first)")
 
 ROOT = str(K.REPO)
 RENDER_TIMEOUT = 1800
@@ -46,7 +45,7 @@ def no_choice_in_the_environment(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
-def render_args(lab, out_dir, engine):
+def render_args(lab, out_dir, engine="ffmpeg"):
     rec, edl, beats, doc = lab.short()
     args = ["--edl", edl, "--beats", beats, "--in", rec, "--out", out_dir, "--platform-file", K.INSTAGRAM, "--vocabulary", K.VOCABULARY,
             "--cpus", 4, "--cpuset", "0-3"]
@@ -78,55 +77,47 @@ def shaped(lab, engine, result, doc, out_dir):
     assert_clean(out_dir, passed=True)
 
 
-def test_l1_with_no_renderer_named_the_default_engine_is_hyperframes_and_its_render_is_the_hosts(lab):
-    lab.need("hyperframes")
-    assert media_animation.engine_name(ROOT) == "hyperframes"
-    result, doc, out_dir = through_the_seam(lab, None, "auto", "hyperframes")
-    shaped(lab, "hyperframes", result, doc, out_dir)
-    assert result["engine"] == "hyperframes" and "gate" in result and result["beats_drawn"] > 0
-    assert result["gate"]["boxes"] > 0
-    reference = directly(lab, "hyperframes", "hyperframes")
-    assert result["sha256"] == reference["sha256"], "the seam's render is not the same engine's render of the same inputs"
-
-
-def test_l2_naming_ffmpeg_renders_the_same_inputs_with_the_other_engine(lab):
-    lab.need("hyperframes")
-    assert media_animation.engine_name(ROOT, "ffmpeg") == "ffmpeg"
-    result, doc, out_dir = through_the_seam(lab, "ffmpeg", "ffmpeg", "ffmpeg")
+def test_l1_with_no_renderer_named_the_engine_is_ffmpeg_and_its_render_is_the_hosts(lab):
+    assert media_animation.engine_name(ROOT) == "ffmpeg"
+    result, doc, out_dir = through_the_seam(lab, None, "auto", "ffmpeg")
     shaped(lab, "ffmpeg", result, doc, out_dir)
-    assert "gate" not in result
+    assert result["engine"] == "ffmpeg" and "gate" not in result
     reference = directly(lab, "ffmpeg", "ffmpeg")
     assert result["sha256"] == reference["sha256"], "the seam's render is not the same engine's render of the same inputs"
 
 
-def test_l3_block_params_is_answered_by_the_engine_the_project_names_and_a_proven_port_by_both(tmp_path):
+def test_l2_naming_hyperframes_renders_with_ffmpeg_the_same_sha256_as_l1(lab):
+    assert media_animation.engine_name(ROOT, "hyperframes") == "ffmpeg"      # the retired name is read as its successor (PF-b)
+    named, doc, named_out = through_the_seam(lab, "hyperframes", "hyperframes-named", "ffmpeg")
+    shaped(lab, "ffmpeg", named, doc, named_out)
+    assert named["engine"] == "ffmpeg"
+    default, _, _ = through_the_seam(lab, None, "auto-again", "ffmpeg")
+    assert named["sha256"] == default["sha256"], "the retired name did not draw what the default draws"
+
+
+def test_l3_block_params_is_answered_by_ffmpeg_for_a_project_naming_hyperframes(tmp_path):
     params = K.write_json(tmp_path / "p.json", {"text": "Every step counts"})
     args = ["--block", "hf:spring-pop", "--params", str(params), "--vocabulary", str(K.VOCABULARY)]
-    done = seams.MediaEngine(ROOT, None).call("renderer:video", "block-params", args, 120)
-    assert done["ok"] is True and done["engine"] == "hyperframes" and done["block"] == "hf:spring-pop"
+    done = seams.MediaEngine(ROOT, "hyperframes").call("renderer:video", "block-params", args, 120)
+    assert done["ok"] is True and done["engine"] == "ffmpeg" and done["block"] == "hf:spring-pop"
     other = seams.MediaEngine(ROOT, "ffmpeg").call("renderer:video", "block-params", ["--block", "oh:keyword", *args[2:]], 120)
     assert other["engine"] == "ffmpeg"
-    # every committed port has a determinism record since PF-a4e, so the ffmpeg engine answers it too
-    ported = seams.MediaEngine(ROOT, "ffmpeg").call("renderer:video", "block-params", args, 120)
-    assert ported["ok"] is True and ported["engine"] == "ffmpeg" and ported["block"] == "hf:spring-pop"
     # the refusal of a port with no record is proved by f7d of test_engine_contract_live (a planted blocks folder, which block-params does not read) and offline by test_hf_ports
     assert leftovers() == []
 
 
-def test_l4_a_missing_hyperframes_image_is_refused_and_never_replaced_by_the_other_engine(lab, tmp_path, monkeypatch):
+def test_l4_a_missing_ffmpeg_image_is_refused_not_configured(lab, tmp_path, monkeypatch):
     state = os.environ["OPENHORA_STATE_DIR"]
     copy = tmp_path / "state"
     shutil.copytree(state, str(copy))
-    record = copy / D.STATE_FOLDER / H.HF_RECORD
+    record = copy / D.STATE_FOLDER / D.BUILD_RECORD
     assert record.is_file()
     record.unlink()
     monkeypatch.setenv("OPENHORA_STATE_DIR", str(copy))
     out_dir = lab.folder / "out-default-missing"
-    args, doc = render_args(lab, out_dir, "hyperframes")
+    args, doc = render_args(lab, out_dir)
     with pytest.raises(seams.StepServiceError) as refused:
         seams.MediaEngine(ROOT, None).call("renderer:video", "render", args, RENDER_TIMEOUT)
-    assert refused.value.code == "not_configured"
+    assert refused.value.code == "not_configured"      # there is no other engine to replace it with (PF-b)
     assert not out_dir.exists() or list(out_dir.iterdir()) == []
     assert leftovers() == []
-    result, doc, ffmpeg_out = through_the_seam(lab, "ffmpeg", "ffmpeg-without-hf", "ffmpeg")      # the other engine still renders with that state, when it is named
-    shaped(lab, "ffmpeg", result, doc, ffmpeg_out)

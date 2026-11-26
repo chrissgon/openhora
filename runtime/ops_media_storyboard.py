@@ -11,8 +11,7 @@ renderer's `storyboard` verb over a neutral placeholder, with no recording and n
 
 The rules of this module:
 
-  * The engine is always the ffmpeg one, whatever `media.renderer` says: HyperFrames has no `storyboard` verb, and the ffmpeg image is the one
-    every HyperFrames project already builds (decision D2). For a beat, `drawn_block` is the ffmpeg engine's block for the preset and
+  * The storyboard is drawn by the one engine, ffmpeg (since PF-b; before it, HyperFrames had no `storyboard` verb: decision D2). For a beat, `drawn_block` is the ffmpeg engine's block for the preset and
     `video_block` is the block of the project's own engine (None when that engine draws no block for the preset).
   * A folder is `<data_dir>/media/storyboards/<key>/`; `<key>` is the first 16 hex characters of the sha256 of the post's bytes, the theme's
     flags and blocks/pins.json. The same key is a replay: nothing is called (the verb gives the same bytes for the same inputs), the folder's

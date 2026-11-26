@@ -178,7 +178,7 @@ def test_an_engine_that_is_not_configured_says_in_its_next_sentence_how_to_set_u
         raise Missing()
     with pytest.raises(steps.StepFailure) as caught:
         step_media._asked(call)
-    assert caught.value.code == "not_configured" and "media.renderer" in caught.value.next and "hyperframes" in caught.value.next
+    assert caught.value.code == "not_configured" and "media.renderer" in caught.value.next and "auto means ffmpeg" in caught.value.next
 
 
 def test_a_verify_result_that_is_not_ok_fails_the_verify_step_and_nothing_is_written_for_the_gate(world):

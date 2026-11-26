@@ -100,7 +100,7 @@ LISTED = ["generator:image", "generator:video", "integration:design-tool", "inte
 # not in contracts/environment.md (providers/CONTRACT.md says so in their rows).
 # `model` (model:text, providers/model/chat-http.py) is runtime-only the same way: one text prompt in, one reply out, called by runtime/interpreter_route.py alone.
 # `transcriber` (transcriber:speech, providers/transcriber/whispercpp.py) is a class the runtime uses, not one a skill may require (decision VD2), so contracts/environment.md does not list it.
-# `renderer` (renderer:video, providers/renderer/ffmpeg.py and hyperframes.py) is runtime-only the same way (decision VD2).
+# `renderer` (renderer:video, providers/renderer/ffmpeg.py, the one engine since PF-b; `hyperframes` is a retired name read as `ffmpeg`) is runtime-only the same way (decision VD2).
 # `fetcher` (fetcher:video, providers/fetcher/ytdlp.py) is runtime-only the same way: the reference fetcher, called by the terminal operations of the reference store alone.
 # `stock` (stock:media, providers/stock/<name>.py, one file and one providers/stock/sources/<name>.json per library) is runtime-only the same way: licensed pictures and clips searched by words, called by the media operations of the runtime alone (V9b).
 ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter", "exporter", "script", "writer", "model", "transcriber", "renderer", "fetcher", "stock"}
@@ -120,9 +120,11 @@ PLATFORM_DEFAULTS = {"scheduler:job": {"darwin": "launchd", "linux": "systemd"}}
 # What "auto" means for a class that ships several implementations, when nothing chooses one (package W2): the SMTP outbox is the sender:email of a project that
 # sets none; the mailers of the person's own account (gmail.py, outlook.py) are named explicitly by the runtime, from a document that says whose account it is,
 # and are never what "auto" picks. A variable or a caller's implementation still wins.
-# Two engines serve renderer:video (decision VD1). Since V4 (docs/decisions/2026-11-10-v4-renderer-key.md) the default engine is hyperframes; a project
-# names ffmpeg with media.renderer, a person with RENDERER_PROVIDER.
-CLASS_DEFAULTS = {"sender:email": "smtp", "renderer:video": "hyperframes"}
+# One engine serves renderer:video since PF-b: ffmpeg is the default. `hyperframes` is a retired name, read as `ffmpeg` (see RETIRED).
+# Names of implementations that were retired, read as their successor wherever a class's implementation is named (a caller's configuration,
+# a variable): never refused, never chosen as themselves. PF-b (docs/decisions/2026-11-26-pf-b-retire-hyperframes.md): the HyperFrames engine.
+RETIRED = {"renderer:video": {"hyperframes": "ffmpeg"}}
+CLASS_DEFAULTS = {"sender:email": "smtp", "renderer:video": "ffmpeg"}
 
 EXIT_OK, EXIT_USAGE, EXIT_UNRESOLVED = 0, 2, 3
 
@@ -140,6 +142,11 @@ class Unresolved(LookupError):
 def canonical(cls: str) -> str:
     """The class as contracts/environment.md writes it: an old bare name becomes its <role>:<target>."""
     return ALIASES.get(str(cls), str(cls))
+
+
+def successor(cls: str, name: str) -> str:
+    """The implementation a name stands for: the retired name's successor, or the name itself."""
+    return RETIRED.get(canonical(cls), {}).get(name, name)
 
 
 def split_class(cls: str) -> tuple[str, str | None]:
@@ -255,7 +262,9 @@ def serves_class(cls: str, name: str, root=None, env=None, strict: bool = False)
 
 def implementations(cls: str, root=None, env=None) -> list[str]:
     """Implementation names shipped for a class (a file that declares it serves another class is not one)."""
-    return [name for name in implementations_in(folder(cls), root, env) if serves_class(cls, name, root, env)]
+    retired = RETIRED.get(canonical(cls), {})
+    return [name for name in implementations_in(folder(cls), root, env)
+            if name not in retired and serves_class(cls, name, root, env)]
 
 
 def served_platforms(cls: str, name: str, root=None, env=None) -> list[str]:
@@ -307,11 +316,15 @@ def resolve(cls: str, root=None, env=None, platform=None, implementation=None) -
     asked = platform_of(cls)
     candidates = serving(cls, root, env)
 
-    def chosen(name: str, source: str, variable=None) -> dict:
-        return {"class": cls, "implementation": name, "path": str(base / f"{name}.py"), "source": source,
-                "variable": variable, "variables": names}
+    def chosen(name: str, source: str, variable=None, given=None) -> dict:
+        found = {"class": cls, "implementation": name, "path": str(base / f"{name}.py"), "source": source,
+                 "variable": variable, "variables": names}
+        if given is not None and given != name:
+            found["retired"] = given
+        return found
 
     def checked(name: str, origin: str) -> str:
+        name = successor(cls, name)
         if name not in shipped:
             raise Unresolved(f"{name!r} (from {origin}) is not a provider of {cls} "
                              f"(providers/{folder(cls)}/); shipped: {shipped}")
@@ -321,15 +334,15 @@ def resolve(cls: str, root=None, env=None, platform=None, implementation=None) -
         return name
 
     if implementation is not None:
-        return chosen(checked(str(implementation), "the caller's configuration"), "configuration")
+        return chosen(checked(str(implementation), "the caller's configuration"), "configuration", given=str(implementation))
     for variable in names:
         value = env.get(variable)
         if not value:
             continue
         general = asked is not None and variable == names[-1]
-        if general and value in shipped and value not in candidates:
+        if general and successor(cls, value) in shipped and successor(cls, value) not in candidates:
             continue  # a preference set for another platform: passed over, never an error
-        return chosen(checked(value, variable), "environment", variable)
+        return chosen(checked(value, variable), "environment", variable, given=value)
     for prefix, name in PLATFORM_DEFAULTS.get(cls, {}).items():
         if platform.startswith(prefix) and name in candidates:
             return chosen(name, "platform-default")

@@ -55,8 +55,8 @@ accepted with accept-config; it holds no secret (the password is the secret MAIL
 It also reads "media" (package V1b2-1; absent: the step kind's defaults): the settings of a new video, an object
 {"language", "transcriber_model", "renderer", "references"}, each optional. "references" is "on" or "off" (absent is off): whether the reference videos of
 package V7b may be fetched for this project; "on" is a widening, so accept-config stops, shows its terms and needs --widen. "renderer" is "auto" (the class renderer:video resolves as
-providers/resolve.py says: a variable, then the class default, hyperframes) or an implementation shipped in providers/renderer/,
-which the runtime then names on every call. Like every key, it is changed only in the terminal and accepted with accept-config.
+providers/resolve.py says: a variable, then the class default, ffmpeg) or an implementation shipped in providers/renderer/,
+which the runtime then names on every call. The retired name "hyperframes" is accepted and stored as "ffmpeg" (PF-b: providers/resolve.py RETIRED). Like every key, it is changed only in the terminal and accepted with accept-config.
 "stock" (package V9b-3a) is a list of 1 to 8 names of the sources of the class stock:media (providers/stock/<name>.py: the libraries a video's pictures are searched
 in), or [] for none; absent means every source that needs no key. Each licensed source is a widening item, so accept-config stops, shows what the person gives away
 (the search words leave this computer) and needs --widen; until then the search answers `stock_not_accepted`.
@@ -786,6 +786,8 @@ def _media(value, workbench: str):
         out["transcriber_model"] = found
     if "renderer" in value:
         found, shipped = value["renderer"], _implementations(workbench, MEDIA_RENDERER_CLASS)
+        if isinstance(found, str):
+            found = resolver(workbench).successor(MEDIA_RENDERER_CLASS, found)   # a retired name (hyperframes) is read as its successor (PF-b); the accepted hash is over the raw bytes
         if not isinstance(found, str) or (found != "auto" and found not in shipped):
             raise ConfigError("runtime.json media.renderer must be auto or one of " + (", ".join(shipped) or "none: no renderer is shipped"))
         out["renderer"] = found

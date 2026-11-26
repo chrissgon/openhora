@@ -80,7 +80,7 @@ STOCK_SET, STOCK_APPROVED = "stock/set.json", "stock/approved.json"
 STOCK_ASSET = "stock/asset-{sha12}.{ext}"      # `.mp4` for a clip, `.png` for a picture
 CLIP_TIMING = {"cutaway": {"tail": 0.2, "min_duration": 1.5, "max_duration": None}}      # = providers/renderer/renderer-presets.json presets.cutaway (a test compares)
 CLIP_SECONDS_MAX = 10.0      # = providers/renderer/_media.py CLIP_MAX_SECONDS (a test compares)
-CLIP_SPARE_FRAMES = 2      # frames a cutaway ends before its clip does, so neither engine holds a frame or meets clip_too_short
+CLIP_SPARE_FRAMES = 2      # frames a cutaway ends before its clip does, so the engine holds a frame or meets clip_too_short
 CLIP_SHORT_NEXT = "start a new video from this recording and pick a clip at least as long as the first word of its beat"
 STOCK_KEYS = ("slot", "show", "search", "source", "item", "kind", "licence", "licence_url", "terms_read_on", "author", "title", "page", "licence_claim", "sha256",
               "width", "height", "seconds", "unverified")      # = runtime/media_stock.py ASSET_KEYS (a test compares)
@@ -103,7 +103,7 @@ TIMEOUTS = {"transcribe": 1800 + 120, "analyse": 900 + 60, "retakes": 300, "alig
 SERVICE_CODES = {"not_configured": "not_configured", "engine_failed": "engine_failed", "refused": "engine_refused", "not_found": "recording_missing",
                  "stale": "recording_missing", "taken": "recording_taken", "delivered": "recording_delivered", "unreadable": "recording_unreadable"}
 REVIEW_NEXT = "Edit the captions, then continue."
-ENGINE_NEXT = {"not_configured": "set up the transcriber and the renderer this project uses (media.renderer in docs/workbench/runtime.json: auto means hyperframes unless RENDERER_PROVIDER names another; the README files give the commands, run by you), or name the other renderer there and accept the file, then start the task again"}
+ENGINE_NEXT = {"not_configured": "set up the transcriber and the renderer this project uses (media.renderer in docs/workbench/runtime.json: auto means ffmpeg, the one renderer (the name hyperframes is read as ffmpeg); the README files give the commands, run by you), or name the other renderer there and accept the file, then start the task again"}
 
 
 def check(args) -> dict:

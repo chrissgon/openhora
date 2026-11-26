@@ -183,8 +183,9 @@ def test_the_listing_says_for_each_block_whether_it_can_be_added_and_why_not(tmp
 
 
 def test_the_engine_is_the_class_default_with_no_variable_set_and_the_one_a_project_names():
-    assert animation.engine_name(str(REPO)) == "hyperframes"
+    assert animation.engine_name(str(REPO)) == "ffmpeg"      # the class default since PF-b
     assert animation.engine_name(str(REPO), "ffmpeg") == "ffmpeg"
+    assert animation.engine_name(str(REPO), "hyperframes") == "ffmpeg"      # the retired name is read as its successor
     assert animation.engine_name(str(REPO), "heygen") is None
 
 
@@ -395,10 +396,10 @@ def set_page(world, groups):
 
 def test_video_catalogue_lists_for_the_terminal_and_the_page_and_refuses_the_rest(world, monkeypatch):
     shown = ops_media_catalogue.video_catalogue(world["path"])
-    assert shown["engine"] == "hyperframes"      # the class default since V4
+    assert shown["engine"] == "ffmpeg"      # the class default since PF-b (V4: hyperframes)
     assert {b["name"] for b in shown["blocks"] if b["addable"]} == {"oh:keyword", "oh:list", "oh:number", "oh:quote", "hf:count-up", "hf:spring-pop", "hf:testimonial-card",
                                                                         "oh:mark", "oh:sticker", "oh:nametag",
-                                                                        "oh:cutaway", "oh:screenshot"}      # the three review-only blocks of V9a-1 are addable at review; the two picture layouts since V9b-3a (oh:pip is not: HyperFrames does not draw the preset)
+                                                                        "oh:cutaway", "oh:screenshot", "oh:pip", "oh:split"}      # the three review-only blocks of V9a-1 are addable at review; the picture layouts since V9b-3a; the default engine is ffmpeg since PF-b, which draws pip and split
     assert ops_media_catalogue.video_catalogue(world["path"], "terminal") == shown and ops_media_catalogue.video_catalogue(world["path"], "page") == shown
     assert ops.video_catalogue(world["path"]) == shown
     for channel in ("mcp", "messaging", "other"):
@@ -452,7 +453,7 @@ def test_the_route_is_a_read_that_crosses_the_lan_socket_as_well_as_the_loopback
 
 def test_the_terminal_calls_the_operation(world):
     shown = cli.run(["video-catalogue", "--project", world["path"]])
-    assert shown == ops_media_catalogue.video_catalogue(world["path"]) and shown["engine"] == "hyperframes"
+    assert shown == ops_media_catalogue.video_catalogue(world["path"]) and shown["engine"] == "ffmpeg"
 
 
 # 14. the modules start on their own
