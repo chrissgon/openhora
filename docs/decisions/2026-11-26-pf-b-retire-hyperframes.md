@@ -11,15 +11,23 @@
 - D4. A task re-rendered on the one engine has new bytes, so its `deliver` asks again (`stale`, or `deviation`), as for any re-render. Nothing is migrated.
 - D5. The advice codes `caption_not_drawn` and `face_pixels_changed` keep their place in the closed lists with no producer (B3, pending).
 - D6. The registry survey tools (`compat`, the tier-A wrapper, `fetch_registry.py`) and the HyperFrames image's lockfile are deleted; `hf-runtime/npm-pins.json` is the one pin of GSAP and the runtime (B4, pending). D19 is amended: GSAP and the runtime "are pinned in `hf-runtime/npm-pins.json`" instead of "come from the npm lockfile". The licence and its acceptance are unchanged.
-- D7. The default font (B2, pending): either `default` draws Inter 800 / Inter 500 / JetBrains Mono 500 on ffmpeg, as the old engine did (recommended), or it stays the system font. In PF-b1 the first option is its own last commit, which is dropped if the answer is the second.
+- D7. The default font (B2, answered): `default` draws Inter 800 / Inter 500 / JetBrains Mono 500 on ffmpeg, as the old engine did. Shipped in PF-b1 as its font commits.
 
 **Amends VD1** (`2026-11-07-v0-short-video-hyperframes.md`, section VD1). New text: "Engines are swappable behind one renderer-neutral edit list (`edl.json`, `beats.json`), which carries no executable text. One engine ships, `ffmpeg`; an engine added later passes the same contract tests, and the approval binds the bytes that come back. A project may name its engine by a key in `runtime.json`, accepted with `accept-config`; a retired engine's name is read as its successor."
 
 **Amends V4** (`2026-11-10-v4-renderer-key.md`). D1: the key is `auto` or a shipped implementation (`ffmpeg`); `hyperframes` is accepted and read as `ffmpeg`. D2: the class default is `ffmpeg`. D3: a missing setup is refused `not_configured`; there is no other engine to replace it with. D4: still no migration (D3 and D4 above). D5: `block-params` is served by `ffmpeg.py`. D6: one implementation is listed. "What is refused": a variable naming `hyperframes` is no longer refused; a missing HyperFrames image no longer exists as a case.
 
-**The maintainer's answers**, verbatim: B1 pending, B2 pending, B3 pending, B4 pending, B5 pending.
+**The maintainer's answers**, verbatim.
 
-**Parity.** Pending (the supervisor's live legs L1-L3): inputs, the two themes, the frame-cell timing result, the PSNR per beat (full frame and overlay region), the effect peaks, the audio result and the seconds per render of both engines; the strips are kept outside the repository (project data stays out).
+- B1, asked: "Você aceita esse visual para os vídeos que já existem?" (validate: allow english-only -- the maintainer's own words, quoted)
+  Answer: "Aceito (Recomendado)" (validate: allow english-only -- the maintainer's own words, quoted)
+  Gloss: he accepts the one engine's look for existing videos; the known differences are text edges, tint about 1 level darker, punch resampling, and audio shifts of at most 0.33 ms.
+- B2, asked: "Qual fonte o motor único deve usar nesses projetos?" (validate: allow english-only -- the maintainer's own words, quoted)
+  Answer: "Inter, como antes (Recomendado)" (validate: allow english-only -- the maintainer's own words, quoted)
+  Gloss: the default theme draws Inter and JetBrains Mono on ffmpeg (B2 (a)), so the font commits of PF-b1 stay.
+- B3, B4 and B5: pending.
+
+**Parity.** The supervisor's live legs on the PF-b1 branch (synthetic inputs only; the strips stay outside the repository). Timing is equal frame for frame, 1184 frames. Whole video, old engine against ffmpeg on the default theme: mean 38.9 dB, minimum 31.0 dB. The testimonial-card quote, which drew bold on the default theme, is fixed by #849 and the follow-up of PF-b1. The 300 s synthetic post on the default limits renders in 903 s with a peak scratch of 631 MiB of 2048 and an estimate of 1.27 GB. Seconds on the T1 post: old engine about 290 s, ffmpeg about 220 s.
 
 **What it saves and what it loses (principle 13).** Saves: one image (its build, its rebuilds, its pinned Chrome and npm tree), five CI legs on every video PR and nightly, about 10,500 non-test and 7,000 test lines, and one engine to keep at parity for every new effect. Loses: the face-region PSNR advice and the glyph-box caption advice (B3); a second engine to compare against when a picture looks wrong (the parity render is the last comparison, and git history keeps the engine); and every machine rebuilds the common image once.
 
