@@ -273,13 +273,27 @@ def _tags(parts: list, label: str) -> str:
     return "\n".join("<script>%s\n//# sourceURL=hyperframes://injected/%s/%d</script>" % (_esc_script(p.decode("utf-8")), label, i) for i, p in enumerate(parts))
 
 
-def theme_fonts(font_serve: dict, edl_fonts: dict) -> list:
-    """The faces the host declares: [{family, role, path, weight, format}] for each role the theme serves (a role on the system default declares none)."""
-    out = []
+def theme_fonts(font_serve: dict, edl_fonts: dict, allow: dict = None) -> list:
+    """The faces the host declares: [{family, role, path, weight, format}] for each role the theme serves (a role on the system default declares none).
+    A role's family `oh-<role>` carries its own file at its own weight and, as the old engine's one family per typeface does (`_hf_compose.font_face_css`),
+    the file of every other served role of the same typeface (the allow-list's `family`) at that file's weight, so `var(--font-display)` at
+    `var(--weight-text)` picks the text file when the typeface has it (PF-a4g). A weight the typeface does not have is the browser's nearest face among
+    that typeface's files only, as on the old engine. `allow` ({id: row}) names the typeface of each role; with none, or a row with no `family`, a role
+    declares its own file alone. Nothing new is served: every face is a path `load_fonts` already checked against its sha256."""
+    served = {}
     for path in sorted(font_serve):
         m = re.fullmatch(r"/fonts/(display|text|mono)\.(ttf|otf|woff|woff2)", path)
         if m:
-            out.append({"family": "oh-" + m.group(1), "role": m.group(1), "path": path, "weight": str(edl_fonts[m.group(1)]["weight"]), "format": FONT_FORMAT[m.group(2)]})
+            served[m.group(1)] = {"path": path, "weight": str(edl_fonts[m.group(1)]["weight"]), "format": FONT_FORMAT[m.group(2)]}
+    typeface = {role: (allow or {}).get(edl_fonts[role].get("id"), {}).get("family") for role in served}
+    out = []
+    for owner in sorted(served):
+        seen = set()
+        for role in [owner] + [r for r in sorted(served) if r != owner and typeface[owner] and typeface[r] == typeface[owner]]:
+            if served[role]["weight"] in seen:
+                continue                                 # the same typeface at the same weight is the same file: one face
+            seen.add(served[role]["weight"])
+            out.append({"family": "oh-" + owner, "role": owner, "path": served[role]["path"], "weight": served[role]["weight"], "format": served[role]["format"]})
     return out
 
 
@@ -341,6 +355,7 @@ def prepare(*, catalogue: dict, engine: str, timeline: dict, data: dict, edl: di
     component (runtime `hf`) gets a page per beat from `registry`; one of our own ports (runtime `gsap`, PF-a4) gets a page per beat and per caption chunk from
     `_hf_port`, its fragment read from the staged blocks folder by its pin. Refuses before any frame is drawn. `browser_version` None (a dry run: no browser)
     leaves the runtime hash out of the proof."""
+    import _assets
     import _blocks
     import _hf_port
     caption_block = _blocks.resolve(catalogue, engine, "caption", None, "edl.captions")
@@ -356,7 +371,7 @@ def prepare(*, catalogue: dict, engine: str, timeline: dict, data: dict, edl: di
     if not rows:
         return {"serve": {}, "pages": {}, "ready": READY_JS, "fonts": {"faces": [], "system": []}, "proofs": {}, "blocks": []}
     runtime_doc = load_runtime(vendor, shims, edl["fps"], browser_version or "")
-    faces = theme_fonts(font_serve, edl["theme"]["fonts"])
+    faces = theme_fonts(font_serve, edl["theme"]["fonts"], _assets.font_allowlist() if font_serve else None)
     fonts = {f["role"]: "%s, %s" % (f["family"], data["theme"]["system_fallback"][f["role"]]) for f in faces}
     for role in data["theme"]["font_roles"]:
         fonts.setdefault(role, data["theme"]["system_fallback"][role])
