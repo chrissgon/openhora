@@ -17,13 +17,13 @@ resolve = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(resolve)
 
 
-def test_renderer_video_is_a_runtime_only_class_with_two_implementations_hyperframes_by_default_and_underscore_helpers_are_not_implementations():
+def test_renderer_video_is_a_runtime_only_class_with_one_implementation_ffmpeg_by_default_and_underscore_helpers_are_not_implementations():
     assert resolve.folder("renderer:video") == "renderer"
     assert resolve.variables("renderer:video") == ["RENDERER_VIDEO_PROVIDER", "RENDERER_PROVIDER"]
     assert resolve.split_class("renderer:video") == ("renderer", "video")
-    assert resolve.implementations("renderer:video") == ["ffmpeg", "hyperframes"]
+    assert resolve.implementations("renderer:video") == ["ffmpeg"]      # hyperframes is a retired name, read as ffmpeg (PF-b), never listed
     got = resolve.resolve("renderer:video", env={})
-    assert got["implementation"] == "hyperframes" and got["source"] == "class-default" and got["path"].endswith("providers/renderer/hyperframes.py")
+    assert got["implementation"] == "ffmpeg" and got["source"] == "class-default" and got["path"].endswith("providers/renderer/ffmpeg.py")
     assert resolve.platform_of("renderer:video") is None                    # a fixed target, not a class with a parameter
     assert "renderer:video" not in resolve.LISTED                           # no skill may require it ...
     assert "renderer:video" not in (REPO / "contracts" / "environment.md").read_text()      # ... so it is not in the environment contract
@@ -38,13 +38,14 @@ def test_a_workbench_with_the_providers_helpers_still_has_one_candidate(tmp_path
     (folder / "Dockerfile").write_text("")
     assert resolve.implementations("renderer:video", root=tmp_path, env={}) == ["ffmpeg"]
     got = resolve.resolve("renderer:video", root=tmp_path, env={})
-    assert got["implementation"] == "ffmpeg" and got["source"] == "only-implementation"      # one candidate and the class default is not shipped
-    (folder / "hyperframes.py").write_text("")                              # the second engine: the class default is hyperframes since V4
+    assert got["implementation"] == "ffmpeg" and got["source"] == "class-default"      # the one candidate is the class default (PF-b)
+    (folder / "hyperframes.py").write_text("")                              # the retired engine's file: never listed, never chosen as itself (PF-b)
+    assert resolve.implementations("renderer:video", root=tmp_path, env={}) == ["ffmpeg"]
     got = resolve.resolve("renderer:video", root=tmp_path, env={})
-    assert got["implementation"] == "hyperframes" and got["source"] == "class-default"
-    (folder / "remotion.py").write_text("")                                 # a third implementation: the class default stays hyperframes
+    assert got["implementation"] == "ffmpeg" and got["source"] == "class-default"
+    (folder / "remotion.py").write_text("")                                 # another implementation: the class default is ffmpeg
     got = resolve.resolve("renderer:video", root=tmp_path, env={})
-    assert got["implementation"] == "hyperframes" and got["source"] == "class-default"
+    assert got["implementation"] == "ffmpeg" and got["source"] == "class-default"
     assert resolve.resolve("renderer:video", root=tmp_path, env={"RENDERER_VIDEO_PROVIDER": "remotion"})["implementation"] == "remotion"
     assert resolve.resolve("renderer:video", root=tmp_path, env={"RENDERER_PROVIDER": "remotion"})["implementation"] == "remotion"
 

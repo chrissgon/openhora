@@ -721,12 +721,12 @@ def test_hyperframes_py_imports_nothing_of_the_drawing_part_of_the_ffmpeg_engine
     assert {"_docker", "_host", "_container", "_media", "_output"} <= found
 
 
-def test_the_class_default_is_hyperframes_and_the_two_engines_serve_the_same_common_verbs_and_block_params():
+def test_the_class_default_is_ffmpeg_and_the_two_engines_serve_the_same_common_verbs_and_block_params():
     assert set(_host.COMMON_HANDLERS) <= set(H.VERBS) and {"render", "build", "reap", "block-params"} <= set(H.VERBS)
     resolver = importlib.util.spec_from_file_location("resolve_for_hf_default", K.REPO / "providers" / "resolve.py")
     module = importlib.util.module_from_spec(resolver)
     resolver.loader.exec_module(module)
-    assert module.resolve("renderer:video", env={})["implementation"] == "hyperframes"
+    assert module.resolve("renderer:video", env={})["implementation"] == "ffmpeg"      # PF-b1: the default moved; hyperframes.py still serves its verbs when called by path
 
 
 def hf_host(world, *args):
