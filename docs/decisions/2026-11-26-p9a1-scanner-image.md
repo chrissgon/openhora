@@ -1,0 +1,28 @@
+## 2026-11-26: The renderer's common image reads text and QR codes: Tesseract and OpenCV in the image, a `scan` verb (P9-a1; plan video quality v6, R3-12; media conditions rule item 7; spec `SPEC-video-P9a-scan-before-approval-2026-11-26.md`)
+
+**Status.** P9-1, P9-2 and P9-4 answered by the maintainer on 2026-11-26. P9-3 and P9-5 are not answered and are not recorded here: P9-3 only matters for P9-a3 (the explaining skill) and P9-5 (the page's look and the decision text) for P9-a2. The decision file of P9-a2, `2026-11-26-p9a-scan-before-approval.md` (a new file: this one is never edited once merged), records D1-D7 of the whole package and those two answers when they exist.
+
+**Context.** The media conditions rule lets any picture or clip source in under seven conditions; item 7 is a scan before approval. The maintainer chose Tesseract (text) and OpenCV (QR codes) (D8) and, on 2026-11-24, limits code to security and validity: the scan warns and never refuses. P9-a1 is the part that needs no host wiring: the tools in the common image and the verb that runs them. Nothing calls the verb yet (P9-a2) and nothing leaves the computer.
+
+**Decision.**
+- D1. The scanner lives in the common renderer image (P9-4), as a verb of its own, `scan`, in `COMMON_HANDLERS`, with its own container run: a scan that times out never undoes a normalisation. It runs with no network, a read-only root, every capability dropped, no environment and a non-root user, on the normalised files only (`asset-<sha12>.png` and `.mp4`).
+- D2. Tesseract 5.3.0-2 and its language data come from the Debian snapshot the image already pins (`tesseract-ocr`, `tesseract-ocr-por`, `tesseract-ocr-spa`; English and the orientation data come with `tesseract-ocr`). OpenCV is the wheel `opencv-python-headless` 4.14.0.94 and numpy, two wheels pinned by size and sha256 in `wheel-pin.json`, downloaded at build from `files.pythonhosted.org` only and unpacked by `_fetch_wheels.py` with no package manager of Python (a model: `providers/fetcher/_fetch_tool.py wheels`). Nothing is committed (P9-1). `build` refuses while any field of `wheel-pin.json` is empty.
+- D3. Tesseract reads English, Portuguese and Spanish (`eng+por+spa`) (P9-2). This differs from the spec's recommendation (English and Portuguese); the Spanish data is one more package of the same source and licence. Text in another language is read letter by letter with lower accuracy and text in another script is not read.
+- D4. QR codes are read on every frame of every clip and every picture; text on every picture and, on a clip, on frame 0, the last frame and the changed frames, at most 30 (spec section 3). The answer is closed: codes from a list, counts, QR kinds and hosts, and the text as at most eight cleaned lines; the host rebuilds it from a closed schema and checks it again. Every bound is validity, none limits a picture or a clip a person may pick.
+- D5. Licences (P9-1): Tesseract and its language data Apache-2.0; Leptonica a BSD-style licence; OpenCV Apache-2.0 with the wheel's bundled FFmpeg under the LGPL 2.1 and the other binaries listed in the wheel's `LICENSE-3RD-PARTY.txt`; numpy BSD-3-Clause with the licences of what its wheel bundles. `providers/renderer/NOTICE-scan.md` carries the table.
+
+**The maintainer's answers**, verbatim.
+
+- P9-1, asked: "Você aceita essas licenças e fontes?" (validate: allow english-only -- the maintainer's own words, quoted)
+  Answer: "Aceito (Recomendado)" (validate: allow english-only -- the maintainer's own words, quoted)
+  Gloss: Tesseract from the pinned Debian snapshot with its language data, and `opencv-python-headless` 4.14.0.94 plus numpy as wheels pinned by hash and fetched at build, never committed.
+- P9-2, asked: "O Tesseract deve ler só inglês e português nas imagens e clipes?" (validate: allow english-only -- the maintainer's own words, quoted)
+  Answer: "Vamos deixar ingles, portugues e espanhol" (validate: allow english-only -- the maintainer's own words, quoted)
+  Gloss: English, Portuguese and Spanish: the Spanish data package `tesseract-ocr-spa` is added from the same snapshot and the scan reads with `eng+por+spa`.
+- P9-4, asked: "Onde ele deve ficar?" (validate: allow english-only -- the maintainer's own words, quoted)
+  Answer: "Na imagem do renderer (Recomendado)" (validate: allow english-only -- the maintainer's own words, quoted)
+  Gloss: in the common renderer image.
+
+**What it saves and what it loses (principle 13).** Saves: a picture with a stock watermark, a phone number or a QR link can reach the person's eyes before it reaches a post (the wiring is P9-a2). Loses: a bigger common image (estimated 200-350 MB, measured by the supervisor's live leg L1) and one rebuild for everyone (the manifest changed); the CI renderer build fetches two wheels more.
+
+**Verified and not verified.** Verified by offline tests: the frame selection, the cleaning, the QR payload forms, the host's checks of the answer, the wheel fetcher's refusals, the manifest and Dockerfile rules. Not verified until the supervisor's live legs: that the image builds, its size, that the OpenCV wheel imports with numpy on bookworm's Python 3.11, that Tesseract reads a PGM on stdin, the seconds per frame and the worst case, and the confidence floor (60) and change threshold (6) on planted fixtures. `wheel-pin.json` still has empty fields (the OpenCV wheels' file names and urls and every numpy field) for the supervisor to read from PyPI.

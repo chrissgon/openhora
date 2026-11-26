@@ -25,6 +25,7 @@ import _docker as D
 import _edl
 import _media
 import _output
+import _scan
 from _browser import NotConfigured
 from _text import Refusal
 from _vocab import SLOT_ID, load_data, load_vocabulary, read_json
@@ -39,6 +40,10 @@ ASSET_SHEET_MAX_TILES = 36              # the most pictures one `asset-sheet` ca
 ASSET_SHEET_COLUMNS = 6                 # a tile's column is 1 to this
 ASSET_SHEET_MAX_BYTES = 32 * 1024 * 1024         # the largest contact sheet the host keeps
 ASSET_FILE = re.compile(r"asset-([0-9a-f]{12})\.(png|mp4)")
+SCAN_MAX_ASSETS = 6                      # the most pictures and clips one `scan` call takes (= `_scan.MAX_ASSETS`, which the image holds, and runtime/media_stock.py MAX_FULL)
+SCAN_TIMEOUT = 600                       # the scan container's deadline (validity: the inner budget is 480 s); a scan that times out fails alone, never a normalisation
+SCAN_LANG = "eng+por+spa"                # the languages Tesseract reads: English, Portuguese and Spanish (the maintainer's answer P9-2, 2026-11-26); their data is in the image
+SCAN_FRAMES_MAX = int(_media.CLIP_MAX_SECONDS * _media.CLIP_FPS_MAX) + 1       # a clip of 10 s at 60 fps, plus one
 
 
 
@@ -464,8 +469,80 @@ def verb_asset_sheet(args) -> dict:
                 "rows": rows, "replayed": replayed, "image": {"id": job.image["id"], "tag": job.image["tag"]}}
 
 
+def check_scan_answer(result: dict, files: dict, kinds: dict) -> list:
+    """The assets of a `scan` answer (already through the closed schema) checked again, the answer being untrusted: the set of slots is the one asked, each file is the staged
+    name, the kind is the file's own, the counts are consistent, every code, kind, scheme and host is in its closed form. Returns the rows sorted by slot, or raises
+    Refusal("container_result_invalid", "scan"). `files` is {slot: staged name}, `kinds` {slot: "image"|"clip"} as the host read them."""
+    bad = Refusal("container_result_invalid", "scan")
+    try:
+        rows = result["assets"]
+        if result["lang"] != SCAN_LANG or sorted(a["slot"] for a in rows) != sorted(files):
+            raise bad
+        for a in rows:
+            slot, frames = a["slot"], a["frames"]
+            if a["file"] != files[slot] or a["kind"] != kinds[slot]:
+                raise bad
+            if not (frames == 1 if a["kind"] == "image" else 1 <= frames <= SCAN_FRAMES_MAX):
+                raise bad
+            if not (0 <= a["frames_qr"] <= frames and (a["partial"] or a["frames_qr"] == frames) and 0 <= a["frames_text"] <= frames and 0 <= a["frames_changed"] <= frames):
+                raise bad
+            if a["codes"] != sorted(set(a["codes"])) or not set(a["codes"]) <= set(_scan.SCAN_CODES):
+                raise bad
+            text = a["text"]
+            if len(text["lines"]) > _scan.TEXT_LINES_MAX or any(len(x) > _scan.LINE_MAX for x in text["lines"]) or text["chars"] < 0 \
+                    or sum(len(x) for x in text["lines"]) > _scan.TEXT_CHARS_MAX:
+                raise bad
+            for q in a["qr"]:
+                kind, host, scheme, said = q["kind"], q["host"], q["scheme"], q["text"]
+                shape = {"link": (host is None or _scan.HOST.fullmatch(host)) and scheme is None and said is None,
+                         "action": host is None and scheme in _scan.ACTION_SCHEMES and said is None,
+                         "text": host is None and scheme is None and said is not None and len(said) <= _scan.QR_TEXT_MAX}.get(kind)
+                if not shape or not 0 <= q["first_frame"] < frames or not 1 <= q["frames"] <= frames:
+                    raise bad
+    except (KeyError, TypeError, AttributeError):
+        raise bad from None
+    return sorted(rows, key=lambda a: a["slot"])
+
+
+def verb_scan(args) -> dict:
+    """The text and the QR codes in the normalised pictures and clips of a media set (`_scan.py`, in the common image), read before the person approves them. `--asset SLOT=FILE`
+    (at most 6, a slot id, a file named `asset-<sha12>.png` or `.mp4`, the form `asset-sheet --mode full` writes) and `--size SLOT=WxH` (from the set) are staged read-only; the
+    container has no network, no recording, no environment. A warning tool: nothing here refuses a picture or an approval, and a scan that fails is its own closed refusal
+    (a container of its own, so it never undoes a normalisation). The answer is read as untrusted: rebuilt from a closed schema, then checked again (`check_scan_answer`)."""
+    items = pairs(args.asset, "--asset SLOT=FILE")
+    sizes = pairs(args.size, "--size SLOT=WxH")
+    if not items:
+        raise Usage("scan takes at least one --asset SLOT=FILE")
+    if len(items) > SCAN_MAX_ASSETS:
+        raise Refusal("too_many_assets", "asset")
+    if set(sizes) != set(items):
+        raise Usage("scan takes one --size SLOT=WxH for each --asset")
+    cap = load_data()["limits"]["asset_max_bytes"]
+    files, kinds, dims = {}, {}, {}
+    for slot, path in items.items():
+        named = ASSET_FILE.fullmatch(os.path.basename(path))
+        size = re.fullmatch(r"([0-9]{1,5})x([0-9]{1,5})", sizes[slot])
+        if not SLOT_ID.fullmatch(slot) or named is None or size is None or not all(1 <= int(n) <= _scan.MAX_SIDE for n in size.groups()):
+            raise Refusal("bad_slot" if not SLOT_ID.fullmatch(slot) else "bad_asset", slot[:32])
+        refuse_reference(path, "asset")                                  # a reference store's file is looked at, never used: refused before a container is asked for
+        files[slot], dims[slot] = named.group(0), (int(size.group(1)), int(size.group(2)))
+        kinds[slot] = "clip" if named.group(2) == "mp4" else "image"
+        if (_media.clip_container(_assets.head_bytes(path)) is not None) != (kinds[slot] == "clip"):       # the host tells the input's kind itself
+            raise Refusal("bad_asset", slot[:32])
+    with Job(args, SCAN_TIMEOUT, "scan") as job:
+        job.max_entries = 2
+        inner, staged = ["scan", "--lang", SCAN_LANG], {}
+        for slot, path in sorted(items.items()):
+            if files[slot] not in staged:
+                staged[files[slot]] = job.stage(files[slot], path, cap)
+            inner += ["--asset", "%s=%s" % (slot, staged[files[slot]]), "--size", "%s=%dx%d" % ((slot,) + dims[slot])]
+        result = job.run(inner, "scan")
+        rows = check_scan_answer(result, files, kinds)
+        return {"ok": True, "lang": result["lang"], "versions": result["versions"], "assets": rows, "image": {"id": job.image["id"], "tag": job.image["tag"]}}
+
+
 COMMON_HANDLERS = {"analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents, "cover": verb_cover,
-                   "still": verb_still, "preview": verb_preview, "verify": verb_verify, "asset-sheet": verb_asset_sheet}
+                   "still": verb_still, "preview": verb_preview, "verify": verb_verify, "asset-sheet": verb_asset_sheet, "scan": verb_scan}
 COMMON_VERBS = tuple(COMMON_HANDLERS)
 
 
@@ -583,3 +660,7 @@ def add_common_parsers(sub) -> None:
     sp.add_argument("--mode", required=True, choices=("preview", "full"), help="preview: check and tile small pictures and clips; full: normalise the picked ones too")
     sp.add_argument("--fps", type=int, default=_media.CLIP_FPS_DEFAULT, help="the constant frame rate a clip is written at in full mode, 24 to 60 (default 30)")
     sp.add_argument("--out", required=True, help="the folder that gets sheet.png and, in full mode, asset-<sha12>.png")
+    sp = sub.add_parser("scan")
+    add_limits(sp)
+    sp.add_argument("--asset", action="append", metavar="SLOT=FILE", help="a normalised picture or clip as asset-sheet --mode full wrote it, asset-<sha12>.png or .mp4 (at most 6)")
+    sp.add_argument("--size", action="append", metavar="SLOT=WxH", help="the width and height of that file, from the media set (one for each --asset)")

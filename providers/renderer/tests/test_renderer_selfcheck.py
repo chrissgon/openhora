@@ -82,3 +82,87 @@ def test_the_committed_files_describe_the_real_shims_and_pins():
     with pytest.raises(Refusal) as exc:
         _inner.check_hf_runtime(str(K.RENDERER), "/nonexistent/vendor", "/nonexistent/reg")
     assert exc.value.code == "vendor_hash"
+
+
+# ---------------------------------------------------------------- the scanner's tools (P9-a1)
+
+import sys
+import types
+
+import _scan
+from _inner import NotConfigured
+
+LANGS = "List of available languages in \"/usr/share/tesseract-ocr/5/tessdata/\" (4):\neng\nosd\npor\nspa\n"
+
+
+def fake_tesseract(monkeypatch, langs=LANGS, version="tesseract 5.3.0\n leptonica-1.82.0\n"):
+    def run(args, data=b""):
+        if args == ["--version"]:
+            return version
+        if args == ["--list-langs"]:
+            return langs
+        raise AssertionError(args)
+    monkeypatch.setattr(_scan, "tesseract_run", run)
+
+
+def fake_modules(monkeypatch, cv2="4.14.0", numpy="2.3.1"):
+    for name, version in (("cv2", cv2), ("numpy", numpy)):
+        monkeypatch.setitem(sys.modules, name, types.SimpleNamespace(**{"__version__": version}) if version else None)
+
+
+def test_the_scan_tools_report_their_versions_and_the_three_languages(monkeypatch):
+    fake_tesseract(monkeypatch)
+    fake_modules(monkeypatch)
+    assert _inner.scan_tools("eng+por+spa") == {"tesseract": "5.3.0", "tessdata": ["eng", "osd", "por", "spa"], "opencv": "4.14.0", "numpy": "2.3.1"}
+
+
+@pytest.mark.parametrize("what,edit,field", [
+    ("a language", lambda m: fake_tesseract(m, langs=LANGS.replace("spa\n", "")), "scan:tessdata"),
+    ("tesseract itself", lambda m: m.setattr(_scan, "tesseract_run", lambda args, data=b"": (_ for _ in ()).throw(Refusal("tool_failed", "tesseract"))), "scan:tesseract"),
+    ("opencv", lambda m: fake_modules(m, cv2=None), "scan:opencv"),
+    ("numpy", lambda m: fake_modules(m, numpy=None), "scan:numpy"),
+])
+def test_a_missing_tool_language_or_module_is_not_ready(monkeypatch, what, edit, field):
+    fake_tesseract(monkeypatch)
+    fake_modules(monkeypatch)
+    edit(monkeypatch)
+    with pytest.raises(NotConfigured) as caught:
+        _inner.scan_tools("eng+por+spa")
+    assert (caught.value.code, caught.value.field) == ("not_ready", field), what
+
+
+def selfcheck_world(monkeypatch, container):
+    import _cdp
+    import _media
+    monkeypatch.setattr(_inner, "tools", lambda args: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(_media, "run", lambda argv, timeout: (" libx264 aac png ", ""))
+    monkeypatch.setattr(_media, "has_filter", lambda ffmpeg, name: True)
+    monkeypatch.setattr(_media, "tool_version", lambda path: "fake 1")
+    monkeypatch.setattr(_inner, "_browser_version", lambda path: "Chrome fake")
+    monkeypatch.setattr(_inner, "browser_path", lambda args: "/browser")
+    monkeypatch.setattr(_inner, "check_hf_runtime", lambda *a: {"vendor": 3, "registry": 1, "shims": 5})
+    monkeypatch.setattr(_cdp, "container_mode", lambda: container)
+    monkeypatch.setattr(_inner, "scan_tools", lambda lang: {"tesseract": "5.3.0", "tessdata": ["eng", "por", "spa"], "opencv": "4.14.0", "numpy": "2.3.1"})
+    return types.SimpleNamespace(ffmpeg=None, ffprobe=None, browser=None, vendor=None, hf_registry=None, scan=False)
+
+
+def test_outside_the_container_the_scan_keys_are_absent_unless_asked(monkeypatch):
+    args = selfcheck_world(monkeypatch, container=False)
+    out = _inner.verb_selfcheck(args)
+    assert not {"tesseract", "tessdata", "opencv", "numpy"} & set(out)
+    args.scan = True
+    assert {"tesseract", "tessdata", "opencv", "numpy"} <= set(_inner.verb_selfcheck(args))
+
+
+def test_inside_the_container_the_scan_keys_are_always_there_and_pass_the_hosts_schema(monkeypatch):
+    out = _inner.verb_selfcheck(selfcheck_world(monkeypatch, container=True))
+    assert out["tesseract"] == "5.3.0" and out["tessdata"] == ["eng", "por", "spa"] and out["opencv"] == "4.14.0" and out["numpy"] == "2.3.1"
+    import _docker as D
+    clean = D.sanitise(out, D.RESULT_SCHEMAS["selfcheck"])
+    assert clean["tessdata"] == ["eng", "por", "spa"] and clean["numpy"] == "2.3.1"
+
+
+def test_the_languages_the_image_must_hold_are_english_portuguese_and_spanish():
+    assert _scan.DEFAULT_LANG == "eng+por+spa"
+    import _host
+    assert _host.SCAN_LANG == _scan.DEFAULT_LANG

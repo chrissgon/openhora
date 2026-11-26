@@ -9,12 +9,17 @@
 #   - Chrome for Testing's headless shell, by version AND by the archive's size, md5 and sha256 (browser-pin.json: the size and md5
 #     are the official storage bucket's own metadata, the sha256 was computed once by the maintainer's `pin-browser`). The build
 #     stops when the archive it downloads differs from any of the three. `build` passes them as build arguments and refuses
-#     to start while the sha256 is not pinned.
+#     to start while the sha256 is not pinned;
+#   - OpenCV (opencv-python-headless) and numpy, two Python wheels, by name, version, size AND sha256 (wheel-pin.json, filled from PyPI's JSON
+#     API by a person); `_fetch_wheels.py` downloads each from files.pythonhosted.org only, checks the pin and the wheel's own RECORD, and
+#     unpacks it with no package manager of Python. `build` refuses to start while one pin is empty. Tesseract and its language data come from the
+#     Debian snapshot above, like every other package (NOTICE-scan.md lists the licences).
 # The image records its versions in labels (the definition's hash, the base digest, the snapshot, Chrome's version) and in
 # /opt/renderer/versions.json (what `_inner.py selfcheck` printed at build time: ffmpeg, python, the browser); the host's `--check` runs `_inner.py selfcheck` and prints them.
 #
 # What the image holds: ffmpeg (with ffprobe), python3, a minimal free font (DejaVu), the pinned headless shell, the HyperFrames runtime and GSAP
-# (/opt/renderer/vendor, read-only, checked by `selfcheck`), and the renderer's
+# (/opt/renderer/vendor, read-only, checked by `selfcheck`), Tesseract with its English, Portuguese and Spanish data and OpenCV with numpy (used only
+# by the `scan` verb, which reads the text and QR codes of a media set's pictures, in the same boundary), and the renderer's
 # own modules and data (the blocks a render draws are not
 # in the image: each job stages them read-only). No compiler, no shell history, a non-root user. At run time the host starts it with no network, a
 # read-only root file system, every capability dropped and no environment (see _docker.py, "The container").
@@ -49,7 +54,7 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
       > /etc/apt/sources.list \
     && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-retries \
     && apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg python3 ca-certificates fontconfig fonts-dejavu-core \
+      ffmpeg python3 ca-certificates fontconfig fonts-dejavu-core tesseract-ocr tesseract-ocr-por tesseract-ocr-spa \
       libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxkbcommon0 libasound2 libpango-1.0-0 libcairo2 \
       libgbm1 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libdrm2 libx11-6 libxext6 libxcb1 \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt /var/log/apt /var/log/dpkg.log
@@ -76,6 +81,11 @@ ENV RENDERER_IN_CONTAINER=1 \
 # the browser's, and it comes before `COPY .` so that a change to the renderer's code does not fetch again.
 COPY hf-runtime/npm-pins.json hf-runtime/registry.sha256 hf-runtime/fetch_hf.py /opt/renderer/hf-runtime/
 RUN python3 -I /opt/renderer/hf-runtime/fetch_hf.py --out /opt/renderer/vendor --registry-out /opt/renderer/hf-registry
+
+# OpenCV and numpy for the `scan` verb: two wheels, unpacked by `_fetch_wheels.py` (no pip), pinned by size and sha256 (wheel-pin.json). Never committed.
+# Like the step above, this one comes before `COPY .` so that a change to the renderer's code does not fetch again.
+COPY wheel-pin.json _fetch_wheels.py /opt/renderer/
+RUN python3 -I /opt/renderer/_fetch_wheels.py /opt/renderer/wheel-pin.json
 
 COPY . /opt/renderer/
 RUN chmod -R go-w /opt/renderer \

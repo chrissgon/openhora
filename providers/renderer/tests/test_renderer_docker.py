@@ -243,6 +243,7 @@ def test_a_confirmed_build_with_a_pinned_archive_records_the_image_and_passes_th
     world.save()
     (world.state / "renderer" / "image.json").unlink()
     pin = pin_with_sha(tmp_path)
+    monkeypatch.setattr(D, "require_wheels_pinned", lambda path=None: None)          # the committed wheel-pin.json is filled by the supervisor; its own tests are test_fetch_wheels.py
     monkeypatch.setattr(B, "load_pin", lambda path=None: pin)
     monkeypatch.setenv("OPENHORA_STATE_DIR", str(world.state))
     monkeypatch.setenv("DOCKER_CONFIG", str(world.config))
@@ -264,6 +265,7 @@ def test_a_failed_build_records_nothing(world, tmp_path, monkeypatch):
     monkeypatch.setenv("OPENHORA_STATE_DIR", str(world.state))
     monkeypatch.setenv("DOCKER_CONFIG", str(world.config))
     monkeypatch.setenv("PATH", "%s:%s" % (world.bin, os.environ["PATH"]))
+    monkeypatch.setattr(D, "require_wheels_pinned", lambda path=None: None)
     with pytest.raises(Refusal) as e:
         D.build(pin_with_sha(tmp_path), "linux64", confirmed=True, dry_run=False)
     assert e.value.code == "build_failed" and not (world.state / "renderer" / "image.json").exists()

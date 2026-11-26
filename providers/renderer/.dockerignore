@@ -6,6 +6,8 @@
 !browser-pin.json
 !edl.schema.json
 !_fetch_browser.py
+!wheel-pin.json
+!_fetch_wheels.py
 !_inner.py
 !_admit_check.py
 !_advice.py
@@ -30,6 +32,7 @@
 !_redact.py
 !_render.py
 !_retakes.py
+!_scan.py
 !_text.py
 !_timeline.py
 !_vocab.py

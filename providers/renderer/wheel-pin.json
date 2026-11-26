@@ -1,0 +1,47 @@
+{
+ "note": "Wheels unpacked into the common renderer image by _fetch_wheels.py, never by pip (same shape as providers/fetcher/wheel-pin.json). Filled from PyPI's JSON API by a person (the supervisor); `build` and the image's own fetch refuse while any field is empty. The opencv_python_headless size and sha256 are the ones the P9-a spec recorded on 2026-11-26; its filename and url, and every numpy field (the newest 2.x release at least 14 days old with cp311 manylinux2014 wheels for both architectures), are still to be read.",
+ "source": "PyPI's JSON API, https://pypi.org/pypi/<name>/<version>/json: each file's url, size and digests.sha256; requires_dist",
+ "read_on": "2026-11-26",
+ "download_hosts": [
+  "files.pythonhosted.org"
+ ],
+ "redirect_hosts": [],
+ "wheels": [
+  {
+   "name": "opencv_python_headless",
+   "version": "4.14.0.94",
+   "arch": "amd64",
+   "filename": "",
+   "url": "",
+   "size": 57534165,
+   "sha256": "5e02669eac0ba67b2a22d7245af1e8ee1a2ef1185ee526a063d8f0555224bd52"
+  },
+  {
+   "name": "opencv_python_headless",
+   "version": "4.14.0.94",
+   "arch": "arm64",
+   "filename": "",
+   "url": "",
+   "size": 35405458,
+   "sha256": "29714d7716dbfddf9fec20ffb878765e94ccaecd7d3ebd6750877420296e2dc5"
+  },
+  {
+   "name": "numpy",
+   "version": "",
+   "arch": "amd64",
+   "filename": "",
+   "url": "",
+   "size": 0,
+   "sha256": ""
+  },
+  {
+   "name": "numpy",
+   "version": "",
+   "arch": "arm64",
+   "filename": "",
+   "url": "",
+   "size": 0,
+   "sha256": ""
+  }
+ ]
+}
