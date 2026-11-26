@@ -77,3 +77,45 @@ def test_in_the_browser_the_display_family_at_the_text_weight_is_the_text_file_n
     assert title, run.stdout[-300:] + run.stderr[-300:]
     got = json.loads(title.group(1).replace("&quot;", '"'))
     assert got == {"oh-display@800": ["oh-display 800"], "oh-display@500": ["oh-display 500"], "oh-text@500": ["oh-text 500"], "oh-text@800": ["oh-text 800"]}
+
+
+DEFAULT_THEME = {"display": {"id": "default", "weight": 800}, "text": {"id": "default", "weight": 500}, "mono": {"id": "default", "weight": 500}}
+
+
+def default_served():
+    """What `load_fonts` serves for the default theme (PF-b1, B2 (a)): the real allow-listed files, each checked by its sha256."""
+    serve, used = _assets.load_fonts(DEFAULT_THEME, ALLOW, DATA["limits"]["font_max_bytes"])
+    return serve, used
+
+
+def test_the_default_theme_resolves_to_the_inter_and_mono_files_and_declares_the_same_faces_as_the_explicit_ids():
+    serve, used = default_served()
+    assert used == {"display": "inter-800", "text": "inter-500", "mono": "jetbrains-mono-500"}
+    assert sorted(serve) == sorted(p for p in SERVE) or {p.rsplit(".", 1)[0] for p in serve} == {p.rsplit(".", 1)[0] for p in SERVE}
+    assert _hf_host.theme_fonts(serve, DEFAULT_THEME, ALLOW) == _hf_host.theme_fonts(serve, FONTS, ALLOW)      # the grouping applies to the files `default` stands for
+    got = [(f["family"], f["weight"]) for f in _hf_host.theme_fonts(serve, DEFAULT_THEME, ALLOW)]
+    assert ("oh-display", "500") in got and ("oh-display", "800") in got and ("oh-text", "800") in got
+
+
+def test_a_font_id_that_is_not_default_is_itself_and_default_is_the_roles_file():
+    assert _assets.font_id_of("display", "default") == "inter-800" and _assets.font_id_of("text", "default") == "inter-500"
+    assert _assets.font_id_of("mono", "default") == "jetbrains-mono-500" and _assets.font_id_of("display", "inter-500") == "inter-500"
+
+
+@pytest.mark.skipif(not K.BROWSER, reason=K.SKIP_BROWSER)
+def test_in_the_browser_under_the_default_theme_the_display_family_at_the_text_weight_is_inter_500(tmp_path):
+    serve, _used = default_served()
+    folder = _assets.fonts_dir()
+    by_path = {"/fonts/display.woff2": "inter-800.woff2", "/fonts/text.woff2": "inter-500.woff2", "/fonts/mono.woff2": "jetbrains-mono-500.woff2"}
+    declared = _hf_host.theme_fonts(serve, DEFAULT_THEME, ALLOW)
+    css = "".join("@font-face{font-family:%s;src:url(file://%s) format('%s');font-weight:%s;font-style:normal}"
+                  % (f["family"], os.path.join(folder, by_path[f["path"]]), f["format"], f["weight"]) for f in declared)
+    page = tmp_path / "p.html"
+    page.write_text(PAGE % css)
+    run = subprocess.run([K.BROWSER, "--headless", "--no-sandbox", "--allow-file-access-from-files", "--virtual-time-budget=3000", "--dump-dom", "file://" + str(page)],
+                         capture_output=True, text=True, timeout=60)
+    title = re.search(r"<title>(.*?)</title>", run.stdout, re.S)
+    assert title, run.stdout[-300:] + run.stderr[-300:]
+    got = json.loads(title.group(1).replace("&quot;", '"'))
+    assert got == {"oh-display@800": ["oh-display 800"], "oh-display@500": ["oh-display 500"], "oh-text@500": ["oh-text 500"], "oh-text@800": ["oh-text 800"]}
+    assert {f["path"] for f in declared if f["family"] == "oh-display" and f["weight"] == "500"} == {"/fonts/text.woff2"}      # display@500 is the text file, inter-500

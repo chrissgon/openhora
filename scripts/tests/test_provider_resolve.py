@@ -502,14 +502,42 @@ def test_transcriber_speech_is_a_runtime_only_class_served_by_whispercpp():
         resolve.variables("transcriber")   # a class is <role>:<target>
 
 
-def test_renderer_video_is_a_runtime_only_class_whose_default_is_hyperframes():
+def test_renderer_video_is_a_runtime_only_class_whose_default_is_ffmpeg():
     assert resolve.variables("renderer:video") == ["RENDERER_VIDEO_PROVIDER", "RENDERER_PROVIDER"]
     assert resolve.folder("renderer:video") == "renderer" and resolve.platform_of("renderer:video") is None
     got = resolve.resolve("renderer:video", env={})
-    assert got["implementation"] == "hyperframes" and got["source"] == "class-default"
-    assert got["path"] == str(REPO / "providers" / "renderer" / "hyperframes.py")
+    assert got["implementation"] == "ffmpeg" and got["source"] == "class-default" and "retired" not in got
+    assert got["path"] == str(REPO / "providers" / "renderer" / "ffmpeg.py")
     assert "renderer:video" not in resolve.LISTED   # VD2: no skill requires it, so contracts/environment.md does not list it
-    assert resolve.implementations("renderer:video", env={}) == ["ffmpeg", "hyperframes"]   # the underscore modules and hyperframes-image/ are not implementations
+    assert resolve.implementations("renderer:video", env={}) == ["ffmpeg"]   # a retired name is never listed, and the underscore modules and hyperframes-image/ are not implementations
+
+
+def test_the_retired_name_hyperframes_is_read_as_ffmpeg_by_a_caller_and_by_a_variable():
+    assert resolve.successor("renderer:video", "hyperframes") == "ffmpeg" and resolve.successor("renderer:video", "ffmpeg") == "ffmpeg"
+    assert resolve.successor("sender:email", "hyperframes") == "hyperframes"      # the table is per class
+    ffmpeg_path = str(REPO / "providers" / "renderer" / "ffmpeg.py")
+    asked = resolve.resolve("renderer:video", env={}, implementation="hyperframes")
+    assert asked["implementation"] == "ffmpeg" and asked["path"] == ffmpeg_path and asked["source"] == "configuration" and asked["retired"] == "hyperframes"
+    for variable in ("RENDERER_PROVIDER", "RENDERER_VIDEO_PROVIDER"):
+        named = resolve.resolve("renderer:video", env={variable: "hyperframes"})
+        assert named["implementation"] == "ffmpeg" and named["path"] == ffmpeg_path and named["source"] == "environment"
+        assert named["variable"] == variable and named["retired"] == "hyperframes"
+    plain = resolve.resolve("renderer:video", env={"RENDERER_PROVIDER": "ffmpeg"})
+    assert plain["implementation"] == "ffmpeg" and "retired" not in plain
+
+
+def test_an_unknown_renderer_name_is_still_refused_and_the_message_lists_no_retired_name():
+    with pytest.raises(resolve.Unresolved) as caught:
+        resolve.resolve("renderer:video", env={}, implementation="heygen")
+    assert "shipped: ['ffmpeg']" in str(caught.value)
+    with pytest.raises(resolve.Unresolved):
+        resolve.resolve("renderer:video", env={"RENDERER_PROVIDER": "heygen"})
+
+
+def test_the_retired_names_have_one_table_and_the_runtime_keeps_none():
+    found = subprocess.run(["git", "grep", "-n", '"hyperframes": "ffmpeg"', "--", "runtime", "scripts", "providers"], cwd=REPO, capture_output=True, text=True)
+    lines = [line for line in found.stdout.splitlines() if not line.startswith(("providers/resolve.py:", "scripts/tests/", "runtime/tests/"))]
+    assert lines == []
 
 
 def test_fetcher_video_is_a_runtime_only_class_served_by_ytdlp():

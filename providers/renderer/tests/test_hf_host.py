@@ -205,7 +205,7 @@ def test_prepare_builds_one_page_per_beat_the_proofs_and_only_for_blocks_that_ru
     assert out["pages"] == {H.NAME: {1: "/h/b1/index.html", 2: "/h/b2/index.html"}} and set(out["serve"]) == {"/h/vendor/gsap.min.js", "/h/b1/index.html", "/h/b2/index.html"}
     assert out["proofs"][H.NAME] == {"served_sha256": block["served_sha256"], "runtime_sha256": runtime["runtime_sha256"]}
     assert b"Hello" in out["serve"]["/h/b1/index.html"][0] and b"Two" in out["serve"]["/h/b2/index.html"][0] and out["blocks"] == [H.NAME]
-    assert out["fonts"]["faces"] == [["oh-display", "800", "normal"], ["oh-text", "500", "normal"]]
+    assert out["fonts"]["faces"] == [["oh-display", "800", "normal"], ["oh-display", "500", "normal"], ["oh-text", "500", "normal"], ["oh-text", "800", "normal"]]      # the default theme is Inter (PF-b1, B2 (a)): a family carries every Inter file served
     dry = _hf_host.prepare(catalogue=cat, engine="ffmpeg", timeline={"beats": [drawn]}, data=DATA, edl=EDL, font_serve={}, vendor=rt["vendor"], registry=rt["registry"],
                            shims=rt["runtime_dir"] + "/shims", browser_version=None)
     assert dry["proofs"][H.NAME]["runtime_sha256"] == ""

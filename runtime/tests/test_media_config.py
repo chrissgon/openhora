@@ -5,6 +5,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_media_config.py
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -67,10 +68,10 @@ def test_a_project_with_no_media_key_gets_the_step_kinds_defaults(world):
 @pytest.mark.parametrize("value, sentence", [
     ([], "must be an object with the keys language, transcriber_model and renderer"),
     ({"engine": "x"}, "must be an object with the keys language, transcriber_model and renderer"),
-    ({"renderer": "heygen"}, "media.renderer must be auto or one of ffmpeg, hyperframes"),
-    ({"renderer": 5}, "media.renderer must be auto or one of ffmpeg, hyperframes"),
-    ({"renderer": ""}, "media.renderer must be auto or one of ffmpeg, hyperframes"),
-    ({"renderer": None}, "media.renderer must be auto or one of ffmpeg, hyperframes"),
+    ({"renderer": "heygen"}, "media.renderer must be auto or one of ffmpeg"),
+    ({"renderer": 5}, "media.renderer must be auto or one of ffmpeg"),
+    ({"renderer": ""}, "media.renderer must be auto or one of ffmpeg"),
+    ({"renderer": None}, "media.renderer must be auto or one of ffmpeg"),
     ({"language": "pt-BR"}, "media.language must be a language code"),
     ({"language": "PT"}, "media.language must be a language code"),
     ({"language": ""}, "media.language must be a language code"),
@@ -109,14 +110,23 @@ def test_a_model_that_is_not_pinned_is_refused_and_an_empty_list_says_so(world):
     assert "none is listed" in str(caught.value)
 
 
-@pytest.mark.parametrize("name", ["auto", "ffmpeg", "hyperframes"])
+@pytest.mark.parametrize("name", ["auto", "ffmpeg"])
 def test_the_renderer_key_loads_auto_and_each_shipped_implementation(world, name):
     set_media(world, {"renderer": name})
     assert project_config.load(world["path"])["media"] == {"renderer": name}
 
 
+def test_the_retired_name_hyperframes_is_read_as_ffmpeg_and_the_accepted_hash_is_the_raw_bytes_hash(world):
+    path = set_media(world, {"renderer": "hyperframes"})
+    loaded = project_config.load(world["path"])
+    assert loaded["media"] == {"renderer": "ffmpeg"}                                     # PF-b: the successor is what the runtime sees
+    assert loaded["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()           # over the raw bytes: naming hyperframes or ffmpeg are two files, never re-accepted for a rename
+    accept(world)
+    assert project_config.load(world["path"])["sha256"] == loaded["sha256"]
+
+
 def test_the_store_names_the_renderer_unless_it_is_absent_or_auto(world):
-    for value, expected in (({}, None), ({"renderer": "auto"}, None), ({"renderer": "ffmpeg"}, "ffmpeg"), ({"renderer": "hyperframes"}, "hyperframes")):
+    for value, expected in (({}, None), ({"renderer": "auto"}, None), ({"renderer": "ffmpeg"}, "ffmpeg"), ({"renderer": "hyperframes"}, "ffmpeg")):
         set_media(world, value)
         accept(world)
         assert ops_step_seams.MediaStore(ops_core.context(world["path"])).renderer() == expected

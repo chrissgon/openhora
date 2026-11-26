@@ -280,12 +280,13 @@ def theme_fonts(font_serve: dict, edl_fonts: dict, allow: dict = None) -> list:
     `var(--weight-text)` picks the text file when the typeface has it (PF-a4g). A weight the typeface does not have is the browser's nearest face among
     that typeface's files only, as on the old engine. `allow` ({id: row}) names the typeface of each role; with none, or a row with no `family`, a role
     declares its own file alone. Nothing new is served: every face is a path `load_fonts` already checked against its sha256."""
+    import _assets
     served = {}
     for path in sorted(font_serve):
         m = re.fullmatch(r"/fonts/(display|text|mono)\.(ttf|otf|woff|woff2)", path)
         if m:
             served[m.group(1)] = {"path": path, "weight": str(edl_fonts[m.group(1)]["weight"]), "format": FONT_FORMAT[m.group(2)]}
-    typeface = {role: (allow or {}).get(edl_fonts[role].get("id"), {}).get("family") for role in served}
+    typeface = {role: (allow or {}).get(_assets.font_id_of(role, edl_fonts[role].get("id")), {}).get("family") for role in served}
     out = []
     for owner in sorted(served):
         seen = set()

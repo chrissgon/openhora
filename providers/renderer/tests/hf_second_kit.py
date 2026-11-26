@@ -120,6 +120,9 @@ VARIANTS = {
                        "script": 'tl.set(mark, { opacity: 1 }, 3 / 30); tl.call(function () { document.documentElement.style.clipPath = "none"; }, [], 3 / 30);'},
     # the badge sits where a random number puts it: nothing in the page's own clock or the shims is involved, so the frames differ from run to run
     "math_random": {"script": 'badge.style.left = (30 + Math.random() * 40) + "%";'},
+    # real state kept across seeks: the badge's position is set by whether the last seek was before or after this one, so the pixels of frame N depend on the frames drawn
+    # before it. Forward runs seek the same way and agree; the reverse run (last frame first) puts the badge elsewhere. No clock, no random number, no raster quirk.
+    "history": {"script": 'var seen = 0, time = tl.time; tl.time = function (t) { var r = time.call(tl, t); badge.style.left = (t >= seen ? 30 : 70) + "%"; seen = t; return r; };'},
     # a text the lint refuses by its category
     "lint_storage": {"script": 'window.localStorage.setItem("a", "b");'},
 }

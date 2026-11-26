@@ -46,7 +46,7 @@ def test_the_render_is_a_content_addressed_immutable_file_that_passes_the_platfo
     assert spec["facts"]["color"] == ["bt709", "bt709", "bt709", "tv"]
     assert not any(p.name.startswith(".render-") for p in short["out"].iterdir())      # the work folder is gone
     assert r["browser_sandbox"] == "on" and r["browser"].startswith(("HeadlessChrome", "Chrome")) and r["seconds"]["total"] > 0
-    assert r["bytes"] == path.stat().st_size and r["unmatched_beats"] == [] and r["fonts"]["display"] == "system default"
+    assert r["bytes"] == path.stat().st_size and r["unmatched_beats"] == [] and r["fonts"]["display"] == "inter-800"      # `default` is Inter 800 since PF-b1 (B2 (a)); it was the system default
 
 
 @needs_all

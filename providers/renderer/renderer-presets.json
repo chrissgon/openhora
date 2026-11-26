@@ -72,7 +72,7 @@
   "render_seconds_base": 120,
   "render_seconds_per_output_second": 25,
   "render_seconds_max": 1800,
-  "frame_bytes_estimate": 250000
+  "frame_bytes_estimate": 120000
  },
  "presets": {
   "keyword": {
