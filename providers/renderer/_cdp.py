@@ -499,10 +499,12 @@ class Page:
             pass
 
     def seek_admitted(self, t):
-        """Seek the runtime to `t` seconds, wait for two painted frames, check the faces and the page's state, and return the PNG."""
+        """Seek the runtime to `t` seconds, wait for two painted frames, check the faces and the page's state, repaint the instance element (`REPAINT_JS`:
+        the raster history of the frame drawn before must not reach this one) and return the PNG."""
         self.evaluate(SEEK_JS % float(t), await_promise=True, timeout=60)
         self._admitted_state(self.before)
         self.evaluate("window.__ohFonts(%s, false)" % json.dumps(self.fonts), await_promise=True)
+        self.evaluate(REPAINT_JS, await_promise=True)
         return self.screenshot()
 
 
@@ -513,6 +515,22 @@ CLIP_PATH = "polygon(1px 0, 100% 0, 100% 100%, 0 100%, 0 1px, 1px 1px)"
 SEEK_JS = r"""
 (async () => {
   window.__hf.seek(%r);
+  const raf = (window.__HF_VIRTUAL_TIME__ && window.__HF_VIRTUAL_TIME__.originalRequestAnimationFrame) || window.requestAnimationFrame.bind(window);
+  await new Promise((r) => raf(() => raf(r)));
+  return true;
+})()
+"""
+
+# The repaint of an admitted page (PF-a4e), run after the seek and before the screenshot. Chrome keeps raster state between frames: after a seek, the
+# edge pixels of a glyph depend on the frame drawn before (a run that seeks the last frame first draws a sub-pixel different edge on the frames where
+# a transform is fractional), so the same frame drawn forward and in reverse differed and the determinism test failed. Hiding the port's instance
+# element (`#oh-inst`) and showing it again, with a forced layout after each step, drops its raster tiles, and two real animation frames then draw
+# it from scratch. The frame callbacks are the browser's own: the virtual-time shim replaces `window.requestAnimationFrame`, so the original is used
+# (plain `requestAnimationFrame` never fires). A page with no `#oh-inst` (a registry page, whose root is `#oh-host`) is left as it is: only the wait runs.
+REPAINT_JS = r"""
+(async () => {
+  const e = document.getElementById('oh-inst');
+  if (e) { const d = e.style.display; e.style.display = 'none'; void e.offsetHeight; e.style.display = d; void e.offsetHeight; }
   const raf = (window.__HF_VIRTUAL_TIME__ && window.__HF_VIRTUAL_TIME__.originalRequestAnimationFrame) || window.requestAnimationFrame.bind(window);
   await new Promise((r) => raf(() => raf(r)));
   return true;

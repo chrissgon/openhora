@@ -65,6 +65,7 @@
   {
    "band": "card",
    "engines": [
+    "ffmpeg",
     "hyperframes"
    ],
    "kind": "overlay",
@@ -116,6 +117,7 @@
   {
    "band": "card",
    "engines": [
+    "ffmpeg",
     "hyperframes"
    ],
    "kind": "overlay",
@@ -163,6 +165,7 @@
   {
    "band": "card",
    "engines": [
+    "ffmpeg",
     "hyperframes"
    ],
    "kind": "overlay",
@@ -813,7 +816,7 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "5897b6db776d03bdc964619f3fa58bceb570b58072b7bbe6e1e31dca4f5aeb0e",
+ "blocks_sha256": "3c8aebda86cac54fdf464649b22edc6b2fadae9650b34043b8eb885e3bf8d459",
  "engines": {
   "ffmpeg": {
    "presets": {
