@@ -283,9 +283,9 @@ def test_the_clean_component_passes_the_whole_measurement_and_the_result_says_wh
 
 @needs_all
 def test_a_page_whose_pixels_depend_on_the_frames_drawn_before_them_is_refused_by_the_reverse_run(tmp_path):
-    """The fade of the plain clean control leaves Chrome's raster of the frames after it different from the same frames drawn first: forward runs agree
-    with each other and the reverse run does not. It is a property of the page's layers, found only because one run seeks the last frame first."""
-    args, env, _ = check_args(tmp_path, "clean", samples=[{"text": "Go"}])
+    """The planted `history` page keeps the time of the last seek and places the badge by it: forward runs agree with each other and the reverse run, which seeks
+    the last frame first, does not. It is state the page keeps, so it holds on any font and any Chrome raster (the plain fade of `clean` once showed it by a raster quirk)."""
+    args, env, _ = check_args(tmp_path, "history", samples=[{"text": "Go"}])
     rc, out, err = K.run_verb(*args, env=env)
     assert rc == 1 and err.startswith("refused: determinism_failed sample 1 frame "), err
 
