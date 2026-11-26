@@ -1,7 +1,6 @@
-"""The inputs both engines serve to a page: the allow-listed fonts (checked by hash) and the person's image assets (checked by their
+"""The inputs the engine serves to a page: the allow-listed fonts (checked by hash) and the person's image assets (checked by their
 header bytes), and the safe read every input goes through. A clip (V9b-5a) is told from a picture here by its first bytes; it is read and probed by the
-ffmpeg engine's render (`_render`), which is the only place that draws one. No browser, no frames: the drawing engine (_frames) and the HyperFrames
-engine both import this file. Standard library only.
+ffmpeg engine's render (`_render`), which is the only place that draws one. No browser, no frames: the drawing engine (_frames) imports this file. Standard library only.
 """
 from __future__ import annotations
 

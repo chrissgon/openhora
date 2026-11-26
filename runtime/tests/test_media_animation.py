@@ -91,7 +91,7 @@ def plant(tmp_path, mutate=None, pins=None, catalogue=None):
     return str(tmp_path / "root")
 
 
-def entry(name="oh:extra", kind="overlay", preset="keyword", params=None, engines=("ffmpeg", "hyperframes")):
+def entry(name="oh:extra", kind="overlay", preset="keyword", params=None, engines=("ffmpeg",)):
     return {"name": name, "namespace": "oh", "kind": kind, "preset": preset, "band": "overlay", "may_cross_face": False, "license": ["MIT"], "source": "openhora",
             "use_when": "a planted block", "params": params if params is not None else {"text": {"type": "text", "max": 24, "required": True}},
             "samples": [{}], "natural_duration": None, "runtimes": ["renderat"], "engines": list(engines)}
@@ -162,7 +162,7 @@ def test_a_pins_file_that_differs_by_one_byte_makes_the_catalogue_stale_and_an_e
 def test_the_listing_says_for_each_block_whether_it_can_be_added_and_why_not(tmp_path, monkeypatch):
     def more(doc):
         doc["blocks"] += [entry("oh:bare", preset=None), entry("oh:pic", params={"asset": {"type": ["image", "clip"], "required": True}}),
-                          entry("oh:only-hf", engines=("hyperframes",))]
+                          entry("oh:only-hf", engines=("twin",))]
     root = plant(tmp_path, more)
     monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "ffmpeg")
     shown = animation.listing(root)
@@ -222,7 +222,7 @@ def test_the_checker_hands_the_cleaned_parameters_to_the_renderers_checker_in_a_
 
 def test_every_refusal_that_needs_no_engine_starts_no_process(tmp_path, monkeypatch):
     def more(doc):
-        doc["blocks"] += [entry("oh:bare", preset=None), entry("oh:only-hf", engines=("hyperframes",))]
+        doc["blocks"] += [entry("oh:bare", preset=None), entry("oh:only-hf", engines=("twin",))]
     root = plant(tmp_path, more)
     fake = use(monkeypatch, Checking())
     monkeypatch.setattr(seams.MediaStore, "root", lambda self: root)
@@ -515,7 +515,7 @@ def test_the_checker_shows_a_layout_a_placeholder_slot_stores_no_picture_and_ref
 
 
 def test_the_asset_kinds_of_an_engine_come_from_the_catalogue_and_an_unknown_engine_draws_none(tmp_path, monkeypatch):
-    assert animation.read_catalogue(str(REPO))["engines"]["ffmpeg"]["asset_kinds"] == ["image", "clip"] and animation.read_catalogue(str(REPO))["engines"]["hyperframes"]["asset_kinds"] == ["image", "clip"]
+    assert animation.read_catalogue(str(REPO))["engines"]["ffmpeg"]["asset_kinds"] == ["image", "clip"]
     monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "ffmpeg")
     assert animation.asset_kinds(str(REPO)) == ["image", "clip"]
     monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "nothing")

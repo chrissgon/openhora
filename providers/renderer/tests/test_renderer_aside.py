@@ -1,7 +1,7 @@
 """The effect preset `aside`: for one beat the speaker's picture turns black and white and the voice gets an echo, then a hard cut returns to
 normal. How the vocabulary and the data declare it, the block and the catalogue that draw its label, how the timeline turns its beat into mono
-grade rows and an echo row (`_edl.resolve_asides`), how the beats file holds the script's rules again, how both engines draw it (the ffmpeg
-engine's compose graph, the HyperFrames page's grades and its encode stage's sound) and what a plan without an aside keeps. Offline, on a
+grade rows and an echo row (`_edl.resolve_asides`), how the beats file holds the script's rules again, how the ffmpeg engine draws it (its
+compose graph's grades and sound) and what a plan without an aside keeps. Offline, on a
 synthetic edit list; the tests that run ffmpeg use the host's own on a synthetic tone or test pattern and skip when there is none. Every name
 is fictional."""
 from __future__ import annotations
@@ -15,7 +15,6 @@ import pytest
 import renderer_kit as K
 import _blocks
 import _edl
-import _hf_page
 import _inner
 import _media
 from _text import Refusal
@@ -75,13 +74,12 @@ def test_the_renderer_reads_aside_as_an_effect_and_has_its_timing_and_both_echoe
     assert "transition" not in cfg["looks"]                    # nothing sets the edges: both are hard cuts
 
 
-def test_the_block_draws_the_aside_on_both_engines_and_is_pinned():
+def test_the_block_draws_the_aside_and_is_pinned():
     catalogue = _blocks.load_catalogue()
     block = catalogue["blocks"]["oh:aside"]
     assert block["kind"] == "effect" and block["preset"] == "aside" and block["band"] == "card" and block["may_cross_face"] is False
     assert set(block["params"]) == set(VOCAB["presets"]["aside"]["params"])
-    for engine in ("ffmpeg", "hyperframes"):
-        assert _blocks.resolve(catalogue, engine, "aside", None, "beats.b1")["name"] == "oh:aside"
+    assert _blocks.resolve(catalogue, "ffmpeg", "aside", None, "beats.b1")["name"] == "oh:aside"
     pins = json.loads((K.RENDERER / "blocks" / "pins.json").read_text(encoding="utf-8"))["files"]
     assert {"oh/aside/block.json", "oh/aside/renderat.html"} <= set(pins)
     generated = json.loads((K.RENDERER / "blocks" / "catalogue.json").read_text(encoding="utf-8"))
@@ -233,29 +231,6 @@ def test_the_render_plan_carries_the_echo_only_with_an_aside_and_sound():
         assert ("echoes" in plan) is want
         if want:
             assert plan["echoes"] == timeline["echoes"]
-
-
-# ---------------------------------------------------------------- the HyperFrames engine: the page's grey, the encode's echo
-
-def test_the_hyperframes_page_draws_the_asides_grey_from_the_same_rows():
-    edl = synthetic_edl()
-    timeline = resolve(edl, beats_of([entry(2, "aside", 2, 5)]))
-    parts = _hf_page.build_parts(edl, fps=FPS, effects=_edl.range_effects(edl, timeline))
-    grades = parts["vars"]["grades"]
-    assert [g[0] for g in grades] == ["mono"] and grades[0][1:3] == [33, 90]
-
-
-def test_the_encode_stage_adds_the_echo_and_keeps_its_command_without_one():
-    plan = {"fps": FPS, "out_frames": 420, "max_bytes": 50_000_000, "has_audio": True}
-    plain = _media.encode_argv("ffmpeg", "in.mov", "out.mp4", plan)
-    assert plain[plain.index("0:v:0") + 1:plain.index("0:v:0") + 3] == ["-map", "0:a:0?"] and "-filter_complex" not in plain
-    rows = [{"start_frame": 33, "end_frame": 90, "in_gain": 0.8, "out_gain": 0.9, "delays": [60], "decays": [0.3]}]
-    argv = _media.encode_argv("ffmpeg", "in.mov", "out.mp4", dict(plan, echoes=rows))
-    graph = argv[argv.index("-filter_complex") + 1]
-    assert graph.startswith("[0:a:0]asplit=2") and graph.endswith("[aout]") and argv[argv.index("-filter_complex") + 2:argv.index("-filter_complex") + 4] == ["-map", "[aout]"]
-    assert "-map" in argv and "0:a:0?" not in argv
-    assert _media.encode_argv("ffmpeg", "in.mov", "out.mp4", dict(plan, echoes=rows, has_audio=False)) == \
-        _media.encode_argv("ffmpeg", "in.mov", "out.mp4", dict(plan, has_audio=False))
 
 
 # ---------------------------------------------------------------- ffmpeg runs the graph (skipped without one)

@@ -1,5 +1,5 @@
-"""Where things may be drawn: the two bands the face box leaves, the pip's card, the split's halves, the test of a caption against the bottom line. Pure arithmetic on the numbers of renderer-presets.json: no browser, no frames. Both engines import this
-file (the ffmpeg engine's drawing loop and, in V3b, the HyperFrames gate). Standard library only.
+"""Where things may be drawn: the two bands the face box leaves, the pip's card, the split's halves, the test of a caption against the bottom line. Pure arithmetic on the numbers of renderer-presets.json: no browser, no frames. The ffmpeg engine's drawing loop imports this
+file. Standard library only.
 """
 from __future__ import annotations
 

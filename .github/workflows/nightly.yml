@@ -1,6 +1,6 @@
 # The nightly run (docs/decisions.md, the entry of T2b): what the selection of the hook and of a pull request leaves to the end of a
 # delivery, every night, so that a miss is seen within a day. The whole list of test folders with the full fuzz, in three shards (the
-# launcher of the whole-suite shards of checks.yml), and the python39 list of checks.yml in full, and, since CI-1, every live job (container, converter, renderer, hyperframes, go: the reusable workflow live-jobs.yml, which checks.yml calls only by path). Three slow meta-tests run only here,
+# launcher of the whole-suite shards of checks.yml), and the python39 list of checks.yml in full, and, since CI-1, every live job (container, converter, renderer, go: the reusable workflow live-jobs.yml, which checks.yml calls only by path). Three slow meta-tests run only here,
 # in the whole-suite runs and when the wiring changes (the selector's rule 5): the selector's import oracle, the CI wiring and the
 # whole-tree security scan. A failing test is run again up to three times: one that then passes is reported as a rerun, one that fails
 # every time fails the job. The report is each job's summary; GitHub mails a failed scheduled run to whoever last changed the cron line.
@@ -117,6 +117,5 @@ jobs:
       container: true
       converter: true
       renderer: true
-      hyperframes: true
       go: true
       ref: ${{ github.event_name == 'schedule' && vars.NIGHTLY_REF || inputs.ref || '' }}

@@ -3,18 +3,13 @@
   "ffmpeg": [
    "image",
    "clip"
-  ],
-  "hyperframes": [
-   "image",
-   "clip"
   ]
  },
  "blocks": [
   {
    "band": "caption",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "caption",
    "license": [
@@ -39,8 +34,7 @@
   {
    "band": "caption",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "caption",
    "license": [
@@ -65,8 +59,7 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "overlay",
    "license": [
@@ -117,8 +110,7 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "overlay",
    "license": [
@@ -165,8 +157,7 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "overlay",
    "license": [
@@ -214,8 +205,7 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "effect",
    "license": [
@@ -258,8 +248,7 @@
   {
    "band": "caption",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "caption",
    "license": [
@@ -283,8 +272,7 @@
   {
    "band": "frame",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "layout",
    "license": [
@@ -332,8 +320,7 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "overlay",
    "license": [
@@ -372,8 +359,7 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "overlay",
    "license": [
@@ -412,8 +398,7 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "overlay",
    "license": [
@@ -468,8 +453,7 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "overlay",
    "license": [
@@ -512,8 +496,7 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "overlay",
    "license": [
@@ -555,8 +538,7 @@
   {
    "band": "frame",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "layout",
    "license": [
@@ -604,8 +586,7 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "overlay",
    "license": [
@@ -645,8 +626,7 @@
   {
    "band": "frame",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "layout",
    "license": [
@@ -694,8 +674,7 @@
   {
    "band": "frame",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "layout",
    "license": [
@@ -754,8 +733,7 @@
   {
    "band": "card",
    "engines": [
-    "ffmpeg",
-    "hyperframes"
+    "ffmpeg"
    ],
    "kind": "overlay",
    "license": [
@@ -816,7 +794,7 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "846bd9df1023e14d993a5ba5a0e94a9406bf823aa82611603b3e479fd55ab9a9",
+ "blocks_sha256": "3f60761831d7c9b557f684c8e8b90b751a5d4e7b7a7b8703063ff6b3cfa969dc",
  "engines": {
   "ffmpeg": {
    "presets": {
@@ -837,24 +815,6 @@
     "renderat",
     "hf",
     "gsap"
-   ]
-  },
-  "hyperframes": {
-   "presets": {
-    "aside": "oh:aside",
-    "caption": "hf:caption-highlight",
-    "cutaway": "oh:cutaway",
-    "keyword": "hf:spring-pop",
-    "list": "oh:list",
-    "mark": "oh:mark",
-    "nametag": "oh:nametag",
-    "number": "hf:count-up",
-    "quote": "hf:testimonial-card",
-    "sticker": "oh:sticker"
-   },
-   "runtimes": [
-    "gsap",
-    "renderat"
    ]
   }
  },

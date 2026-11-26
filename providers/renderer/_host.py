@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The host side both engines share: one job in a container (stage the inputs, run, collect the result as untrusted), the flags of the
+"""The host side of the engine: one job in a container (stage the inputs, run, collect the result as untrusted), the flags of the
 limits, and the verbs that need no browser: analyse, base, align, check, cover, still and verify.
 
 Not a provider (a file whose name starts with an underscore is not an implementation); `ffmpeg.py` imports it and keeps only the verbs
@@ -214,7 +214,7 @@ def opt(flag, value):
 
 
 def pairs(items, field: str) -> dict:
-    """{key: value} of `KEY=VALUE` items, each key once (the same reading as `ffmpeg.py`'s, which the second engine shares)."""
+    """{key: value} of `KEY=VALUE` items, each key once (the same reading as `ffmpeg.py`'s)."""
     out = {}
     for item in items or []:
         key, sep, value = item.partition("=")

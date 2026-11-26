@@ -20,7 +20,7 @@ The vendor files are written to `/opt/renderer/vendor` and the registry files to
 ## Ports adapted from the registry
 
 Five blocks under `providers/renderer/blocks/hf/` are derivative works of components of the HyperFrames registry, rewritten as our own `gsap.html` fragments (the
-contract of `_gsap_lint.py`). The ffmpeg engine draws them under the second page contract (`_hf_port.py`), and so does the HyperFrames engine until it is deleted. The
+contract of `_gsap_lint.py`). The ffmpeg engine draws them under the second page contract (`_hf_port.py`). The
 registry's repository is licensed under the Apache License, Version 2.0. Its LICENSE file at commit `b4cc674f7f312e77ded32e0b53006cc0bad6723b` (tag v0.9.19), sha256
 `4259155fb06f127687ee7b0a8a3682d45132db0f2da26cbc0b7a2d1e796436b8`, is the one the common image fetches (`registry.sha256`, the row `LICENSE`). A byte-identical copy of it is `LICENSE-registry-Apache-2.0.txt` in this folder. It ends with the line
 "Copyright 2026 HeyGen, Inc.", the only copyright line the registry's repository carries (spike finding C9). The registry components have no per-file licence header and

@@ -106,7 +106,7 @@ def test_the_record_lands_in_the_block_json_the_blocks_are_pinned_again_and_the_
     assert len(out["written"]) == 3
     cat = _blocks.load_catalogue(folder)
     block = cat["blocks"][P.CARD]
-    assert block["determinism"] == rec and _blocks.engines_of(cat, block) == ["ffmpeg", "hyperframes"] if "hyperframes" in cat["engines"] else True
+    assert block["determinism"] == rec and _blocks.engines_of(cat, block) == ["ffmpeg"]
     listed = {e["name"]: e for e in json.loads((Path(folder) / "catalogue.json").read_text())["blocks"]}
     assert "ffmpeg" in listed[P.CARD]["engines"] and "ffmpeg" not in listed[P.CAPTION]["engines"]
     assert _blocks.runtime_of(cat, block, "ffmpeg") == "gsap"

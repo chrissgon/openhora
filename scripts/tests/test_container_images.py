@@ -194,6 +194,29 @@ def test_confirmed_removes_the_earlier_images_of_each_family_and_reports_what_wa
     assert "wb-eval" not in " ".join(c[-1] for c in tool.sent("rm"))
 
 
+def retired_shelf():
+    """The old HyperFrames engine's images on a machine (PF-b): a labelled, tagged image of the retired repository, one of another provider, one with no label."""
+    return {"openhora-hyperframes:5bbbcd52f5e0": {"labels": label(OLD_A), "size": 900 * MIB}, "openhora-hyperframes:12ff7f4128cb": {"labels": label(OLD_B), "size": 800 * MIB},
+            "openhora-hyperframes:homemade": {"labels": None, "size": 10 * MIB}, f"openhora-renderer:{CURRENT[:12]}": {"labels": label(CURRENT), "size": 700 * MIB}}
+
+
+def test_the_retired_hyperframes_images_are_listed_by_the_dry_run_and_are_not_a_family_of_the_unattended_checks(capsys):
+    assert "hyperframes" not in [name for name, _ in doctor.IMAGE_FAMILIES] and doctor.RETIRED_IMAGE_REPOSITORIES == {"hyperframes": "openhora-hyperframes"}
+    tool = FakeImages(retired_shelf())
+    code, seen = run_doctor(["--remove-old-images", "--dry-run"], tool, capsys)
+    out = json.loads(seen.out)
+    assert code == 0 and out["removed"] == [] and tool.sent("rm") == [] and "hyperframes" in out["families"]
+    assert sorted((i["family"], i["image"]) for i in out["would_remove"]) == [("hyperframes", "openhora-hyperframes:12ff7f4128cb"), ("hyperframes", "openhora-hyperframes:5bbbcd52f5e0")]
+
+
+def test_confirmed_removes_the_retired_hyperframes_images_by_tag_and_keeps_an_unlabelled_one(capsys):
+    tool = FakeImages(retired_shelf())
+    code, seen = run_doctor(["--remove-old-images", "--confirmed"], tool, capsys)
+    out = json.loads(seen.out)
+    assert code == 0 and sorted(i["image"] for i in out["removed"]) == ["openhora-hyperframes:12ff7f4128cb", "openhora-hyperframes:5bbbcd52f5e0"]
+    assert not any("renderer" in c[-1] or "homemade" in c[-1] for c in tool.sent("rm"))
+
+
 def test_without_a_docker_the_command_says_so_and_removes_nothing(capsys):
     tool = FakeImages(shelf(), down=True)
     code, seen = run_doctor(["--remove-old-images", "--confirmed"], tool, capsys)
@@ -249,10 +272,10 @@ def test_the_images_row_leaves_the_exit_code_of_the_doctor_alone(monkeypatch, ca
 
 def test_the_families_are_the_providers_that_build_an_image_here_with_their_current_definition():
     families = doctor.image_families()
-    assert [f["family"] for f in families] == ["converter", "exporter", "script", "transcriber", "renderer", "hyperframes", "fetcher"]            # a provider that builds an image adds itself to doctor.IMAGE_FAMILIES
+    assert [f["family"] for f in families] == ["converter", "exporter", "script", "transcriber", "renderer", "fetcher"]            # a provider that builds an image adds itself to doctor.IMAGE_FAMILIES
     for family in families:
         assert family["tag"] == f"{family['repository']}:{family['hash'][:12]}" and len(family["hash"]) == 64
-    assert {f["repository"] for f in families} == {"openhora-converter", "openhora-exporter", "openhora-script", "openhora-transcriber", "openhora-renderer", "openhora-hyperframes", "openhora-fetcher"}
+    assert {f["repository"] for f in families} == {"openhora-converter", "openhora-exporter", "openhora-script", "openhora-transcriber", "openhora-renderer", "openhora-fetcher"}
 
 
 def test_the_script_image_is_a_family_and_its_dependency_images_are_never_taken_for_an_earlier_definition_of_it():

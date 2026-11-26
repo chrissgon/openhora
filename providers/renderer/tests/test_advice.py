@@ -313,8 +313,8 @@ def row(**kw):
     return dict({"code": "punch_short", "value": 0.3, "default": 0.4, "count": 1}, **kw)
 
 
-@pytest.mark.parametrize("verb", ["base", "check", "encode", "hf-page", "render"])
-def test_the_five_result_schemas_take_24_advice_rows_and_refuse_25(verb):
+@pytest.mark.parametrize("verb", ["base", "check", "render"])
+def test_the_three_result_schemas_take_24_advice_rows_and_refuse_25(verb):
     schema = _docker.RESULT_SCHEMAS[verb]
     keys = schema[1]
     assert "advice" in keys
@@ -333,13 +333,12 @@ def test_the_advice_schema_refuses_a_bad_code_a_non_finite_number_and_13_ids():
     assert _docker.sanitise([row(ids=["b1", "b2"])], adv) == [row(ids=["b1", "b2"])]
 
 
-def test_effects_dropped_takes_198_rows_in_render_and_hf_page_and_refuses_199():
-    for verb in ("render", "hf-page"):
-        schema = _docker.RESULT_SCHEMAS[verb][1]["effects_dropped"]
-        rows = [{"id": "e1", "reason": "punch_short"}] * 198
-        assert len(_docker.sanitise(rows, schema)) == 198
-        with pytest.raises(Refusal):
-            _docker.sanitise(rows + [rows[0]], schema)
+def test_effects_dropped_takes_198_rows_in_render_and_refuses_199():
+    schema = _docker.RESULT_SCHEMAS["render"][1]["effects_dropped"]
+    rows = [{"id": "e1", "reason": "punch_short"}] * 198
+    assert len(_docker.sanitise(rows, schema)) == 198
+    with pytest.raises(Refusal):
+        _docker.sanitise(rows + [rows[0]], schema)
 
 
 def test_the_schema_description_names_the_default():

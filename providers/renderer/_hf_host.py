@@ -275,7 +275,7 @@ def _tags(parts: list, label: str) -> str:
 
 def theme_fonts(font_serve: dict, edl_fonts: dict, allow: dict = None) -> list:
     """The faces the host declares: [{family, role, path, weight, format}] for each role the theme serves (a role on the system default declares none).
-    A role's family `oh-<role>` carries its own file at its own weight and, as the old engine's one family per typeface does (`_hf_compose.font_face_css`),
+    A role's family `oh-<role>` carries its own file at its own weight and, as the old engine's one family per typeface does (the retired `_hf_compose.font_face_css`),
     the file of every other served role of the same typeface (the allow-list's `family`) at that file's weight, so `var(--font-display)` at
     `var(--weight-text)` picks the text file when the typeface has it (PF-a4g). A weight the typeface does not have is the browser's nearest face among
     that typeface's files only, as on the old engine. `allow` ({id: row}) names the typeface of each role; with none, or a row with no `family`, a role

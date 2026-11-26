@@ -197,7 +197,7 @@ def asset_kinds(root: str, implementation=None) -> list:
     return list((found["engines"].get(engine) or {}).get("asset_kinds") or []) if engine is not None else []
 
 
-CLIP_BLOCK, CLIP_PARAM = "oh:cutaway", "asset"   # the one block and parameter that draw a clip on both engines (providers/renderer/_render.py settle_clips; a test reads it)
+CLIP_BLOCK, CLIP_PARAM = "oh:cutaway", "asset"   # the one block and parameter that draw a clip (providers/renderer/_render.py settle_clips; a test reads it)
 
 
 def clip_block_ok(root: str, implementation, block, preset) -> bool:

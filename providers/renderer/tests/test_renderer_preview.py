@@ -228,11 +228,10 @@ def test_a_render_that_is_a_link_or_a_folder_is_not_mounted(world, tmp_path):
 
 # ---------------------------------------------------------------- the verb's place
 
-def test_the_preview_verb_is_common_to_both_engines_and_listed_by_the_contract():
+def test_the_preview_verb_is_common_and_listed_by_the_contract():
     import ffmpeg
-    import hyperframes as H
     assert _host.COMMON_HANDLERS["preview"] is _host.verb_preview
-    assert ffmpeg.VERBS["preview"] is _host.verb_preview and H.VERBS["preview"] is _host.verb_preview
+    assert ffmpeg.VERBS["preview"] is _host.verb_preview
     contract = (K.REPO / "providers" / "CONTRACT.md").read_text()
     assert "`preview --in <mp4> [--sha256 <hex>] --out <dir>`" in contract and "preview-<sha12>.mp4" in contract
     assert D.RESULT_SCHEMAS["preview"][1].keys() == KEYS

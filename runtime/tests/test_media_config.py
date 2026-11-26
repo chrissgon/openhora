@@ -26,8 +26,7 @@ def set_media(world, value, models=MODELS):
     (root / "providers" / "transcriber").mkdir(parents=True, exist_ok=True)
     (root / "providers" / "transcriber" / "models.json").write_text(json.dumps(models), encoding="utf-8")
     (root / "providers" / "renderer").mkdir(parents=True, exist_ok=True)
-    for name in ("ffmpeg.py", "hyperframes.py"):
-        (root / "providers" / "renderer" / name).write_text("", encoding="utf-8")
+    (root / "providers" / "renderer" / "ffmpeg.py").write_text("", encoding="utf-8")
     path = Path(world["path"]) / "docs/workbench/runtime.json"
     raw = json.loads(path.read_text())
     raw["media"] = value

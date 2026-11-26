@@ -1,5 +1,5 @@
-"""Tests of a clip in the cutaway (package V9b-5c): `step_media.fit_clip_entries` ends a cutaway with its clip, a seeded sweep proves both engines meet the same answer
-(HyperFrames' own `clip_too_short` check and ffmpeg's last-frame hold, through the renderer's own timeline, plan and clip rows), the constants the runtime copies from the renderer
+"""Tests of a clip in the cutaway (package V9b-5c): `step_media.fit_clip_entries` ends a cutaway with its clip, a seeded sweep proves the engine meets the fitted answer
+(ffmpeg's last-frame hold, through the renderer's own timeline and clip rows), the constants the runtime copies from the renderer
 equal their sources, and the media step hands a clip to the render by its `.mp4` name, refuses a clip made at another rate and a file swapped under its name. The engine is the fake
 of media_kit; the clips are planted bytes; nothing is called, and every name is invented.
 
@@ -92,11 +92,10 @@ def renderer_world(fps):
     return data, vocab, _blocks.load_catalogue(), edl
 
 
-def test_a_seeded_sweep_fits_every_clip_on_both_engines_without_a_refusal_or_a_held_frame():
+def test_a_seeded_sweep_fits_every_clip_without_a_refusal_or_a_held_frame():
     worlds = {fps: renderer_world(fps) for fps in (24, 25, 30, 50, 60)}
-    import _edl, _hf_compose, _render  # noqa: E401  (on the path since renderer_world)
-    from _text import Refusal
-    rng, fitted, refused_before, refused = random.Random(20261122), 0, 0, 0
+    import _edl, _render  # noqa: E401  (on the path since renderer_world)
+    rng, fitted, refused = random.Random(20261122), 0, 0
     for case in range(360):
         fps = (24, 25, 30, 50, 60)[case % 5]
         data, vocab, catalogue, edl = worlds[fps]
@@ -110,11 +109,6 @@ def test_a_seeded_sweep_fits_every_clip_on_both_engines_without_a_refusal_or_a_h
         facts = {"width": 1080, "height": 1920, "seconds": clip, "fps": fps, "tint": None}
         timeline = _edl.resolve_timeline(edl, beats, vocab, data)
         [entry] = timeline["beats"]
-        if entry["end_frame"] - entry["start_frame"] > frames:      # the beat outlasts the clip: HyperFrames' own check must refuse it before the fit (the test reaches the check)
-            with pytest.raises(Refusal) as caught:
-                _hf_compose.draw_plan(data, edl, copy.deepcopy(beats), vocab, catalogue, fps, {"beat7": "a" * 64}, {"beat7": facts})
-            assert caught.value.code == "clip_too_short"
-            refused_before += 1
         try:
             step_media.fit_clip_entries(beats, edl, {"beat7": clip})
         except steps.StepFailure as e:      # a first word alone longer than the clip: counted, never skipped silently
@@ -124,14 +118,13 @@ def test_a_seeded_sweep_fits_every_clip_on_both_engines_without_a_refusal_or_a_h
         fitted += 1
         timeline = _edl.resolve_timeline(edl, beats, vocab, data)
         [entry] = timeline["beats"]
-        assert entry["end_frame"] - entry["start_frame"] <= frames - 1, (case, fps, seconds)      # no held frame on ffmpeg, no clip_too_short on HyperFrames
-        _hf_compose.draw_plan(data, edl, copy.deepcopy(beats), vocab, catalogue, fps, {"beat7": "a" * 64}, {"beat7": facts})      # raises nothing
+        assert entry["end_frame"] - entry["start_frame"] <= frames - 1, (case, fps, seconds)      # no held frame on ffmpeg
         entry["block"] = "oh:cutaway"
         kinds = {"beat7": dict(facts, kind="clip")}
         _render.settle_clips(vocab, data, timeline, kinds)
         [row] = _render.clip_rows(data, timeline, kinds, edl["theme"]["colors"])
         assert row["end_frame"] - row["start_frame"] <= frames - 1
-    assert fitted + refused == 360 and fitted >= 300 and refused_before >= 30      # the sweep reached the check, and most cases were fitted
+    assert fitted + refused == 360 and fitted >= 300      # most cases were fitted
 
 
 def test_the_beats_the_runtime_wrote_pass_the_renderers_own_check():

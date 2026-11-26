@@ -1,11 +1,11 @@
 """The page of one of our own ports under the second contract (PF-a4): a tier-B `gsap.html` fragment drawn by the ffmpeg engine's host.
 
-This module is the successor of `_hf_compose`'s `gsap` path (plan PF-a: "`_hf_compose`'s successor inlines the fragment and gives it `build(root, tl, data,
+This module is the successor of the retired `_hf_compose`'s `gsap` path (plan PF-a: "`_hf_compose`'s successor inlines the fragment and gives it `build(root, tl, data,
 ctx)`"). The old engine inlines every fragment into one composed page; here each caption chunk and each beat gets its own `/h/` page, built with the same
 head as a registry component's (`_hf_host.build_page`: the three early shims, the vendored GSAP, the runtime, the theme's faces) and held to the same
 guards: the page policy, the exact alpha gates on every frame, the font check, the hash pin and a recorded determinism test. What it keeps from the first
 contract and an admitted registry block does not have: the fragment lint (`_gsap_lint.check`: no clocks, timers, random, network, `window` or `document`)
-and the band clip (`contain: paint; overflow: clip` at the entry's band, as `_hf_compose` puts on the instance element).
+and the band clip (`contain: paint; overflow: clip` at the entry's band, as the retired `_hf_compose` puts on the instance element).
 
 The fragment is mounted through a local `<template>`: the host root names the composition, the runtime mounts the template, runs the fragment's own `build`
 script into a paused GSAP timeline registered as `window.__timelines["oh-port"]`, and is sought as for any admitted block. The payload and the context are
@@ -29,14 +29,19 @@ import _hf_host
 import _hf_lint
 import _layout
 import _payload
-from _hf_page import COLOR, num
 from _text import Refusal, is_clean
 
+COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 PORT_HOST_VERSION = "3"
 COMPOSITION = "oh-port"
 INSTANCE = "oh-inst"
 TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,39}")
 ROLE = re.compile(r"[a-z][a-z0-9_]{0,31}")
+
+
+def num(x: float) -> str:
+    """A float as the shortest text that reads back exactly (the source frame times are k/fps)."""
+    return repr(float(x))
 
 
 def _sha256(raw: bytes) -> str:
@@ -45,7 +50,7 @@ def _sha256(raw: bytes) -> str:
 
 def read_fragment(catalogue: dict, block: dict) -> dict:
     """The port's `gsap.html` from the staged blocks folder, read again and checked against its pin (`block_hash` on any difference, as
-    `_hf_compose.read_block_file` does), then both lints: `_hf_lint.check` (the second contract's escape lint) and `_gsap_lint.check` (the first contract's
+    the retired `_hf_compose.read_block_file` does), then both lints: `_hf_lint.check` (the second contract's escape lint) and `_gsap_lint.check` (the first contract's
     fragment lint). Returns {raw (bytes), parts ({markup, style, script})}."""
     ns, short = block["name"].split(":")
     rel = "%s/%s/%s" % (ns, short, block["implementations"]["gsap"])
@@ -70,7 +75,7 @@ def served_digest(raw: bytes) -> str:
 
 
 def theme_css(edl: dict, stacks: dict) -> str:
-    """The `:root` block of the theme, with the names the old engine sets (`_hf_compose.theme_pairs`): `--c-<token>` for each colour (`bad_color` when a
+    """The `:root` block of the theme, with the names the old engine sets (the retired `_hf_compose.theme_pairs`): `--c-<token>` for each colour (`bad_color` when a
     value is not `#rrggbb`), `--weight-<role>` and `--font-<role>` (the host's declared family with the system fallback, or the fallback alone for a
     role on the system default: `stacks` is `_hf_host.prepare`'s font stacks)."""
     pairs = []
@@ -122,7 +127,7 @@ def _px(value) -> str:
 def build_port_page(*, block: dict, parts: dict, runtime: dict, faces: list, css: str, payload: dict, ctx: dict, zone: str, prefix: str, index: int,
                     duration: float, fps: int, width: int, height: int) -> bytes:
     """The page of one entry at `/h/<prefix><index>/index.html` (`prefix` c for a caption chunk, b for a beat). The head is `_hf_host.build_page`'s. The
-    theme, `.hf-inst` and the fragment's CSS inside `@scope (#oh-inst)` are in the page's own `<style>` (as `_hf_compose` puts them), never inside the
+    theme, `.hf-inst` and the fragment's CSS inside `@scope (#oh-inst)` are in the page's own `<style>` (as the retired `_hf_compose` puts them), never inside the
     template: the runtime rewrites every selector of a style it finds in a mounted composition under `[data-composition-id="oh-port"]`, which cannot match
     inside `@scope (#oh-inst)` (the composition root is outside the scope root), and `:root` becomes the composition root (PF-a4d). The component is one
     `<template>` holding the port's markup in an instance element clipped to the band, and the port's own build script followed by the call that runs it

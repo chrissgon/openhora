@@ -1,6 +1,6 @@
 """What a finished render, a cover or a still is made into, and how it is stored: the platform file's read, one frame of a render
 (cover), one frame of a recording framed as the render frames it (still), the PNG header's size, and the write that never rewrites.
-No browser, no frames: both engines import this file, and `_inner.py` runs `cover`, `still` and `verify` on it alone. Standard library only.
+No browser, no frames: the engine imports this file, and `_inner.py` runs `cover`, `still` and `verify` on it alone. Standard library only.
 """
 from __future__ import annotations
 

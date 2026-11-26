@@ -88,7 +88,6 @@ def write_hf_fixture(folder) -> None:
     (folder / "hf" / "demo-ring" / "gsap.html").write_text("<!doctype html><title>demo</title>\n")
     (folder / "engines" / "twin.json").write_text(json.dumps(
         {"schema_version": 1, "engine": "twin", "note": "a fictional engine for the tests", "runtimes": ["gsap"], "presets": {"keyword": "hf:demo-pop"}}, indent=1))
-    (folder / "engines" / "hyperframes.json").unlink(missing_ok=True)       # the fictional engine is the one that runs gsap, whether or not a committed one still does
     _blocks.write_pins(str(folder))
 
 POP_GSAP = """<!-- hf:demo-pop: a fictional pop card, used by the tests only. -->
@@ -107,81 +106,11 @@ POP_GSAP = """<!-- hf:demo-pop: a fictional pop card, used by the tests only. --
   </script>
 </template>
 """
-POP_BLOCK = {"schema_version": 1, "name": "hf:demo-pop", "kind": "overlay", "preset": "keyword", "band": "card", "may_cross_face": False, "license": ["Apache-2.0"],
-             "source": "hyperframes-registry", "use_when": "a fictional pop card for one short phrase, used by the tests only",
-             "params": {"text": {"type": "text", "max": 24, "required": True}, "icon": {"type": "icon"}},
-             "samples": [{"text": "Name every dollar"}], "natural_duration": 1.2, "implementations": {"gsap": "gsap.html"},
-             "tier": "B", "commit": "a" * 40, "notice": "Apache-2.0; adapted from a fictional registry at aaaaaaaa; notices in the image folder"}
-OH_PRESETS = {"caption": "oh:caption", "keyword": "oh:keyword", "list": "oh:list", "number": "oh:number", "quote": "oh:quote"}
-
-
-def write_hf_compose_blocks(folder, mixed=False, cutaway=False) -> None:
-    """In a copy of the blocks: the HyperFrames engine's own file and, when `mixed`, a fictional tier-B gsap block `hf:demo-pop` that draws the
-    keyword preset. Without `mixed` the engine runs the renderat runtime only and draws the oh: pages (the one-file measurement's setup:
-    no pip, which this engine does not draw, and no cutaway unless `cutaway`, which adds `oh:cutaway` as the cutaway preset's block, V9b-2). Pinned again."""
-    folder = Path(folder)
-    runtimes, presets = ["renderat"], dict(OH_PRESETS)
-    if cutaway:
-        presets["cutaway"] = "oh:cutaway"
-    if mixed:
-        (folder / "hf" / "demo-pop").mkdir()
-        (folder / "hf" / "demo-pop" / "block.json").write_text(json.dumps(POP_BLOCK, indent=1))
-        (folder / "hf" / "demo-pop" / "gsap.html").write_text(POP_GSAP)
-        runtimes, presets["keyword"] = ["gsap", "renderat"], "hf:demo-pop"
-    (folder / "engines" / "hyperframes.json").write_text(json.dumps(
-        {"schema_version": 1, "engine": "hyperframes", "note": "a fictional engine for the tests", "runtimes": runtimes, "presets": presets}, indent=1))
-    _blocks.write_pins(str(folder))
-
-
-# --- planted blocks: fictional, test-only blocks that break a rule, for the gates of the HyperFrames engine (never committed)
-PLANTED_BLOCK = {"schema_version": 1, "license": ["Apache-2.0"], "source": "hyperframes-registry", "may_cross_face": False, "tier": "B", "commit": "a" * 40,
-                 "notice": "Apache-2.0; adapted from a fictional registry at aaaaaaaa; notices in the image folder", "implementations": {"gsap": "gsap.html"}}
-PLANTED_FRAGMENT = """<template data-hf-block="%(name)s">
-  <style>
-    :scope { display: block; }
-    .line { position: absolute; left: 65px; font-family: var(--font-display); font-weight: var(--weight-display); color: var(--c-text); font-size: 48px; }
-  </style>
-  <div class="line"><span class="words"></span></div>
-  <script data-hf-build>
-    function build(root, tl, data, ctx) {
-      var band = data.zones.%(zone)s;
-      root.querySelector(".line").style.top = (band[1] - band[0] + %(down)d) + "px";
-      root.querySelector(".words").textContent = %(text)s;
-      tl.fromTo(root.querySelector(".line"), { opacity: 0 }, { opacity: 1, duration: 0.1 }, 0);
-    }
-  </script>
-</template>
-"""
-
-
-def planted_blocks(tmp_path, which):
-    """A copy of the committed blocks plus the HyperFrames engine's file and one fictional test-only block that breaks a rule, never committed:
-    `hf:demo-cover` (the keyword card) puts its text 20 px into the face box (the card band's bottom, the 18 px gap and 20 px), `hf:demo-low`
-    (the caption) puts its words 20 px under the caption band's bottom. Both sit inside an instance that clips what it draws to its band, so the
-    refusal comes from the text's own rectangles, which the page reports unclipped."""
-    folder = tmp_path / ("blocks-" + which)
-    shutil.copytree(BLOCKS, folder)
-    name, preset, band, zone, down, text = {
-        "demo-cover": ("hf:demo-cover", "keyword", "card", "card", 38, "data.params.text"),
-        "demo-low": ("hf:demo-low", "caption", "caption", "caption", 20, 'data.words.map(function (w) { return w.text; }).join(" ")'),
-    }[which]
-    block = dict(PLANTED_BLOCK, name=name, kind="caption" if preset == "caption" else "overlay", preset=preset, band=band,
-                 use_when="a fictional block that breaks a rule, used by the live tests only", samples=[{} if preset == "caption" else {"text": "Name every dollar"}],
-                 params={} if preset == "caption" else {"text": {"type": "text", "max": 24, "required": True}, "icon": {"type": "icon"}}, natural_duration=None if preset == "caption" else 1.2)
-    (folder / "hf" / which).mkdir()
-    (folder / "hf" / which / "block.json").write_text(json.dumps(block, indent=1))
-    (folder / "hf" / which / "gsap.html").write_text(PLANTED_FRAGMENT % {"name": name, "zone": zone, "down": down, "text": text})
-    presets = dict(OH_PRESETS)
-    presets[preset] = name
-    (folder / "engines" / "hyperframes.json").write_text(json.dumps(
-        {"schema_version": 1, "engine": "hyperframes", "note": "a fictional engine for the tests", "runtimes": ["gsap", "renderat"], "presets": presets}, indent=1))
-    _blocks.write_pins(str(folder))
-    return folder
 
 
 def hf_documents(tmp):
-    """(data, edl, beats, vocab) of the fictional post for the HyperFrames engine: the base edit list of the kit's transcript, the post's beats
-    without the cutaway and the pip (which this engine does not draw). Written under `tmp` for the `align` verb."""
+    """(data, edl, beats, vocab) of the fictional post for the port tests: the base edit list of the kit's transcript, the post's beats
+    without the cutaway and the pip. Written under `tmp` for the `align` verb."""
     import _edl
     from _vocab import load_data, load_vocabulary
     data, vocab = load_data(), load_vocabulary(str(VOCABULARY))

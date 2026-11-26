@@ -244,7 +244,10 @@ def manager_probe():
 
 IMAGE_FAMILIES = (("converter", "converter/container.py"), ("exporter", "exporter/container.py"), ("script", "script/container.py"),
                   ("transcriber", "transcriber/whispercpp.py"), ("renderer", "renderer/_image.py"),
-                  ("hyperframes", "renderer/hyperframes-image/hf_image.py"), ("fetcher", "fetcher/_fetcher_image.py"))   # (family, module under providers/): a provider that builds an image adds itself here, with its own test
+                  ("fetcher", "fetcher/_fetcher_image.py"))   # (family, module under providers/): a provider that builds an image adds itself here, with its own test
+# Images of a provider that no longer builds one (PF-b: the HyperFrames engine's image): every labelled, tagged image of the repository is an earlier definition. Read
+# only by `remove_old_images`: a family with no module would be reported as missing by the unattended checks (doctor_ops reads IMAGE_FAMILIES, not this table).
+RETIRED_IMAGE_REPOSITORIES = {"hyperframes": "openhora-hyperframes"}
 
 
 def container_box():
@@ -282,8 +285,9 @@ def remove_old_images(argv, tool=None, families=None, box=None):
         print(json.dumps({"error": "docker cannot be asked (not installed, or the daemon is not running): nothing was looked at or removed",
                           "dry_run": dry_run}))
         return 1
-    result = {"removed": [], "would_remove": [], "kept": [], "dry_run": dry_run, "families": [f["family"] for f in families]}
-    for family in families:
+    retired = [{"family": name, "repository": repository, "hash": "0" * 64} for name, repository in RETIRED_IMAGE_REPOSITORIES.items()]      # no current definition: every image of it is old
+    result = {"removed": [], "would_remove": [], "kept": [], "dry_run": dry_run, "families": [f["family"] for f in families + retired]}
+    for family in families + retired:
         done = box.remove_old_definition_images(tool, family["repository"], family["hash"], dry_run=dry_run)
         for key in ("removed", "would_remove", "kept"):
             result[key] += [{"family": family["family"], **item} for item in done[key]]
