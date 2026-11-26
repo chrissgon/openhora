@@ -145,7 +145,7 @@ def tree(folder) -> dict:
 @pytest.mark.parametrize("which", ["cover", "low"])
 def test_a_planted_renderat_folder_differs_from_the_plain_compose_folder_by_one_file_and_its_pins_verify(tmp_path, which):
     plain = tmp_path / "plain"
-    __import__("shutil").copytree(K.BLOCKS, plain)
+    __import__("shutil").copytree(K.oh_blocks(), plain)
     K.write_hf_compose_blocks(plain)
     folder = C.planted_renderat(tmp_path, which)
     a, b = tree(plain), tree(folder)

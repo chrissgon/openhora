@@ -101,7 +101,7 @@ def blocks_folder(tmp, kinds=("card",), runtime_sha256=None, extra="", name="blo
     """A copy of the committed blocks with the fictional ports added (a recorded determinism test when `runtime_sha256` is given), the ffmpeg engine drawing the
     keyword and/or caption preset with them, pinned again. Returns the folder."""
     folder = Path(tmp) / name
-    shutil.copytree(K.BLOCKS, folder)
+    shutil.copytree(K.oh_blocks(), folder)      # the base draws every preset with its oh: page; the ports are the default only where `kinds` says
     eng_path = folder / "engines" / "ffmpeg.json"
     eng = json.loads(eng_path.read_text())
     eng["runtimes"] = ["renderat", "hf", "gsap"]

@@ -174,5 +174,5 @@ def test_a_file_that_is_not_the_pinned_one_or_an_edit_that_does_not_apply_is_ref
 @needs_all
 def test_the_image_folders_cannot_be_replaced_outside_test_mode(pipe):
     tail, env, tmp, rt = setup(pipe, tag="notest")
-    rc, out, err = render(pipe, tail, {}, tmp / "o")
+    rc, out, err = render(pipe, tail, {"RENDERER_TEST": "0"}, tmp / "o")      # test mode off, on purpose
     assert rc == 2 and "--vendor and --hf-registry are for the tests" in err, err

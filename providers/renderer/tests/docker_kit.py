@@ -62,7 +62,10 @@ class World:
         return e
 
     def host(self, *args, env=None, timeout=300):
-        done = subprocess.run([sys.executable, str(K.HOST), *map(str, args)], capture_output=True, text=True, env={**self.env(), **(env or {})}, timeout=timeout)
+        extra = dict(env or {})
+        if args and str(args[0]) in ("render", "storyboard") and "RENDERER_TEST" not in extra and "RENDERER_BLOCKS_DIR" not in extra:      # M2: a render stages the copy whose ffmpeg engine draws with the oh: pages
+            extra.update(RENDERER_TEST="1", RENDERER_BLOCKS_DIR=K.oh_blocks())
+        done = subprocess.run([sys.executable, str(K.HOST), *map(str, args)], capture_output=True, text=True, env={**self.env(), **extra}, timeout=timeout)
         try:
             out = json.loads(done.stdout) if done.stdout.strip() else None
         except ValueError:

@@ -103,8 +103,8 @@ def test_the_caption_port_is_resolved_like_the_beats_and_is_never_loaded_as_a_pa
     timeline = {"beats": [{"id": "b1", "preset": "keyword", "params": {"text": "Go"}}]}
     templates, names = _blocks.templates_for(cat, "ffmpeg", timeline, vocab, with_caption=True)
     assert templates == {"caption": None, P.CARD: None} and names == [] and timeline["beats"][0]["block"] == P.CARD
-    # the default caption on ffmpeg is still the oh: page: it is loaded as before
-    plain = _blocks.load_catalogue(str(K.BLOCKS))
+    # a copy whose ffmpeg engine draws the caption with the oh: page loads it as a page of the first contract
+    plain = _blocks.load_catalogue(K.oh_blocks())
     t2, n2 = _blocks.templates_for(plain, "ffmpeg", {"beats": []}, vocab, with_caption=True)
     assert t2["caption"] == "oh/caption/renderat.html" and n2 == ["oh/caption/renderat.html"]
     assert refused(_blocks.templates_for, cat, "ffmpeg", {"beats": [{"id": "b1", "preset": "keyword", "params": {"text": "a\u200bb"}}]}, vocab, False).code == "forbidden_character"
@@ -146,7 +146,7 @@ def test_a_port_with_a_record_at_other_hashes_is_block_not_proven_and_a_card_por
 
 
 def test_a_timeline_with_no_second_contract_entry_prepares_nothing(world):
-    folder = str(K.BLOCKS)
+    folder = str(K.oh_blocks())      # the committed caption is a port since M2
     cat = _blocks.load_catalogue(folder)
     out = _hf_host.prepare(catalogue=cat, engine="ffmpeg", timeline={"beats": [], "captions": [{"start_frame": 0, "end_frame": 3, "face": dict(FACE)}]}, data=DATA, edl=EDL,
                            font_serve={}, vendor=world["rt"]["vendor"], registry="", shims=world["rt"]["runtime_dir"] + "/shims", browser_version="Chrome/1.0")

@@ -264,13 +264,13 @@ PLANTS = {
 
 
 def planted_renderat(tmp, which: str) -> Path:
-    """A copy of the committed blocks with the HyperFrames engine on the renderat runtime and the `oh:` presets (so both engines draw
+    """A copy of the committed blocks with both engines on the `oh:` presets (the HyperFrames engine on the renderat runtime, so both engines draw
     the same pages) and one edit that breaks a rule, pinned again: `cover` puts the keyword card at y 650 (the face box is y 620-1180),
     `low` puts the caption 40 px under the caption band's bottom. Used with RENDERER_TEST=1 and RENDERER_BLOCKS_DIR=<the folder>."""
     rel, old, new = PLANTS[which]
     folder = Path(tmp) / ("renderat-" + which)
     shutil.rmtree(str(folder), ignore_errors=True)               # both engines' legs ask for the same folder in one lab
-    shutil.copytree(K.BLOCKS, folder)
+    shutil.copytree(K.oh_blocks(), folder)
     K.write_hf_compose_blocks(folder)
     path = folder / rel
     html = path.read_text(encoding="utf-8")
@@ -283,11 +283,11 @@ def planted_renderat(tmp, which: str) -> Path:
 
 
 def planted_unproven_port(tmp, port: str = "spring-pop") -> Path:
-    """A copy of the committed blocks where the port `hf:<port>` has no determinism record, pinned again: the catalogue then lists it on the HyperFrames
+    """A copy of the committed blocks (with the ffmpeg engine on its `oh:` pages, as the first test of M2 needs: the committed default is the port) where the port `hf:<port>` has no determinism record, pinned again: the catalogue then lists it on the HyperFrames
     engine only, so the ffmpeg engine refuses it with `block_not_on_engine` (every committed port has a record since PF-a4e)."""
     folder = Path(tmp) / ("blocks-unproven-" + port)
     shutil.rmtree(str(folder), ignore_errors=True)
-    shutil.copytree(K.BLOCKS, folder)
+    shutil.copytree(K.oh_blocks(), folder)
     path = folder / "hf" / port / "block.json"
     block = json.loads(path.read_text(encoding="utf-8"))
     assert "determinism" in block
