@@ -1,14 +1,16 @@
-"""The look of the cutaway (V9d): a hard cut, and a glass layout for a picture that is not vertical. The pictures are flat-colour PNGs
+"""The look of the cutaway (V9d): a hard cut, and a glass layout for a picture that is not vertical; the `oh:screenshot` card (moved here from test_hf_cutaway.py, PF-b2). The pictures are flat-colour PNGs
 the test writes with zlib; the page is drawn by the host's headless browser (skipped without it)."""
 from __future__ import annotations
 
 import json
+import re
 import struct
 import zlib
 
 import pytest
 
 import renderer_kit as K
+import _blocks
 import _cdp
 import _frames
 from _lint import lint
@@ -20,6 +22,7 @@ PAGE = K.BLOCKS / "oh" / "cutaway" / "renderat.html"
 DATA = load_data()
 LOOKS = DATA["presets"]["cutaway"]["looks"]
 THEME_BG = "#0B0F14"
+THEME_RGB = tuple(int(THEME_BG[i:i + 2], 16) for i in (1, 3, 5))
 COLORS = {"bg": THEME_BG, "text": "#FFFFFF", "muted": "#A8B0BC", "accent": "#FFC93C", "chip_fill": "#1B1F2A", "chip_text": "#FFE08A", "chip_border": "#FFC93C"}
 
 
@@ -179,3 +182,61 @@ def test_the_predominant_colour_of_a_mostly_flat_picture_is_that_colour(tmp_path
 def test_a_picture_with_nothing_but_white_has_no_predominant_colour(tmp_path):
     _, colour = draw(tmp_path, png(1200, 675, lambda x, y: (255, 255, 255)), shots=False)
     assert colour is None
+
+
+@pytest.fixture(scope="module")
+def catalogue():
+    return _blocks.load_catalogue()
+
+
+# ---------------------------------------------------------------- oh:screenshot (moved from test_hf_cutaway.py, PF-b2)
+
+def draw_screenshot(tmp_path, image, params=None, times=(0.0,), duration=2.0):
+    template = "oh/screenshot/renderat.html"
+    serve, _ = _frames.load_templates([template])
+    serve["/assets/pic.png"] = (image, "image/png")
+    colors = {"bg": "#0B0F14", "text": "#FFFFFF", "muted": "#A8B0BC", "accent": "#FFC93C", "chip_fill": "#1B1F2A", "chip_text": "#FFE08A", "chip_border": "#FFC93C"}
+    out = []
+    with _cdp.Chrome(K.BROWSER, serve, str(tmp_path / "chrome"), time_limit=120) as chrome:
+        chrome.start()
+        page = chrome.new_page(1080, 1920)
+        page.open("/t/" + template, {"colors": colors, "fonts": {}, "images": {"pic": _cdp.ORIGIN + "/assets/pic.png"}})
+        payload = {"params": {"asset": "pic", **(params or {})}, "look": DATA["presets"]["cutaway"]["looks"], "zones": {}, "duration": duration}
+        for t in times:
+            page.frame(t, payload)
+            state = page.evaluate("JSON.stringify({box: window.__box, card: document.getElementById('card').style.transform, chip: !!document.getElementById('chip')})")
+            out.append((json.loads(state), decode(page.screenshot())))
+    return out
+
+
+@needs_browser
+def test_a_landscape_picture_is_a_card_in_the_middle_over_the_themes_background_with_a_slow_push_in(tmp_path):
+    (a, shot_a), (b, _) = draw_screenshot(tmp_path, two_colours(1200, 675), times=(0.0, 2.0 - 1 / 30))
+    assert a["box"]["w"] == 950 and abs(a["box"]["h"] - 534) <= 1 and a["box"]["x"] == 65 and abs((a["box"]["y"] + a["box"]["h"] / 2) - 960) <= 1
+    assert at(shot_a, 10, 10) == THEME_RGB and at(shot_a, 1070, 1900) == THEME_RGB                      # a backdrop in the theme's colour, not a glass layout
+    assert at(shot_a, 200, 960)[0] > 150 and at(shot_a, 900, 960)[2] > 150
+    assert a["card"] == "scale(1)" and float(re.match(r"scale\(([0-9.]+)\)", b["card"]).group(1)) > 1.03 and not a["chip"]
+
+
+@needs_browser
+def test_a_vertical_or_small_picture_is_shown_whole_never_cropped_and_never_more_than_twice_its_size(tmp_path):
+    (tall, _), = draw_screenshot(tmp_path / "t", two_colours(600, 3000))
+    assert tall["box"]["h"] == 1700 and tall["box"]["w"] == 340 and tall["box"]["h"] / tall["box"]["w"] == pytest.approx(3000 / 600, rel=0.01)
+    (small, _), = draw_screenshot(tmp_path / "s", two_colours(100, 60))
+    assert small["box"]["w"] == 200 and small["box"]["h"] == 120
+
+
+@needs_browser
+def test_the_label_chip_is_there_from_the_first_frame_in_a_hard_cut(tmp_path):
+    (state, _), = draw_screenshot(tmp_path, two_colours(1200, 675), {"label": "Aster Lane"})
+    assert state["chip"] is True
+
+
+# ---------------------------------------------------------------- the block itself
+
+def test_the_screenshot_block_is_a_cutaway_layout_with_the_cutaways_parameters(catalogue):
+    shot, cut = catalogue["blocks"]["oh:screenshot"], catalogue["blocks"]["oh:cutaway"]
+    assert (shot["kind"], shot["preset"], shot["band"], shot["may_cross_face"], shot["license"], shot["source"]) == ("layout", "cutaway", "frame", True, ["MIT"], "openhora")
+    assert shot["params"] == cut["params"] and len(shot["samples"]) == 1 and shot["natural_duration"] == 1.5
+    assert shot["use_when"] == "a document, a page or a screen is shown whole, framed, while the line is spoken"
+    assert set(shot["implementations"]) == {"renderat"} and "ffmpeg" in _blocks.engines_of(catalogue, shot)
