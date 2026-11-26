@@ -10,15 +10,18 @@ What it reads, and how (every figure is a validity bound of the spec's section 3
   - Decoding. ffmpeg decodes each input to raw 8-bit grey frames on a pipe (one thread, the `file` protocol only, the container's demuxer forced, the first video stream
     alone, scaled to the size the host says). OpenCV and Tesseract never parse a file of the outside world: they get pixels (OpenCV) or a PGM this code writes (Tesseract).
   - QR codes: every frame of every clip and every picture, `cv2.QRCodeDetector().detectAndDecodeMulti`. A code found and not decoded is `qr_unreadable`.
-  - Text: Tesseract (LSTM engine, sparse text) on every picture, and on a clip on frame 0, the last frame and every frame whose 64x36 grey thumbnail differs from the
-    last read frame's by a mean absolute difference of CHANGE_MIN or more; when more than OCR_FRAMES_MAX qualify, that many evenly spaced among them and `scan_partial` is set.
+  - Text: Tesseract (LSTM engine, sparse text) on every picture, and on a clip on a choice of frames that cannot skip a caption of 12 frames (`select_text_frames`): frame 0, the
+    last frame, one in every GRID_STEP (30), and every frame whose 64x36 grey thumbnail has CELLS_MIN or more cells that differ by CELL_DIFF or more from the last read frame's (a
+    caption appearing on a still picture moves the mean difference by only about 1.3 of 255, and about 100 cells by 8 or more; a still one's noise is 0 cells). When more than
+    OCR_FRAMES_MAX frames qualify, the choice is OCR_FRAMES_MAX frames evenly spaced over the whole clip, a step of 6.1 frames at most for the longest clip (601 frames), so a text
+    that shows for 12 frames is read at least once, a moving background or not.
   - Cleaning, before anything is written: printable characters only, no control, bidi or zero-width character, whitespace collapsed, a line cut to LINE_MAX characters, at most
     TEXT_LINES_MAX lines and TEXT_CHARS_MAX characters per asset. A QR payload that is a web link gives its host only.
   - One worker per asset (a thread: the heavy work is a subprocess or OpenCV, which let go of the interpreter), at most the container's cpus, each Tesseract call on one thread.
   - A budget of SCAN_BUDGET_S seconds, after which no new work starts and what is not finished is `partial`.
 The answer: {"ok", "lang", "versions": {tesseract, opencv, tessdata}, "assets": [{slot, file, kind, frames, frames_qr, frames_text, frames_changed, partial, codes, text: {lines,
-chars, cut}, qr: [{kind, host, scheme, text, first_frame, frames}]}]}. `frames_changed` is the number of clip frames that qualified for a text read (frame 0, the last and
-the changed ones), so a row can say "read on 30 of 41" (the spec's `scan_partial` row). Text read from a picture is external content: it is only ever data.
+chars, cut}, qr: [{kind, host, scheme, text, first_frame, frames}]}]}. `frames_changed` is the number of clip frames that qualified for a text read (before the cap); `scan_partial` is set only when frames that were chosen were not read
+(the budget ended), never for a choice that is a designed sampling. Text read from a picture is external content: it is only ever data.
 """
 from __future__ import annotations
 
@@ -39,8 +42,10 @@ MAX_ASSETS = 6                    # = runtime/media_stock.py MAX_FULL (a test co
 MAX_SIDE = 3840                   # = _asset_sheet.MAX_OUT_SIDE: a normalised file's side
 TEXT_LINES_MAX, TEXT_CHARS_MAX, LINE_MAX = 8, 600, 160
 QR_MAX, QR_TEXT_MAX, PAYLOAD_MAX = 4, 120, 2048
-OCR_FRAMES_MAX = 30
-CHANGE_MIN = 6                    # mean absolute difference, of 255, between two 64x36 grey thumbnails
+OCR_FRAMES_MAX = 100              # at most this many text reads per clip: 601 frames at this cap are sampled every 6.1 frames, so a 12-frame text is read at least once
+GRID_STEP = 30                    # a clip is read for text at least every this many frames (a slow fade or a low-contrast caption moves no cell by CELL_DIFF at once)
+CELL_DIFF, CELLS_MIN = 8, 16      # of 2304 cells (64x36), at least CELLS_MIN differ from the last read frame's by CELL_DIFF or more (of 255): live figures of a caption box on a still clip, 99 cells
+                                  # against 0 for the compression noise; the mean absolute difference of the same frames is 1.3, which is why it is not the measure
 THUMB = (64, 36)                  # width, height
 CONF_MIN = 60                     # Tesseract's word confidence (0-100) under which a word is mostly noise
 SCAN_BUDGET_S = 480               # the inner run stops starting new work here; the container's deadline is 600
@@ -161,26 +166,28 @@ class QrSet:
 
 # ---------------------------------------------------------------- which frames of a clip are read for text
 
-def thumb_diff(a, b) -> float:
-    """The mean absolute difference of two thumbnails (lists of 0-255 values of the same length)."""
-    return sum(abs(x - y) for x, y in zip(a, b)) / float(max(1, len(a)))
+def changed_cells(a, b) -> int:
+    """How many cells of two thumbnails (lists of 0-255 values of the same length) differ by CELL_DIFF or more."""
+    return sum(1 for x, y in zip(a, b) if abs(x - y) >= CELL_DIFF)
 
 
 def select_text_frames(thumbs: list) -> tuple:
-    """(indices to read, how many qualified): frame 0, the last frame, and every frame whose thumbnail differs from the last read frame's by CHANGE_MIN or more. When more than
-    OCR_FRAMES_MAX qualify, OCR_FRAMES_MAX of them evenly spaced (the first and last kept)."""
-    if not thumbs:
+    """(indices to read, how many qualified): frame 0, the last frame, every GRID_STEP-th frame, and every frame with CELLS_MIN or more cells that differ by CELL_DIFF or more from
+    the last chosen frame's thumbnail. When more than OCR_FRAMES_MAX qualify (a moving picture: nearly every frame does), the choice is OCR_FRAMES_MAX frames evenly spaced over
+    the whole clip, first and last included: a step of at most 6.1 frames for the longest clip, so a text of 12 frames is read at least once."""
+    n = len(thumbs)
+    if not n:
         return [], 0
-    chosen, last = {0, len(thumbs) - 1}, thumbs[0]
-    for i in range(1, len(thumbs)):
-        if thumb_diff(thumbs[i], last) >= CHANGE_MIN:
+    chosen, last = set(), thumbs[0]
+    for i in range(n):
+        if i in (0, n - 1) or i % GRID_STEP == 0 or changed_cells(thumbs[i], last) >= CELLS_MIN:
             chosen.add(i)
             last = thumbs[i]
     ordered = sorted(chosen)
     if len(ordered) <= OCR_FRAMES_MAX:
         return ordered, len(ordered)
-    step = (len(ordered) - 1) / float(OCR_FRAMES_MAX - 1)
-    return [ordered[int(round(k * step))] for k in range(OCR_FRAMES_MAX)], len(ordered)
+    step = (n - 1) / float(OCR_FRAMES_MAX - 1)
+    return sorted({int(round(k * step)) for k in range(OCR_FRAMES_MAX)}), len(ordered)
 
 
 # ---------------------------------------------------------------- the readers (seams: a host test replaces them)
@@ -339,9 +346,8 @@ def scan_asset(ffmpeg: str, spec: dict, lang: str, deadline: float) -> dict:
         codes.add({"link": "qr_link", "action": "qr_action", "text": "qr_text"}[row["kind"]])
     if qrs.unreadable:
         codes.add("qr_unreadable")
-    if partial or (kind == "clip" and qualified > read):
+    if partial:                                      # frames were chosen and not read: the budget ended
         codes.add("scan_partial")
-        partial = True
     return {"slot": spec["slot"], "file": spec["file"], "kind": kind, "frames": frames, "frames_qr": frames_qr, "frames_text": read, "frames_changed": qualified if frames else 0,
             "partial": partial, "codes": sorted(codes), "text": text, "qr": qrs.rows()}
 
