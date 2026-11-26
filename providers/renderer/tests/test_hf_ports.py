@@ -34,7 +34,7 @@ PORTS = {
     "testimonial-card": ("quote", "testimonial-card", "7edb7eaa573f8331a3f5c76c689d47989ccccbfb6027b7ac072de22df52f0510"),
     "spring-pop": ("keyword", "spring-pop", "542423b2d98bb48400280b621e7421b16ae026c2abc1ee8f64d5cca18fd8f51d"),
 }
-NOT_ADMITTED = {"spring-pop", "count-up", "testimonial-card"}      # the ports with no determinism record: spring-pop since PF-a4b; count-up and testimonial-card since PF-a4d (their old records were measured on pages with no style and expired; on the styled page they fail in the reverse run)
+NOT_ADMITTED: set = set()      # every port has a determinism record since PF-a4e (the repaint of `seek_admitted`); before it count-up, testimonial-card (PF-a4d) and spring-pop (PF-a4b) failed the reverse run
 DEFAULTS = {"aside": "oh:aside", "caption": "hf:caption-highlight", "cutaway": "oh:cutaway", "keyword": "hf:spring-pop", "list": "oh:list", "mark": "oh:mark", "nametag": "oh:nametag", "number": "hf:count-up",
             "quote": "hf:testimonial-card", "sticker": "oh:sticker"}
 CAPTION_PORTS = [n for n, (preset, _, _) in PORTS.items() if preset == "caption"]

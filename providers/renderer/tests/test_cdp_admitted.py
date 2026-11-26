@@ -151,4 +151,10 @@ def test_a_seek_waits_for_two_frames_checks_the_state_and_the_faces_again_and_re
     page.fonts = {"faces": [["oh-text", "500", "normal"]], "system": []}
     assert page.seek_admitted(0.5) == b"png"
     ex = page.expressions
-    assert "window.__hf.seek(0.5)" in ex[0] and "originalRequestAnimationFrame" in ex[0] and "window.__csp" in ex[1] and ", false)" in ex[2] and ex[3] == "<screenshot>"
+    assert "window.__hf.seek(0.5)" in ex[0] and "originalRequestAnimationFrame" in ex[0] and "window.__csp" in ex[1] and ", false)" in ex[2] and ex[3] == _cdp.REPAINT_JS and ex[4] == "<screenshot>"
+
+
+def test_the_repaint_hides_and_shows_the_instance_and_waits_two_original_frames_before_the_screenshot():
+    js = _cdp.REPAINT_JS
+    assert "getElementById('oh-inst')" in js and "style.display = 'none'" in js and js.index("'none'") < js.index("= d;") and js.count("offsetHeight") == 2
+    assert "originalRequestAnimationFrame" in js and "raf(() => raf(r))" in js
