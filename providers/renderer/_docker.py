@@ -235,6 +235,19 @@ def write_private_json(path: str, value) -> None:
         raise
 
 
+def require_wheels_pinned(path=None) -> None:
+    """`build` starts only when wheel-pin.json is filled (every name, version, file name, url, size and sha256 of OpenCV and numpy for both architectures), as it starts only
+    when the browser's sha256 is pinned: the image's own fetch (`_fetch_wheels.py`) would refuse the same pin at its step, after the packages were downloaded."""
+    import _fetch_wheels
+    try:
+        with open(path or os.path.join(HERE, "wheel-pin.json"), encoding="utf-8") as fh:
+            pin = json.load(fh)
+    except (OSError, ValueError):
+        raise NotConfigured("pin_incomplete", "wheel-pin") from None
+    if _fetch_wheels.pin_missing(pin):
+        raise NotConfigured("pin_incomplete", "wheel-pin")
+
+
 def build(pin: dict, platform: str, confirmed: bool, dry_run: bool) -> dict:
     """Build the image from this folder's definition. The one step that uses the network, at the person's word: it pulls the
     pinned base image, installs packages from the pinned Debian snapshot and downloads the pinned browser archive, which the
@@ -244,6 +257,7 @@ def build(pin: dict, platform: str, confirmed: bool, dry_run: bool) -> dict:
         spec_for(pin, platform)
     else:
         require_sha256(pin, platform)
+        require_wheels_pinned()
     argv = build_argv(pin, platform)
     plan = {"command": ["docker"] + argv, "image": image_tag(), "definition": definition_hash(), "platform": platform,
             "chrome_version": pin["version"], "files": definition_files(),
@@ -530,7 +544,7 @@ OUTPUT = dct(container=S, codec=S, profile=opt(S), pix_fmt=opt(S), width=I, heig
 PROBLEMS = lst(dct(beat=opt(I), field=FLD, code=COD), 50)
 ADVICE = lst(dct(code=ACODE, value=N, default=N, count=I, ids=opt(lst(FLD, 12))), 24)      # video P0b: closed rows; the host says the sentence (runtime/deliver_document.py)
 RESULT_SCHEMAS = {
-    "selfcheck": dct(ok=B, ffmpeg=S, ffprobe=S, missing=lst(S, 50), python=S, browser=S, libass=B, container=B),
+    "selfcheck": dct(ok=B, ffmpeg=S, ffprobe=S, missing=lst(S, 50), python=S, browser=S, libass=B, container=B, tesseract=S, tessdata=lst(S, 16), opencv=S, numpy=S),
     "analyse": dct(ok=B, duration=N, sha256=S, silences=opt(I), has_audio=B),
     "analysis_doc": dct(ok=B, schema_version=I, facts=FACTS, silences=opt(lst(dct(start=N, end=N), 20000)), noise_db=N, min_silence=N),
     "base": dct(ok=B, advice=opt(ADVICE), fps=I, kept_ranges=I, out_seconds=N, source_seconds=N, words=I, caption_chunks=I,
@@ -550,6 +564,10 @@ RESULT_SCHEMAS = {
                       advisory=opt(lst(S, 50))),
     "preview": dct(ok=B, sha256=S, from_sha256=S, bytes=I, width=I, height=I, duration=N, has_audio=B, video_kbps=I, audio_kbps=I, seconds=N),
     "asset-sheet": dct(ok=B, assets=lst(dct(row=S, col=I, file=opt(S), sha256=S, width=I, height=I, source_sha256=S, kind=S, seconds=N), 36), sheet=S, sheet_sha256=S, rows=lst(S, 36)),
+    "scan": dct(ok=B, lang=S, versions=dct(tesseract=S, opencv=S, tessdata=lst(S, 16)),
+                assets=lst(dct(slot=S, file=S, kind=S, frames=I, frames_qr=I, frames_text=I, frames_changed=I, partial=B, codes=lst(COD, 6),
+                               text=dct(lines=lst(S, 8), chars=I, cut=B),
+                               qr=lst(dct(kind=S, host=opt(S), scheme=opt(S), text=opt(S), first_frame=I, frames=I), 4)), 6)),
     "admit-check": dct(ok=B, served_sha256=S, runtime_sha256=S, samples=I, frames=I, runs=I, blocked=I, seconds=N, browser=S, per_sample=lst(dct(frames=I, digest=S), 20)),
     "render": dct(ok=B, advice=opt(ADVICE), dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),
                   beats_drawn=lst(dct(id=S, preset=S, block=opt(S), start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), assets_dropped=opt(lst(S, 36)), beats_dropped_reasons=opt(lst(dct(id=S, reason=S), 100)), effects_dropped=opt(lst(dct(id=S, reason=S), 297)), transitions_drawn=opt(lst(dct(id=S, kind=S, start_frame=I, end_frame=I), 99)), unmatched_beats=lst(I, 100),

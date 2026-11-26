@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import shutil
 
 import renderer_kit as K
@@ -96,3 +97,37 @@ def test_the_manifest_carries_the_runtime_pins_the_fetch_and_the_shims_and_no_do
     wanted = {"hf-runtime/npm-pins.json", "hf-runtime/registry.sha256", "hf-runtime/fetch_hf.py", "hf-runtime/shims/SHA256SUMS"}
     wanted |= {"hf-runtime/shims/%s.js" % n for n in ("early_stub", "capture_mode_shim", "virtual_time_shim", "render_mode", "bridge")}
     assert wanted <= files and not any(f.endswith((".md", "NOTICE.md")) for f in files if f.startswith("hf-runtime/"))
+
+
+def test_the_dockerfile_installs_tesseract_with_three_languages_and_fetches_the_wheels_before_copying_the_renderer():
+    text = (FOLDER / "Dockerfile").read_text(encoding="utf-8")
+    install = next(line for line in text.splitlines() if "tesseract-ocr" in line and "fonts-dejavu-core" in line)
+    assert install.split() == ["ffmpeg", "python3", "ca-certificates", "fontconfig", "fonts-dejavu-core", "tesseract-ocr", "tesseract-ocr-por", "tesseract-ocr-spa", "\\"]
+    assert "COPY wheel-pin.json _fetch_wheels.py /opt/renderer/" in text
+    fetch = text.index("python3 -I /opt/renderer/_fetch_wheels.py /opt/renderer/wheel-pin.json")
+    assert text.index("fetch_hf.py --out") < fetch < text.index("COPY . /opt/renderer/") < text.rindex("selfcheck")
+
+
+def test_the_dockerfiles_network_uses_are_the_snapshot_chromes_storage_the_npm_registry_and_pypis_files_host_only():
+    text = (FOLDER / "Dockerfile").read_text(encoding="utf-8")
+    code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    assert sorted(set(re.findall(r"https?://[a-z0-9.-]+", code))) == ["http://snapshot.debian.org"]       # apt's snapshot; the rest reaches the network through a pinned fetch script
+    browser = json.loads((FOLDER / "browser-pin.json").read_text(encoding="utf-8"))
+    assert {re.match(r"https://([a-z0-9.-]+)/", spec["url"]).group(1) for spec in browser["platforms"].values()} == {"storage.googleapis.com"}
+    wheels = json.loads((FOLDER / "wheel-pin.json").read_text(encoding="utf-8"))
+    assert wheels["download_hosts"] == ["files.pythonhosted.org"] and wheels["redirect_hosts"] == []
+    assert {re.match(r"https://([a-z0-9.-]+)/", w["url"]).group(1) for w in wheels["wheels"] if w["url"]} <= {"files.pythonhosted.org"}
+    fetch = (FOLDER / "_fetch_wheels.py").read_text(encoding="utf-8")
+    assert "pip" not in re.findall(r"^import (\w+)", fetch, re.M) and "subprocess" not in fetch
+
+
+def test_the_manifest_carries_the_scanner_and_its_pin_and_fetch():
+    files = set(manifest()["files"])
+    assert {"wheel-pin.json", "_fetch_wheels.py", "_scan.py"} <= files and "NOTICE-scan.md" not in files
+    assert "NOTICE-scan.md" not in dockerignore_lines()
+
+
+def test_the_wheel_pin_has_both_architectures_for_every_name():
+    pin = json.loads((FOLDER / "wheel-pin.json").read_text(encoding="utf-8"))
+    for name in {w["name"] for w in pin["wheels"]}:
+        assert sorted(w["arch"] for w in pin["wheels"] if w["name"] == name) == ["amd64", "arm64"], name

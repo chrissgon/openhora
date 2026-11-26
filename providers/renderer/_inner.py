@@ -14,6 +14,7 @@ only writable mount) and /scratch (memory-backed), with no network.
   preview  --in MP4 --sha256 H --out FILE.mp4             a 720x1280 copy of a finished render, at most 15 MiB, one encoder thread
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
   asset-sheet --asset ROW:COL=FILE ... --mode preview|full [--fps N] --out DIR   the pictures and clips to pick from, checked and tiled; in full mode normalised too
+  scan     --asset SLOT=FILE ... --size SLOT=WxH ... [--lang eng+por+spa]   the text and the QR codes in the normalised pictures and clips of a media set (a warning, never a refusal)
   still    --in VIDEO --at-ms N --out PNG                    one frame of a recording, framed as the render frames it (1080x1920)
   admit-check (--entry FILE --component-dir DIR | --port hf:NAME) --vocabulary V --blocks DIR --blocks-sha256 H --scratch DIR [--jobs N]   the determinism test of a candidate
            HyperFrames block, or of one of our own ports of the staged blocks (three forward runs and one reverse run per sample, each in a fresh browser, identical frame hashes; the exact gates; the font check)
@@ -47,6 +48,7 @@ import _blocks  # noqa: E402
 import _edl  # noqa: E402
 import _media  # noqa: E402
 import _output  # noqa: E402
+import _scan  # noqa: E402
 import _timeline  # noqa: E402
 from _text import Refusal  # noqa: E402
 from _vocab import SLOT_ID, load_data, load_vocabulary, read_json  # noqa: E402
@@ -409,6 +411,17 @@ def verb_preview(args) -> dict:
             "audio_kbps": spec["audio_kbps"] if facts["has_audio"] else 0, "seconds": round(time.time() - started, 2)}
 
 
+def verb_scan(args) -> dict:
+    """Read the text and the QR codes of the normalised pictures and clips `--asset SLOT=FILE` (`_scan.py`); `--size SLOT=WxH` is each one's size. No recording, no network."""
+    ffmpeg, _ = tools(args)
+    try:
+        return _scan.scan(assets=args.asset, sizes=args.size, lang=args.lang, ffmpeg=ffmpeg)
+    except Refusal as err:
+        if err.code == "not_ready":
+            raise NotConfigured(err.code, err.field) from None
+        raise
+
+
 def verb_selfcheck(args) -> dict:
     """The versions of what this environment holds, and that each tool starts. The host's --check runs it in the container."""
     ffmpeg, ffprobe = tools(args)
@@ -427,7 +440,21 @@ def verb_selfcheck(args) -> dict:
     if _cdp.container_mode() or explicit:      # the image holds the runtime; a host that was not asked to look does not have it
         out["hf_runtime"] = check_hf_runtime(HERE, getattr(args, "vendor", None) or os.path.join(HERE, "vendor"),
                                              getattr(args, "hf_registry", None) or os.path.join(HERE, "hf-registry"))
+    if _cdp.container_mode() or getattr(args, "scan", False):      # the scanner's tools: read only where the image has them (or when asked), like the runtime above
+        out.update(scan_tools(_scan.DEFAULT_LANG))
     return out
+
+
+def scan_tools(lang: str) -> dict:
+    """{tesseract, tessdata, opencv, numpy}: what the `scan` verb needs, read from the tools themselves. A missing program, language or module is `not_ready` with `scan:<what>`."""
+    try:
+        facts = _scan.tool_versions(lang)
+        import numpy
+    except ImportError:
+        raise NotConfigured("not_ready", "scan:numpy") from None
+    except Refusal as err:
+        raise (NotConfigured(err.code, err.field) if err.code == "not_ready" else NotConfigured("not_ready", "scan:tesseract")) from None
+    return {"tesseract": facts["tesseract"], "tessdata": facts["tessdata"], "opencv": facts["opencv"], "numpy": str(numpy.__version__)[:40]}
 
 
 def _sha256_file(path: str) -> str:
@@ -497,8 +524,14 @@ def parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("selfcheck")
     common(sp, browser=True)
+    sp.add_argument("--scan", action="store_true", help="also check the scanner's tools (Tesseract with its languages, OpenCV, numpy); always done inside the image")
     sp.add_argument("--vendor", help="the folder of the HyperFrames runtime and GSAP to check (default: /opt/renderer/vendor in the image; the tests)")
     sp.add_argument("--hf-registry", help="the folder of the registry files to check (default: /opt/renderer/hf-registry in the image; the tests)")
+    sp = sub.add_parser("scan")
+    common(sp)
+    sp.add_argument("--asset", action="append", metavar="SLOT=FILE", help="a normalised picture or clip, named asset-<sha12>.png or .mp4 (at most 6)")
+    sp.add_argument("--size", action="append", metavar="SLOT=WxH", help="the width and height of that file, from the media set")
+    sp.add_argument("--lang", default=_scan.DEFAULT_LANG, help="Tesseract's languages joined by +; their data must be installed")
     sp = sub.add_parser("analyse")
     common(sp)
     sp.add_argument("--in", dest="input", required=True)
@@ -619,7 +652,7 @@ def parser() -> argparse.ArgumentParser:
 
 VERBS = {"verify": verb_verify, "selfcheck": verb_selfcheck, "analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents,
          "render": verb_render, "storyboard": verb_storyboard, "cover": verb_cover, "still": verb_still,
-         "preview": verb_preview, "asset-sheet": verb_asset_sheet,
+         "preview": verb_preview, "asset-sheet": verb_asset_sheet, "scan": verb_scan,
          "admit-check": verb_admit_check}
 
 
