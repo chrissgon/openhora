@@ -552,7 +552,7 @@ RESULT_SCHEMAS = {
     "asset-sheet": dct(ok=B, assets=lst(dct(row=S, col=I, file=opt(S), sha256=S, width=I, height=I, source_sha256=S, kind=S, seconds=N), 36), sheet=S, sheet_sha256=S, rows=lst(S, 36)),
     "admit-check": dct(ok=B, served_sha256=S, runtime_sha256=S, samples=I, frames=I, runs=I, blocked=I, seconds=N, browser=S, per_sample=lst(dct(frames=I, digest=S), 20)),
     "render": dct(ok=B, advice=opt(ADVICE), dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),
-                  beats_drawn=lst(dct(id=S, preset=S, block=opt(S), start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), assets_dropped=opt(lst(S, 36)), beats_dropped_reasons=opt(lst(dct(id=S, reason=S), 100)), effects_dropped=opt(lst(dct(id=S, reason=S), 198)), unmatched_beats=lst(I, 100),
+                  beats_drawn=lst(dct(id=S, preset=S, block=opt(S), start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), assets_dropped=opt(lst(S, 36)), beats_dropped_reasons=opt(lst(dct(id=S, reason=S), 100)), effects_dropped=opt(lst(dct(id=S, reason=S), 297)), transitions_drawn=opt(lst(dct(id=S, kind=S, start_frame=I, end_frame=I), 99)), unmatched_beats=lst(I, 100),
                   mentions=lst(S, 500), fonts=mp(S), blocks=mp(S), blocks_sha256=S, estimated_bytes=I, sha256=S, bytes=I, output=OUTPUT, seconds=mp(N),
                   browser=opt(S), browser_sandbox=opt(S), frames_rendered=I, frames_reused=I, cover=opt(dct(offset_ms=I, sha256=S)),
                   hf_proofs=opt(mp(dct(served_sha256=S, runtime_sha256=S)))),

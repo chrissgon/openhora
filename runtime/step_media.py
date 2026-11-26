@@ -789,13 +789,13 @@ def _advice(done: dict) -> list:
     return sorted(found, key=lambda r: r["code"])
 
 
-EFFECT_ID_OUT = re.compile(r"[pe][0-9]{1,2}")
-EFFECT_REASONS = ("punch_short", "punch_capped", "grade_short", "grade_overlap")
+EFFECT_ID_OUT = re.compile(r"[pet][0-9]{1,2}")
+EFFECT_REASONS = ("punch_short", "punch_capped", "grade_short", "grade_overlap", "transition_overlap", "transition_beat_dropped")
 BEAT_LEFT_OUT_REASONS = ("overlap", "under_picture", "pip_no_room", "split_no_room")      # the renderer's closed list for a beat it left out (V9b-3f)
 
 
 def _effects_dropped(done: dict) -> list:
-    """The render's `effects_dropped` as closed rows {id, reason} (an id of the shape `p3` or `e2`, a reason of the renderer's closed list); anything else is left out."""
+    """The render's `effects_dropped` as closed rows {id, reason} (an id of the shape `p3`, `e2` or `t4`, a reason of the renderer's closed list); anything else is left out."""
     rows = done.get("effects_dropped")
     found = []
     for row in rows if isinstance(rows, list) else []:

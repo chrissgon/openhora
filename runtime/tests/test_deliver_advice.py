@@ -136,6 +136,6 @@ def test_the_ceilings_are_the_renderers_and_the_usual_count_is_the_vocabulary_de
     text = (REPO / "providers" / "renderer" / "_edl.py").read_text(encoding="utf-8")
     assert int(re.search(r"^BEATS_CEILING = (\d+)", text, re.M).group(1)) == cap.BEATS_CEILING == 99
     assert int(re.search(r"^PUNCHES_CEILING = (\d+)", text, re.M).group(1)) == 99
-    assert cap.ANIMATIONS_MAX == 99 and dd.LEFT_OUT_MAX == cap.EFFECTS_MAX + 2 * cap.BEATS_CEILING
+    assert cap.ANIMATIONS_MAX == 99 and dd.LEFT_OUT_MAX == cap.EFFECTS_MAX + cap.TRANSITIONS_MAX + 2 * cap.BEATS_CEILING == 396
     vocabulary = json.loads((REPO / "shared" / "references" / "video-presets.json").read_text(encoding="utf-8"))
     assert cap.BEATS_MAX == vocabulary["limits"]["beats_max"] == 12

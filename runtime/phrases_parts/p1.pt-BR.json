@@ -1,0 +1,8 @@
+{
+  "package": "p1",
+  "table": {
+    "CARD_VIDEO_LEFT_OUT_EFFECT_TRANSITION_OVERLAP": "Ficou fora do vídeo: {id}, efeito, outra transição cobre esse trecho",
+    "CARD_VIDEO_LEFT_OUT_EFFECT_TRANSITION_BEAT_DROPPED": "Ficou fora do vídeo: {id}, efeito, a cena que ela abria ficou fora do vídeo"
+  },
+  "same_as_english": []
+}

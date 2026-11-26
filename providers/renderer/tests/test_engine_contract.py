@@ -405,7 +405,7 @@ def test_the_live_file_runs_every_leg_on_the_one_engine_and_keeps_the_ids():
     import test_engine_contract_live as live
     legs = live.LIVE_LEGS
     assert legs and all(engines == ("ffmpeg",) for engines in legs.values()), legs
-    assert {"F1", "F2", "F3", "F5", "F6", "F7", "F9", "F10", "F11", "M1", "M2", "M4", "M5"} <= set(legs)
+    assert {"F1", "F2", "F3", "F5", "F6", "F7", "F9", "F10", "F11", "F12", "M1", "M2", "M4", "M5"} <= set(legs)
     assert not {"F4", "F8", "M3", "M6"} & set(legs)                  # the old engine's legs (the proxy, the glyph advice, the 300 s input, the clip on its page)
     tests = sorted(n for n in dir(live) if n.startswith("test_"))
     assert [n for n in tests if n.startswith("test_mac_")], "the machine legs are named test_mac_*"

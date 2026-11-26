@@ -451,6 +451,22 @@
               "word_to": {"type": "integer"}
             }
           }
+        },
+        "transitions": {
+          "type": "array",
+          "description": "The transitions at joins (P1a). Optional; at most 99 (a closed document), one per anchor. `kind` glitch, bloom, zoom_blur, blur_to_card or dip is drawn by ffmpeg over the composed picture, under the captions; slide or zoom is the cutaway page's own entry look for one beat. The anchor is a `word` (an index of the edit list's words: the cut before it when it opens a shot, else its first frame) or a `beat` (the id of an overlay or layout entry: that beat's entry). A transition never starts inside a word.",
+          "maxItems": 99,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "kind"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^t[1-9][0-9]?$"},
+              "kind": {"enum": ["glitch", "bloom", "zoom_blur", "blur_to_card", "dip", "slide", "zoom"]},
+              "word": {"type": "integer"},
+              "beat": {"type": "string"}
+            }
+          }
         }
       }
     },

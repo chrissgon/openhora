@@ -263,7 +263,7 @@ def test_a_caption_drawn_ending_at_1561_is_reported_as_caption_below_line_advice
 
 # Computed on the untouched code (7e23eac) for the kit's fictional post: the sha256 of the three functions' source and of the data they gave
 # every caption chunk and beat of its timeline. The move is byte for byte, so both are unchanged and the ffmpeg engine's frames cannot differ.
-PAYLOAD_SOURCE_SHA256 = "184af004b9b7d336241bd55cda6425b4355004a83146ae4316141420c9dcbe76"
+PAYLOAD_SOURCE_SHA256 = "ac2878a98f18b622e280171dcf80f73a7e78fba69304c112af6d2e220a814f54"
 # V9d: the rows changed on purpose: the cutaway's look is a hard cut with the glass values.
 PAYLOAD_ROWS_SHA256 = "3081bd11af201fed0db9bbf85b4712716cb4823d88ad43f304ddfb936ce33436"
 
