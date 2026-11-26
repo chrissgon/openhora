@@ -66,12 +66,14 @@ def in_image(image, args, folder, entrypoint):
 
 
 def drawtext(text, enable=""):
-    return "drawtext=fontfile=%s:text='%s':fontsize=72:fontcolor=white:box=1:boxcolor=0x203040:x=(w-text_w)/2:y=900%s" % (FONT, text, enable)
+    """52 px: "SAMPLE PHOTO DO NOT USE" in DejaVu Bold at 72 px is wider than the 1080 px frame and the picture cuts its first and last letters (live leg, 2026-11-26)."""
+    return "drawtext=fontfile=%s:text='%s':fontsize=52:fontcolor=white:box=1:boxcolor=0x203040:x=(w-text_w)/2:y=900%s" % (FONT, text, enable)
 
 
 @pytest.fixture
 def fixtures(real_state, tmp_path_factory):
-    """Six fictional files in a folder: a picture with text, a QR link, a QR phone action, a clean gradient, a 30 fps clip whose text shows on frames 120 to 131 and a 60 fps clip with a QR code on frames 300 to 305."""
+    """Seven fictional files in a folder: a picture with text, a QR link, a QR phone action, a clean gradient, a 30 fps clip whose caption shows on frames 120 to 131 over a still
+    background, the same caption over a moving background, and a 60 fps clip with a QR code on frames 300 to 305."""
     image = D.check_image()
     folder = tmp_path_factory.mktemp("scan-fixtures")
     base = ["-hide_banner", "-loglevel", "error", "-y"]
@@ -82,9 +84,11 @@ def fixtures(real_state, tmp_path_factory):
     in_image(image, base + ["-f", "lavfi", "-i", "color=c=gray:s=%s" % SIZE, "-vf", "format=gray,geq=lum='255*X/W'", "-frames:v", "1", "/out/clean.png"], folder, "ffmpeg")
     in_image(image, base + ["-f", "lavfi", "-i", "color=c=0x335577:s=%s:r=30:d=10" % SIZE, "-vf", drawtext("CLIP SAMPLE TEXT", ":enable='between(n,120,131)'") + ",format=yuv420p",
                             "-c:v", "libx264", "/out/text-clip.mp4"], folder, "ffmpeg")
+    in_image(image, base + ["-f", "lavfi", "-i", "gradients=s=%s:r=30:d=10:speed=0.05" % SIZE, "-vf", drawtext("MOVING SAMPLE TEXT", ":enable='between(n,120,131)'") + ",format=yuv420p",
+                            "-c:v", "libx264", "/out/move-clip.mp4"], folder, "ffmpeg")
     in_image(image, base + ["-f", "lavfi", "-i", "color=c=0x335577:s=%s:r=60:d=10" % SIZE, "-i", "/out/qr-clip.png", "-filter_complex",
                             "[0:v][1:v]overlay=enable='between(n,300,305)',format=yuv420p", "-c:v", "libx264", "/out/qr-clip.mp4"], folder, "ffmpeg")
-    names = {"text": "text.png", "link": "qr-link.png", "tel": "qr-tel.png", "clean": "clean.png", "textclip": "text-clip.mp4", "qrclip": "qr-clip.mp4"}
+    names = {"text": "text.png", "link": "qr-link.png", "tel": "qr-tel.png", "clean": "clean.png", "textclip": "text-clip.mp4", "movclip": "move-clip.mp4", "qrclip": "qr-clip.mp4"}
     return {slot: folder / name for slot, name in names.items()}
 
 
@@ -113,32 +117,42 @@ def scan(normalised, *slots):
 
 
 def test_every_planted_picture_and_clip_gives_the_rows_expected(normalised):
-    rc, out, err, seconds = scan(normalised, *normalised)
+    rc, out, err, seconds = scan(normalised, "text", "link", "tel", "clean", "textclip", "movclip")
     assert rc == 0, err
     rows = {a["slot"]: a for a in out["assets"]}
     print("\nscan of six assets: %.1f s; versions %s" % (seconds, out["versions"]))
     for a in out["assets"]:
-        print("  %-8s %-5s frames=%d text_frames=%d changed=%d partial=%s codes=%s" % (a["slot"], a["kind"], a["frames"], a["frames_text"], a["frames_changed"], a["partial"], a["codes"]))
+        print("  %-8s %-5s frames=%d text_frames=%d candidates=%d partial=%s codes=%s lines=%s" % (a["slot"], a["kind"], a["frames"], a["frames_text"], a["frames_changed"], a["partial"], a["codes"], a["text"]["lines"]))
     assert set(out["versions"]["tessdata"]) >= {"eng", "por", "spa"} and out["lang"] == "eng+por+spa"
-    assert "text_found" in rows["text"]["codes"] and any("SAMPLE" in line.upper() for line in rows["text"]["text"]["lines"])
+    assert "text_found" in rows["text"]["codes"] and any("SAMPLE PHOTO DO NOT USE" in line.upper() for line in rows["text"]["text"]["lines"])
     assert rows["link"]["codes"] == ["qr_link"] and rows["link"]["qr"][0]["host"] == "shop.example"
     assert rows["tel"]["codes"] == ["qr_action"] and rows["tel"]["qr"][0]["scheme"] == "tel"
     assert rows["clean"]["codes"] == [] and rows["clean"]["text"]["lines"] == [] and rows["clean"]["qr"] == []
-    assert rows["textclip"]["kind"] == "clip" and "text_found" in rows["textclip"]["codes"] and any("SAMPLE" in line.upper() for line in rows["textclip"]["text"]["lines"])
-    qr = rows["qrclip"]["qr"]
-    assert rows["qrclip"]["codes"] == ["qr_link"] and qr[0]["host"] == "clip.example" and 300 <= qr[0]["first_frame"] <= 305 and qr[0]["frames"] == 6, qr
-    assert rows["qrclip"]["frames"] == 600 and rows["qrclip"]["frames_qr"] == 600 and rows["qrclip"]["partial"] is False
+    # a caption that shows for 12 frames (0.4 s at 30 fps) in the middle of a clip is read, on a still background and on a moving one
+    for slot, words in (("textclip", "CLIP SAMPLE TEXT"), ("movclip", "MOVING SAMPLE TEXT")):
+        assert rows[slot]["kind"] == "clip" and "text_found" in rows[slot]["codes"] and rows[slot]["partial"] is False, (slot, rows[slot])
+        assert any("SAMPLE" in line.upper() for line in rows[slot]["text"]["lines"]), (slot, rows[slot]["text"])
+
+
+def test_a_clip_with_a_qr_code_on_six_frames_of_six_hundred_finds_it(normalised):
+    rc, out, err, seconds = scan(normalised, "qrclip")
+    assert rc == 0, err
+    row = out["assets"][0]
+    qr = row["qr"]
+    print("\nqrclip alone: %.1f s" % seconds)
+    assert row["codes"] == ["qr_link"] and qr[0]["host"] == "clip.example" and 300 <= qr[0]["first_frame"] <= 305 and qr[0]["frames"] == 6, qr
+    assert row["frames"] == 600 and row["frames_qr"] == 600 and row["partial"] is False
 
 
 def test_two_runs_give_the_same_answer_byte_for_byte(normalised):
-    first = scan(normalised, "text", "link", "textclip")
-    second = scan(normalised, "text", "link", "textclip")
+    first = scan(normalised, "text", "link", "movclip")
+    second = scan(normalised, "text", "link", "movclip")
     assert first[0] == second[0] == 0
     assert json.dumps(first[1]["assets"], sort_keys=True) == json.dumps(second[1]["assets"], sort_keys=True)
 
 
 def test_the_timings_of_a_picture_a_300_frame_clip_and_a_600_frame_clip_are_printed(normalised):
-    for slot in ("text", "textclip", "qrclip"):
+    for slot in ("text", "textclip", "movclip", "qrclip"):
         rc, out, err, seconds = scan(normalised, slot)
         assert rc == 0, err
         print("\n%s alone: %.1f s (%d frames)" % (slot, seconds, out["assets"][0]["frames"]))
