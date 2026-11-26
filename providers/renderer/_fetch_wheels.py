@@ -37,6 +37,9 @@ MACHINES = {"x86_64": "amd64", "aarch64": "arm64"}
 WHEEL_FIELDS = ("name", "version", "arch", "filename", "url", "size", "sha256")
 MAX_MEMBERS, MAX_UNPACKED = 2000, 512 * 1024 * 1024
 RECORD_FILES = ("RECORD", "RECORD.jws", "RECORD.p7s")
+# A top-level folder a wheel of the pin may hold besides its own name, dist-info and .libs: the import name of a package whose distribution is named otherwise
+# (read from the real wheel: opencv_python_headless holds `cv2/`). Exact names, never a pattern.
+EXTRA_TOP = {"opencv_python_headless": ("cv2",)}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -119,7 +122,7 @@ def site_folder() -> str:
 
 
 def check_members(info: zipfile.ZipInfo, entry: dict) -> None:
-    """A member is a file of the wheel's own package folder, its dist-info or its `.libs`: no absolute or backslash name, no `..`, no link, no `.data`."""
+    """A member is a file of the wheel's own package folder (or the one EXTRA_TOP names), its dist-info or its `.libs`: no absolute or backslash name, no `..`, no link, no `.data`."""
     name = info.filename
     if not name or name.startswith("/") or "\\" in name or "\0" in name or ".." in name.split("/"):
         refuse("wheel_member_refused")
@@ -127,7 +130,7 @@ def check_members(info: zipfile.ZipInfo, entry: dict) -> None:
         refuse("wheel_member_refused")
     top = name.split("/", 1)[0]
     dist = "%s-%s" % (entry["name"], entry["version"])
-    if top.endswith(".data") or top not in (entry["name"], dist + ".dist-info", entry["name"] + ".libs"):
+    if top.endswith(".data") or top not in (entry["name"], dist + ".dist-info", entry["name"] + ".libs") + EXTRA_TOP.get(entry["name"], ()):
         refuse("wheel_member_refused")
 
 

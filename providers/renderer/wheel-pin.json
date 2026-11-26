@@ -1,5 +1,5 @@
 {
- "note": "Wheels unpacked into the common renderer image by _fetch_wheels.py, never by pip (same shape as providers/fetcher/wheel-pin.json). Filled from PyPI's JSON API by a person (the supervisor); `build` and the image's own fetch refuse while any field is empty. The opencv_python_headless size and sha256 are the ones the P9-a spec recorded on 2026-11-26; its filename and url, and every numpy field (the newest 2.x release at least 14 days old with cp311 manylinux2014 wheels for both architectures), are still to be read.",
+ "note": "Wheels unpacked into the common renderer image by _fetch_wheels.py, never by pip (same shape as providers/fetcher/wheel-pin.json). Read from PyPI's JSON API on 2026-11-26 by the executor, each file downloaded once and its size and sha256 checked against the JSON (opencv's equal the P9-a spec's). numpy 2.4.6 is the newest release that satisfies opencv's `numpy>=2` on Python 3.11, was uploaded 2026-05-18 (more than 14 days before) and has cp311 manylinux_2_27/2_28 wheels for both architectures (bookworm's glibc is 2.36).",
  "source": "PyPI's JSON API, https://pypi.org/pypi/<name>/<version>/json: each file's url, size and digests.sha256; requires_dist",
  "read_on": "2026-11-26",
  "download_hosts": [
@@ -11,8 +11,8 @@
    "name": "opencv_python_headless",
    "version": "4.14.0.94",
    "arch": "amd64",
-   "filename": "",
-   "url": "",
+   "filename": "opencv_python_headless-4.14.0.94-cp37-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+   "url": "https://files.pythonhosted.org/packages/de/06/14c8c5d331bc72738683a9b227966aceaa4c6d08752f33d64578aebcb6f8/opencv_python_headless-4.14.0.94-cp37-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
    "size": 57534165,
    "sha256": "5e02669eac0ba67b2a22d7245af1e8ee1a2ef1185ee526a063d8f0555224bd52"
   },
@@ -20,28 +20,28 @@
    "name": "opencv_python_headless",
    "version": "4.14.0.94",
    "arch": "arm64",
-   "filename": "",
-   "url": "",
+   "filename": "opencv_python_headless-4.14.0.94-cp37-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl",
+   "url": "https://files.pythonhosted.org/packages/7d/91/83c51e3fe000b5dfce4f3be5c5d320e07ebab5c1742abc4e45674503f90f/opencv_python_headless-4.14.0.94-cp37-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl",
    "size": 35405458,
    "sha256": "29714d7716dbfddf9fec20ffb878765e94ccaecd7d3ebd6750877420296e2dc5"
   },
   {
    "name": "numpy",
-   "version": "",
+   "version": "2.4.6",
    "arch": "amd64",
-   "filename": "",
-   "url": "",
-   "size": 0,
-   "sha256": ""
+   "filename": "numpy-2.4.6-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+   "url": "https://files.pythonhosted.org/packages/02/03/74fe2a4cb3817d94d86402f2506554130a2f01414e299b5a843e5a8a957f/numpy-2.4.6-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+   "size": 16918164,
+   "sha256": "89cd468399cfd2504718f0ba50e410dca55a170b61a02ad92bb18c8a65186e93"
   },
   {
    "name": "numpy",
-   "version": "",
+   "version": "2.4.6",
    "arch": "arm64",
-   "filename": "",
-   "url": "",
-   "size": 0,
-   "sha256": ""
+   "filename": "numpy-2.4.6-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl",
+   "url": "https://files.pythonhosted.org/packages/33/a8/6fa8c1a345a8c85dbb21932c447bee07c30a2c2a3f31e369c0a84b300147/numpy-2.4.6-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl",
+   "size": 15966692,
+   "sha256": "0ab0a9c4ffb1a6d95ef519fe4247dba8eb6b18ad93999f76b7f657039acabd47"
   }
  ]
 }

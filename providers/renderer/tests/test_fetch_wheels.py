@@ -193,7 +193,7 @@ def test_an_unfilled_pin_is_refused(tmp_path, monkeypatch, capsys):
         assert refused(tmp_path, monkeypatch, [entry(data, **edit)], Served(monkeypatch, {URL: data}), capsys) == "pin_incomplete", edit
 
 
-def test_the_committed_pin_has_both_architectures_for_every_name_and_is_not_filled_yet():
+def test_the_committed_pin_has_both_architectures_for_every_name_and_is_filled():
     committed = json.loads((K.RENDERER / "wheel-pin.json").read_text(encoding="utf-8"))
     names = {w["name"] for w in committed["wheels"]}
     assert names == {"opencv_python_headless", "numpy"}
@@ -204,9 +204,9 @@ def test_the_committed_pin_has_both_architectures_for_every_name_and_is_not_fill
     assert {w["version"] for w in opencv} == {"4.14.0.94"} and {w["arch"]: w["size"] for w in opencv} == {"arm64": 35405458, "amd64": 57534165}
     assert {w["arch"]: w["sha256"] for w in opencv} == {"arm64": "29714d7716dbfddf9fec20ffb878765e94ccaecd7d3ebd6750877420296e2dc5",
                                                        "amd64": "5e02669eac0ba67b2a22d7245af1e8ee1a2ef1185ee526a063d8f0555224bd52"}
-    # What the supervisor still has to read: when it is filled, `pin_missing` is false and every url is on the one host.
-    if not W.pin_missing(committed):
-        assert all(w["url"].startswith("https://files.pythonhosted.org/") and w["filename"] == w["url"].rsplit("/", 1)[1] and len(w["sha256"]) == 64 for w in committed["wheels"])
+    assert not W.pin_missing(committed)
+    assert all(w["url"].startswith("https://files.pythonhosted.org/") and w["filename"] == w["url"].rsplit("/", 1)[1] and len(w["sha256"]) == 64 for w in committed["wheels"])
+    assert {w["version"] for w in committed["wheels"] if w["name"] == "numpy"} == {"2.4.6"}
 
 
 def test_build_refuses_while_the_wheel_pin_is_not_filled(tmp_path):
@@ -222,3 +222,14 @@ def test_build_refuses_while_the_wheel_pin_is_not_filled(tmp_path):
         with pytest.raises(NotConfigured) as caught:
             D.require_wheels_pinned(str(path))
         assert (caught.value.code, caught.value.field) == ("pin_incomplete", "wheel-pin")
+
+
+def test_opencvs_import_folder_is_allowed_for_opencv_and_for_no_other_wheel(tmp_path, monkeypatch, capsys):
+    cv2 = make_wheel(extra=[], files={"cv2/__init__.py": b"x = 1\n", "%s/__init__.py" % NAME: b"y = 1\n"})
+    # a wheel of another name that holds `cv2/` is refused; the same layout under opencv's own name is the one named exception
+    assert refused(tmp_path, monkeypatch, [entry(cv2)], Served(monkeypatch, {URL: cv2}), capsys) == "wheel_member_refused"
+    info = zipfile.ZipInfo("cv2/__init__.py")
+    W.check_members(info, {"name": "opencv_python_headless", "version": "4.14.0.94"})
+    for bad in ("cv3/__init__.py", "cv2x/a.py"):
+        with pytest.raises(SystemExit):
+            W.check_members(zipfile.ZipInfo(bad), {"name": "opencv_python_headless", "version": "4.14.0.94"})
