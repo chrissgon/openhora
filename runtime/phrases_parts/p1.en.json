@@ -1,0 +1,7 @@
+{
+  "package": "p1",
+  "table": {
+    "CARD_VIDEO_LEFT_OUT_EFFECT_TRANSITION_OVERLAP": "Left out of the video: {id}, effect, another transition covers it",
+    "CARD_VIDEO_LEFT_OUT_EFFECT_TRANSITION_BEAT_DROPPED": "Left out of the video: {id}, effect, the scene it opened was left out"
+  }
+}

@@ -35,15 +35,16 @@ WORD = "deliver"
 VERSION = 1
 KEYS = ("blocks", "cover", "effect", "platform", "post", "preview", "recording", "task", "verify", "version", "video")
 OPTIONAL_KEYS = ("advice", "assets", "credits", "left_out", "web")      # V9b-3a: present only when the video uses pictures from the media set; `left_out` (V9b-3f) only when the render left something out; `advice` (video P0b) only when an edit went past a default
-LEFT_OUT_MAX = 297      # = captions.EFFECTS_MAX + 2 × captions.BEATS_CEILING (a test compares)
+LEFT_OUT_MAX = 396      # = captions.EFFECTS_MAX + captions.TRANSITIONS_MAX + 2 × captions.BEATS_CEILING (a test compares)
 LEFT_OUT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 # V9b-3f: what the render left out of the video, as closed words. A row is {id, kind, reason}; the words below are the English body's, and each pair is a phrase key
-# `CARD_VIDEO_LEFT_OUT_<KIND>_<REASON>` of runtime/phrases_parts/v9b-3f.*.json (a test compares them), so a phone says it in the project's language.
+# `CARD_VIDEO_LEFT_OUT_<KIND>_<REASON>` of runtime/phrases_parts/v9b-3f.*.json and p1.*.json (a test compares them), so a phone says it in the project's language.
 LEFT_OUT_KIND_WORDS = {"text": "text highlight", "picture": "picture", "effect": "effect"}
 LEFT_OUT_BEAT_REASON_WORDS = {"overlap": "another scene starts at the same time", "under_picture": "a picture covers it",
                               "pip_no_room": "no room beside the face", "split_no_room": "no room beside the face"}
 LEFT_OUT_EFFECT_REASON_WORDS = {"punch_short": "the zoom is too short", "punch_capped": "the zoom would not get any closer than the shot already is",
-                                "grade_short": "the colour change is too short", "grade_overlap": "another colour change covers it"}
+                                "grade_short": "the colour change is too short", "grade_overlap": "another colour change covers it",
+                                "transition_overlap": "another transition covers it", "transition_beat_dropped": "the scene it opened was left out"}
 # Video P0b: where an edit went past a default, as rows {code, value, default, count, ids?} of the renderer's closed codes (providers/renderer/_advice.py CODES; a test compares).
 # The container returns the code and the numbers and never the sentence: these are the English sentences (`{value}` and `{default}` formatted by `advice_number`, `{count}` an
 # integer), and each code is a phrase key `CARD_VIDEO_ADVICE_<CODE>` of runtime/phrases_parts/p0b.*.json (a test compares them), so a phone says it in the project's language.

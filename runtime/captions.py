@@ -103,6 +103,7 @@ GRADE_KINDS = ("flash", "dip", "mono", "tint")
 OVERLAY_GRADES = ("flash", "dip", "tint")      # = providers/renderer/_edl.py OVERLAY_GRADES (a test compares): the grades drawn on one colour layer
 EFFECTS_MAX = 99               # validity: the review effects one review may add (= _edl.py EFFECTS_MAX; the script's own punches are counted apart)
 EFFECT_ID = re.compile(r"e[1-9][0-9]?")      # = _edl.py EFFECT_ID
+TRANSITIONS_MAX = 99           # validity: the transitions at joins one review may hold (= _edl.py TRANSITIONS_MAX; the id format t1-t99)
 PUNCH_ID = re.compile(r"p([1-9][0-9]?)")      # the id of the script's punch of beat N
 ANIMATION_ID = re.compile(r"a([1-9][0-9]?)")
 ANIMATION_BEAT_BASE = 1000     # an added animation's `beat` in beats.json is 1000 + its number: never a script beat's number

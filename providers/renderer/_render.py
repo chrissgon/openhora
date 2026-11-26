@@ -111,6 +111,9 @@ def compose_plan(data, edl, timeline, assets, platform, src, frames_rel="frames"
     effects = _edl.range_effects(edl, timeline)      # the punches and grades, by kept range (V9a-3): the plan of a render with none has no such key
     if effects:
         plan["effects"] = effects
+    drawn = [t for t in timeline.get("transitions") or [] if t["kind"] in _edl.FFMPEG_TRANSITIONS]
+    if drawn:       # the ffmpeg transitions (P1a), each with its kind's numbers: the plan of a render with none has no such key
+        plan["transitions"] = [dict(t, params=data["transitions"]["kinds"][t["kind"]]) for t in drawn]
     if timeline.get("echoes") and plan["has_audio"]:
         plan["echoes"] = timeline["echoes"]          # an aside's echo, on the joined sound: the plan of a render with none has no such key
     return plan
@@ -192,8 +195,8 @@ def load_clips(files: dict, sha256s: dict, limits: dict, ffmpeg: str, ffprobe: s
 
 def settle_clips(vocab: dict, data: dict, timeline: dict, assets: dict) -> None:
     """Check where each clip is used, and mark the entries that draw one (`entry["params_kind"] = {"asset": "clip"}`, which the page is told). Only an `oh:cutaway`
-    draws a clip: any other block with a clip slot (`oh:screenshot`, `oh:pip`, a keyword card) is `asset_type` naming the slot; a cutaway whose look is not the
-    hard cut is `clip_transition` (a slide or a zoom is not drawn for a clip). Run after the blocks are resolved (`entry["block"]` is set)."""
+    draws a clip: any other block with a clip slot (`oh:screenshot`, `oh:pip`, a keyword card) is `asset_type` naming the slot; a cutaway whose look is a slide or a zoom
+    (the beat's own, from a transition row, else the theme's) is `clip_transition`: the page draws no motion for a clip, and ffmpeg draws the other kinds. Run after the blocks are resolved (`entry["block"]` is set)."""
     for e in timeline["beats"]:
         for name in _slot_names(vocab, e):
             slot = e["params"][name]
@@ -201,7 +204,7 @@ def settle_clips(vocab: dict, data: dict, timeline: dict, assets: dict) -> None:
                 continue
             if e["block"] != "oh:cutaway" or name != "asset":
                 raise Refusal("asset_type", slot)
-            if data["presets"][e["preset"]]["looks"].get("transition") != "cut":
+            if (e.get("transition") or data["presets"][e["preset"]]["looks"].get("transition")) in _edl.PAGE_TRANSITIONS:      # the beat's own look, else the theme's
                 raise Refusal("clip_transition", slot)
             e["params_kind"] = {name: "clip"}
             e["clip_size"] = {"w": assets[slot]["width"], "h": assets[slot]["height"]}      # the page reports the box the compose draws
@@ -285,7 +288,7 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     summary = {"ok": True, "dry_run": bool(dry_run), "out_dir": outdir, "out_seconds": round(out_seconds, 3), "out_frames": edl["out_frames"],
                "frame_jobs": len(jobs_list), "jobs": jobs, "time_limit_seconds": limit, "layers": plan["layers"],
                "beats_drawn": [{"id": e["id"], "preset": e["preset"], "block": e["block"], "start_frame": e["start_frame"], "end_frame": e["end_frame"]} for e in timeline["beats"]],
-               "beats_dropped": timeline["dropped"], **({"assets_dropped": sorted(dropped_only)} if dropped_only else {}), **({"beats_dropped_reasons": timeline["dropped_reasons"]} if timeline.get("dropped_reasons") else {}), "effects_dropped": timeline["effects_dropped"], "unmatched_beats": beats["unmatched"], "mentions": docs["mentions"],
+               "beats_dropped": timeline["dropped"], **({"assets_dropped": sorted(dropped_only)} if dropped_only else {}), **({"beats_dropped_reasons": timeline["dropped_reasons"]} if timeline.get("dropped_reasons") else {}), "effects_dropped": timeline["effects_dropped"], **_transition_summary(timeline), "unmatched_beats": beats["unmatched"], "mentions": docs["mentions"],
                "fonts": fonts_used, "blocks": {**tpl_hashes, **{n: p["served_sha256"] for n, p in admitted["proofs"].items()}}, "blocks_sha256": catalogue["sha256"],
                "ffmpeg_argv": argv, "estimated_bytes": estimate, **({"hf_proofs": admitted["proofs"]} if admitted["proofs"] else {})}
     if advice:
@@ -342,6 +345,13 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     if advice:       # only a render that went past a default has the key: any other answer is what it always was
         summary["advice"] = advice
     return summary
+
+
+def _transition_summary(timeline: dict) -> dict:
+    """`transitions_drawn` for the render's answer: only a render with a transition has the key (any other answer is what it always was)."""
+    if not timeline.get("transitions"):
+        return {}
+    return {"transitions_drawn": [{"id": t["id"], "kind": t["kind"], "start_frame": t["start_frame"], "end_frame": t["end_frame"]} for t in timeline["transitions"]]}
 
 
 def _slot_names(vocab, entry):

@@ -108,7 +108,7 @@ function glassBox(w, h) {
 
 window.renderAt = function (t, data) {
   const P = data.params;
-  const L = data.look;
+  const L = data.transition === undefined ? data.look : Object.assign({}, data.look, { 'transition': data.transition });      // a transition row's look for this beat, else the theme's
   const stage = document.getElementById('stage');
   // A clip (data.params_kind.asset is "clip") is drawn by the render's compose, under this layer: the page draws the label chip only, on a transparent stage.
   if (data.params_kind && data.params_kind.asset === 'clip') {

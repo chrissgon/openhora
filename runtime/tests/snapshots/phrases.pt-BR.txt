@@ -310,6 +310,8 @@ CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_OVERLAP: Ficou fora do vídeo: 42, efeito, outr
 CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_SHORT: Ficou fora do vídeo: 42, efeito, a mudança de cor é curta demais
 CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_CAPPED: Ficou fora do vídeo: 42, efeito, o zoom não aproximaria mais do que a cena já está
 CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_SHORT: Ficou fora do vídeo: 42, efeito, o zoom é curto demais
+CARD_VIDEO_LEFT_OUT_EFFECT_TRANSITION_BEAT_DROPPED: Ficou fora do vídeo: 42, efeito, a cena que ela abria ficou fora do vídeo
+CARD_VIDEO_LEFT_OUT_EFFECT_TRANSITION_OVERLAP: Ficou fora do vídeo: 42, efeito, outra transição cobre esse trecho
 CARD_VIDEO_LEFT_OUT_PICTURE_OVERLAP: Ficou fora do vídeo: 42, imagem, outra cena começa ao mesmo tempo
 CARD_VIDEO_LEFT_OUT_PICTURE_PIP_NO_ROOM: Ficou fora do vídeo: 42, imagem, sem espaço ao lado do rosto
 CARD_VIDEO_LEFT_OUT_PICTURE_SPLIT_NO_ROOM: Ficou fora do vídeo: 42, imagem, sem espaço ao lado do rosto

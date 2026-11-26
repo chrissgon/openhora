@@ -9,7 +9,7 @@ Gated by the variable of the image, as the other live files are (the parameter o
 
 with no `-n`. The build comes first, into the same folder (the `build` verb of the host).
 
-Two kinds of leg. The functional legs (F1-F11, short inputs) run in CI's docker jobs and on the Mac. The machine legs (M1, M2, M4, M5, `test_mac_*`) need
+Two kinds of leg. The functional legs (F1-F12, short inputs) run in CI's docker jobs and on the Mac. The machine legs (M1, M2, M4, M5, `test_mac_*`) need
 8 cores, a long run or the real size, so they run only with `WB_ENGINE_MAC_LEGS=1` (the maintainer's machine), one after another, and write the
 committed report when `WB_ENGINE_REPORT=<a new file>` is set (a file that exists is refused):
 
@@ -394,6 +394,59 @@ def test_f9_the_cutaway_case_is_one_sha256_at_four_and_at_two_cpus(engine, lab):
     for run in runs:
         assert run.rc == 0, (run.out, run.err[-2000:])
     assert runs[0].out["sha256"] == runs[1].out["sha256"], [r.out["sha256"] for r in runs]
+
+
+# ---------------------------------------------------------------- F12 transitions at joins (P1a, C5)
+
+TRANSITION_KINDS_F12 = ("glitch", "bloom", "zoom_blur", "blur_to_card", "dip")
+
+
+def with_transitions(lab, beats_file: Path, name: str, rows: list) -> Path:
+    """A copy of the beats file with `transitions` set to `rows`."""
+    doc = json.loads(Path(beats_file).read_text())
+    doc["transitions"] = rows
+    return K.write_json(lab.folder / name, doc)
+
+
+@legs("F12", ("ffmpeg",))
+def test_f12_the_transitions_are_drawn_twice_identically_and_the_speaker_changes_only_where_the_edit_list_says(engine, lab):
+    """P1a, C5. One transition of each ffmpeg kind at five spread words of the F2 inputs (no zoom, so the band is read exactly), and one `glitch` on the beat of the
+    cutaway case. Each is rendered at 4 and at 2 cpus: one sha256 (C9). The answer's `transitions_drawn` is what `_edl.resolve_transitions` makes of the rows, and
+    the band of every output frame outside the frames of the rows is the source frame the kept ranges name (the frames inside are drawn on). The offline test of
+    `test_transitions_compose.py` proves the same on every frame's md5 on the host's ffmpeg; this leg is the image's ffmpeg 5.1."""
+    lab.need(engine)
+    rec, edl_file, beats_file, doc = lab.plain()
+    words = doc["words"]
+    rows = [{"id": "t%d" % (k + 1), "kind": kind, "word": words[len(words) * (k + 1) // 6]["index"]} for k, kind in enumerate(TRANSITION_KINDS_F12)]
+    beats = with_transitions(lab, beats_file, "beats-f12.json", rows)
+    runs = [lab.render(engine, "f12-a-" + engine, rec, edl_file, beats, 4, "0-3"), lab.render(engine, "f12-b-" + engine, rec, edl_file, beats, 2, "0-1")]
+    for run in runs:
+        assert run.rc == 0, (run.out, run.err[-2000:])
+    if runs[0].out["sha256"] != runs[1].out["sha256"]:
+        listed = [("cpus %s" % s, r.out_dir, Path(r.out["path"]).name, r.out["sha256"]) for s, r in zip(("4", "2"), runs)]
+        pytest.fail("a transition is not independent of the cpu count: %s" % json.dumps(C.mismatch_report(lab.runner(), listed), indent=1))
+    from _vocab import load_data
+    kept, dropped = _edl.resolve_transitions(doc, {"transitions": rows}, [], load_data())
+    assert dropped == [] and [(t["id"], t["kind"], t["start_frame"], t["end_frame"]) for t in kept] == \
+        [(r["id"], r["kind"], r["start_frame"], r["end_frame"]) for r in runs[0].out["transitions_drawn"]] == \
+        [(r["id"], r["kind"], r["start_frame"], r["end_frame"]) for r in runs[1].out["transitions_drawn"]]
+    inside = {f for t in kept for f, _ in t["frames"]}
+    got, want = lab.band(Path(runs[0].out["path"])), C.expected_sources(doc["kept"])
+    assert len(got) == doc["out_frames"] and inside
+    assert [f for f in range(len(got)) if f not in inside and got[f] != want[f]] == []
+
+    transcript = K.build_transcript(CUTAWAY_SENTENCES)
+    crec = lab.recording("cutaway", transcript)
+    cedl, cbeats, cdoc = lab.documents("cutaway", crec, transcript, CUTAWAY_POST)
+    layout = next(e for e in json.loads(Path(cbeats).read_text())["layouts"] if e["preset"] == "cutaway")
+    cwith = with_transitions(lab, cbeats, "beats-f12-cutaway.json", [{"id": "t1", "kind": "glitch", "beat": layout["id"]}])
+    picture = cutaway_picture(lab.folder)
+    cruns = [lab.render(engine, "f12-c-" + engine, crec, cedl, cwith, 4, "0-3", assets={"beat2": picture}),
+             lab.render(engine, "f12-d-" + engine, crec, cedl, cwith, 2, "0-1", assets={"beat2": picture})]
+    for run in cruns:
+        assert run.rc == 0, (run.out, run.err[-2000:])
+        assert [t["kind"] for t in run.out["transitions_drawn"]] == ["glitch"]
+    assert cruns[0].out["sha256"] == cruns[1].out["sha256"], [r.out["sha256"] for r in cruns]
 
 
 # ---------------------------------------------------------------- F5, F6 planted blocks

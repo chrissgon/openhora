@@ -225,7 +225,7 @@ report's closed schema and the memory sampler are in `tests/contract_kit.py`; th
 | C2 | the platform's video spec, bt709 tags, the length is `out_frames/fps` | `_inner.verb_verify`, `_media.check_output` | F1 |
 | C3 | audio is kept when the recording has it | `_media.compose_argv` | F1 |
 | C4 | the edit list is what is drawn: every output frame is the source frame the kept ranges name | `_media.base_graph` | F2 |
-| C5 | nothing drawn touches the face box | `_frames.draw_frames` (no face rule: the old engine's pixel advice `face_pixels_changed` went with it) | F5 |
+| C5 | the speaker's picture is changed only where the edit list says: the frames of the transitions and of the grades it names. Every other output frame of the base picture is the cut and zoomed source frame. Overlays may cover the face (2026-11-24); no count and no limit on the face is made for transitions (2026-11-26) | `_edl.resolve_transitions`, `_media.transition_stage` | F12, `tests/test_transitions_compose.py` |
 | C6 | a caption that ends below 1560 renders and is reported as advice (`caption_below_line`) | the same | F6 |
 | C7 | a beat the engine cannot draw is refused before drawing | `_blocks.resolve` | F7 |
 | C8 | the recording is the one the list was made from, at most 300 s | `_output.check_recording` | F7 |
@@ -236,7 +236,7 @@ report's closed schema and the memory sampler are in `tests/contract_kit.py`; th
 
 The engine answers `block-params` (the host-side checker of an added animation, from the same function of `_host.py`; `test_renderer_contract.py` keeps that true for every implementation of the class).
 
-Two kinds of leg. The functional legs F1-F3, F5-F7, F9-F11 run on short inputs, in CI's renderer job (`WB_RENDERER_DOCKER_TESTS=1`; three legs that run at once, CI-1b)
+Two kinds of leg. The functional legs F1-F3, F5-F7, F9-F12 run on short inputs, in CI's renderer job (`WB_RENDERER_DOCKER_TESTS=1`; three legs that run at once, CI-1b)
 and on the maintainer's machine. The machine legs `test_mac_*` (M1 the short case at 4 and 8 cores, M2 a real-size case of about 196 s and 37 kept ranges at 4 and 8
 cores, M4 the cutaway, M5 the clip cutaway) need 8 cores and run only with `WB_ENGINE_MAC_LEGS=1`, one after another; with `WB_ENGINE_REPORT=<a new file>` they write the
 report, `reports/engine-contract-<date>-<arch>.json`, checked by `contract_kit.check_report` (closed: hashes, numbers, closed words, a date; no path, no word of a
@@ -257,6 +257,28 @@ The script's `emphasis: punch` (beats.json `punches`, written by `align` for a b
 (`punches`, `grades`, `effects_dropped`), `_edl.range_effects` into one table by kept range in the range's own frame index, and one drawing reads that
 table: `_media.base_graph` (a step in the `zoompan`/`perspective` expression, an exact per-plane blend (`lutyuv`, `_media.blend_filter`) for flash, dip and tint, `colorchannelmixer`
 with the CSS `grayscale(1)` matrix for mono); the HyperFrames page and the face check's reference, which read the same table until PF-b, went with that engine. The taste caps are gone (video P0): the count, the length and the strength of effects are the person's. Only validity bounds stay in code: at most `_edl.EFFECTS_MAX` (99, a closed document, ids `e1` to `e99`) review effects, an alpha clamped to 0-1, a zoom up to `_edl.ZOOM_MAX` (10, the range of ffmpeg's `zoompan`), two flash, dip or tint grades never over the same words (they share one colour layer), and the face check. A render with no punch and no effect writes the bytes it always wrote (a golden test of the graph).
+
+### Transitions at joins (P1)
+
+`beats.json` `transitions` (optional, at most `_edl.TRANSITIONS_MAX` = 99 rows `t1`-`t99`, written by the caption review from the edit `transition`) change the join between two kept ranges,
+or a frame inside a shot, or a cutaway's entry. A row is `{id, kind, word}` or `{id, kind, beat}`: one anchor, once. The default is none (a hard cut and the theme's own cutaway look), and a post with no
+row has the edit list check, the timeline, the argv and the bytes it always had (the plan has no `transitions` key, the timeline has none, the plain path of the graph is taken).
+
+- **Kinds.** `glitch`, `bloom`, `zoom_blur`, `blur_to_card` and `dip` are drawn by ffmpeg (`_media.transition_stage`) over the whole composed picture, in planar RGB, just under the caption layer (the captions stay sharp on top)
+  and over the cards and the beat layer; each frame of a transition is its own one-frame segment of the picture with constants only, `trim`med and `concat`ed back in output-frame order and retimed once on the frame grid (R3-11).
+  No frame is added or removed, so C4 holds outside the rows. `slide` and `zoom` are the cutaway page's own entry looks, now per beat (`data.transition` replaces the theme's `looks.transition` for that beat; the theme's value is the default).
+  An ffmpeg kind on a cutaway beat makes the page draw `cut` under it. A clip cutaway may take any ffmpeg kind; a `slide` or a `zoom` (the beat's own, else the theme's) is `clip_transition`.
+- **Defaults** are `renderer-presets.json` `transitions.kinds`: one intensity per frame (`lead` of them before the anchor frame), 3 frames for four kinds, `blur_to_card` 3 frames with 2 before the anchor, and the numbers of each chain.
+  The only bounds are validity (`_edl.check_transition_config`, `bad_transition_config`): a filter's own ranges.
+- **Anchors.** A `word` that opens kept range k >= 1 anchors on the cut (that range's first output frame); any other word on the frame it starts on; a `beat` on that entry's first frame (a beat the timeline dropped drops the row,
+  `transition_beat_dropped`). **A transition never starts inside a word**: an anchor inside a word moves forward to the first frame that is not, and a lead frame inside a word is dropped from the front (a frame is inside a word when it
+  is more than half a frame from both edges). Two transitions that meet: the later is dropped (`transition_overlap`). Both reasons are in `effects_dropped` (ids `t<n>`, at most 297 rows).
+- **Refusals** (validity, at `check`): `bad_transition`, `bad_id`, `too_many_transitions`, `bad_transition_anchor`, `transition_anchor_taken`, `transition_not_drawable` (a page kind on a word, or on a beat that is not a cutaway), `bad_transition_config`.
+- **No limit on the face.** The maintainer chose "Sem contagem" on 2026-11-26: transitions change the whole picture, the face included, and nothing counts or warns about it. The frames a transition changes are named
+  in the answer of `render` (`transitions_drawn`: id, kind, first and last frame; only when there is one), which is what C5 stands on.
+- **The graph's length** (validity): the filter graph is one argument, and Linux refuses one of 131072 bytes or more, so `_media.compose_argv` refuses `graph_too_long` past `GRAPH_MAX_BYTES` (131071) before any frame is drawn.
+- Tests: `tests/test_transitions_edl.py`, `tests/test_transitions_compose.py` (frame by frame, on the host's ffmpeg), `tests/test_cutaway_look.py`, `tests/test_clip_cutaway.py`, and F12 in `tests/test_engine_contract_live.py`.
+  Decision: `docs/decisions/` (the P1 transitions file).
 
 ## The still frame (`still`)
 
@@ -326,8 +348,7 @@ can be off; the heavy filters run on the entry's own frames, before the stream i
 draws **only the label chip** on a transparent stage; `window.__imgs` holds nothing for a clip slot. A test draws the page before and after this package on
 the same pictures and times and finds the same frame bytes for an image cutaway (`tests/golden/cutaway-renderat-v9b2.html` is the earlier page, kept for it).
 
-- **Transitions.** A clip cutaway draws the `cut` transition only (the default since V9d). A theme whose cutaway look is `slide` or `zoom` is refused `clip_transition`
-  for a clip entry. The loss: those themes cannot use clips yet.
+- **Transitions.** A clip cutaway draws the `cut` page look by default (since V9d). A page look of `slide` or `zoom`, whether the theme's or a transition row's (P1a), is refused `clip_transition` for a clip entry: the page draws no motion for a clip. An ffmpeg kind (`glitch`, `bloom`, `zoom_blur`, `blur_to_card`, `dip`) on the beat is drawn over the clip, and the page draws `cut` under it.
 - **Only `oh:cutaway` draws a clip.** A clip on `oh:screenshot`, `oh:pip`, `oh:split` or any other block is `asset_type` naming the slot.
 - **The gate** judges a clip cutaway frame as an image cutaway frame: the page reports the same boxes (none), and the rules of every card and caption (the line at 1560) are
   unchanged.

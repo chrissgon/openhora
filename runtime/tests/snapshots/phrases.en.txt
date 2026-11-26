@@ -310,6 +310,8 @@ CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_OVERLAP: Left out of the video: 42, effect, ano
 CARD_VIDEO_LEFT_OUT_EFFECT_GRADE_SHORT: Left out of the video: 42, effect, the colour change is too short
 CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_CAPPED: Left out of the video: 42, effect, the zoom would not get any closer than the shot already is
 CARD_VIDEO_LEFT_OUT_EFFECT_PUNCH_SHORT: Left out of the video: 42, effect, the zoom is too short
+CARD_VIDEO_LEFT_OUT_EFFECT_TRANSITION_BEAT_DROPPED: Left out of the video: 42, effect, the scene it opened was left out
+CARD_VIDEO_LEFT_OUT_EFFECT_TRANSITION_OVERLAP: Left out of the video: 42, effect, another transition covers it
 CARD_VIDEO_LEFT_OUT_PICTURE_OVERLAP: Left out of the video: 42, picture, another scene starts at the same time
 CARD_VIDEO_LEFT_OUT_PICTURE_PIP_NO_ROOM: Left out of the video: 42, picture, no room beside the face
 CARD_VIDEO_LEFT_OUT_PICTURE_SPLIT_NO_ROOM: Left out of the video: 42, picture, no room beside the face
