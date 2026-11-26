@@ -539,3 +539,18 @@ def render_args(files, out_dir, *more, slots=(7, 8)):
     for slot in slots:
         args += ["--asset", "%s=%s" % (slot, files["asset"])]
     return [*args, *more]
+
+
+try:
+    import pytest as _pytest
+
+    @_pytest.fixture
+    def oh_defaults(monkeypatch):
+        """For the modules that draw in this process (`_render`, `_preview`) with the default blocks folder: that folder is `oh_blocks()` for the test
+        (M2: the committed ffmpeg defaults are ports, which the host cannot draw). A module takes it with `pytestmark = pytest.mark.usefixtures("oh_defaults")`
+        after `from renderer_kit import oh_defaults`; the suite's conftest.py stays the one every provider suite carries."""
+        monkeypatch.setattr(_blocks, "BLOCKS_DIR", oh_blocks())
+        monkeypatch.setenv("RENDERER_TEST", "1")
+        monkeypatch.setenv("RENDERER_BLOCKS_DIR", oh_blocks())
+except ImportError:      # the kit is standard library only; a fixture needs pytest
+    pass

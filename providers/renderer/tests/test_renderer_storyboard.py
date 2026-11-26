@@ -13,6 +13,9 @@ from pathlib import Path
 import pytest
 
 import renderer_kit as K
+from renderer_kit import oh_defaults  # noqa: F401  (M2: the default blocks folder is the oh: copy)
+
+pytestmark = pytest.mark.usefixtures("oh_defaults")
 import docker_kit as DK
 import _blocks
 import _cdp
