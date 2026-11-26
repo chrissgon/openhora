@@ -84,7 +84,7 @@ def test_the_provider_imports_nothing_outside_its_own_folder_and_the_standard_li
             elif isinstance(node, ast.ImportFrom) and node.level == 0:
                 names = [node.module.split(".")[0]]
             for name in names:
-                assert name in own or name in allowed_std or name in ("__future__", "_container"), (path.name, name)    # _container: providers/_container.py, the shared container box
+                assert name in own or name in allowed_std or name in ("__future__", "_container") or (path.name in ("_scan.py", "_inner.py") and name in ("cv2", "numpy")), (path.name, name)    # _scan.py and _inner.py's selfcheck import the image's two wheels, inside functions; _container: providers/_container.py, the shared container box
 
 
 def test_the_credential_formats_are_the_shared_copy():
