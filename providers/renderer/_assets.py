@@ -66,13 +66,18 @@ def font_allowlist(directory=None) -> dict:
     return rows
 
 
+def font_id_of(role: str, font_id) -> str:
+    """The allow-list id a theme's font id stands for on this role: `default` is the role's DEFAULT_FONT (PF-b1, B2 (a)), any other id is itself."""
+    return DEFAULT_FONT.get(role, font_id) if font_id == "default" else font_id
+
+
 def load_fonts(theme_fonts: dict, allowlist: dict, max_bytes: int, directory=None) -> tuple:
     """Serve the fonts the theme names, each re-checked against its allow-listed sha256. Returns (serve, used) where
     used maps a role to the allow-list id or to `system default`. `default` is the role's DEFAULT_FONT when the allow-list holds it."""
     directory = directory or fonts_dir()
     serve, used = {}, {}
     for role, f in theme_fonts.items():
-        font_id = DEFAULT_FONT.get(role) if f["id"] == "default" else f["id"]
+        font_id = font_id_of(role, f["id"])
         if f["id"] == "default" and font_id not in allowlist:
             used[role] = "system default"
             continue
