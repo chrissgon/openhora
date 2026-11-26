@@ -32,7 +32,7 @@ import _payload
 from _hf_page import COLOR, num
 from _text import Refusal, is_clean
 
-PORT_HOST_VERSION = "2"
+PORT_HOST_VERSION = "3"
 COMPOSITION = "oh-port"
 INSTANCE = "oh-inst"
 TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,39}")
