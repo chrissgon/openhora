@@ -333,10 +333,10 @@ def test_the_advice_schema_refuses_a_bad_code_a_non_finite_number_and_13_ids():
     assert _docker.sanitise([row(ids=["b1", "b2"])], adv) == [row(ids=["b1", "b2"])]
 
 
-def test_effects_dropped_takes_198_rows_in_render_and_refuses_199():
+def test_effects_dropped_takes_297_rows_in_render_and_refuses_298():
     schema = _docker.RESULT_SCHEMAS["render"][1]["effects_dropped"]
-    rows = [{"id": "e1", "reason": "punch_short"}] * 198
-    assert len(_docker.sanitise(rows, schema)) == 198
+    rows = [{"id": "e1", "reason": "punch_short"}] * 297
+    assert len(_docker.sanitise(rows, schema)) == 297
     with pytest.raises(Refusal):
         _docker.sanitise(rows + [rows[0]], schema)
 

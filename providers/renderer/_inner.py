@@ -56,7 +56,8 @@ from _vocab import SLOT_ID, load_data, load_vocabulary, read_json  # noqa: E402
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 REQUIRED_ENCODERS = ("libx264", "aac", "png")
 REQUIRED_FILTERS = ("overlay", "alphamerge", "geq", "setparams", "concat", "trim", "atrim", "split", "scale", "crop", "fps",
-                    "silencedetect", "aformat", "asplit", "aecho", "volume", "amix")      # the last four: an aside's echo
+                    "silencedetect", "aformat", "asplit", "aecho", "volume", "amix",
+                    "lutrgb", "gblur", "blend", "mix", "rgbashift")      # asides' echo (the four before); the transitions' chains (the last five)
 
 
 class Usage(Exception):

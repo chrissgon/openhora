@@ -24,6 +24,8 @@ def caption_data(data: dict, edl: dict, chunk: dict, by_index: dict, fps: int) -
 def beat_data(data: dict, entry: dict, fps: int, edl: dict) -> dict:
     out = {"params": entry["params"], "look": data["presets"][entry["preset"]]["looks"], "zones": _layout.zones(data, entry["face"]),
            "duration": (entry["end_frame"] - entry["start_frame"]) / fps}
+    if entry.get("transition") is not None:      # a transition row's look for this cutaway beat (P1a): the theme's own is the default
+        out["transition"] = entry["transition"]
     if entry["preset"] == "pip":
         out["geom"] = pip_geometry(data, entry)
     return out

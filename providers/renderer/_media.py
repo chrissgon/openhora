@@ -741,6 +741,112 @@ def clip_filters(c: dict, src: int, i: int, fps, total: int) -> tuple:
     return g, "cc%s" % k
 
 
+GRAPH_MAX_BYTES = 131071      # validity: Linux refuses one argument of 131072 bytes or more (MAX_ARG_STRLEN, NUL included), and the graph is one argument
+TR_SCALE = "bicubic+accurate_rnd+bitexact"      # a transition's scales: bit-exact, like every scale of the engine
+
+
+def _g(x) -> str:
+    """A number as filter text: the shortest text that reads back as the same double (a folded constant must be the number the expression would compute: a posterize
+    step that lands exactly on a whole number floors differently for a number rounded at the tenth digit)."""
+    text = repr(float(x))
+    return "0" if text in ("0.0", "-0.0") else (text[:-2] if text.endswith(".0") else text)
+
+
+def _even(x: float) -> int:
+    return max(2, int(round(x / 2.0)) * 2)
+
+
+def glitch_expressions(s: int, i: float, folded: bool = True) -> tuple:
+    """The two `geq` filter texts of a glitch frame `s` (the output frame number) at intensity `i`: the channel shift and block displacement, then the
+    scanline and posterize pass. `folded` writes the terms that hold only `s` or `i` as numbers; unfolded writes them as the arithmetic they are: the
+    same expression, so the two draw the same frame (a test holds that)."""
+    shift = int(js_round(37.8 * i))
+    hh = "mod(floor(X/90)*73856093+floor(Y/240)*19349663+%s,1000)" % (s * 83492791 if folded else "%d*83492791" % s)
+    if folded:
+        dx = "(mod(floor(Y/32)*7919+%d,997)/997-0.5)*%s+if(gt(%s,830),(mod(%s*7,1000)/1000-0.5)*%s,0)" % (s * 104729, _g(194.4 * i), hh, hh, _g(378 * i))
+        scan = "(1-%s*mod(Y,2))" % _g(0.05 * i)
+        q = _g(256 / (256 - 124 * i))
+    else:
+        dx = "(mod(floor(Y/32)*7919+%d*104729,997)/997-0.5)*(194.4*%s)+if(gt(%s,830),(mod(%s*7,1000)/1000-0.5)*(378*%s),0)" % (s, _g(i), hh, hh, _g(i))
+        scan = "(1-(0.05*%s)*mod(Y,2))" % _g(i)
+        q = "(256/(256-124*%s))" % _g(i)
+    first = "geq=r='r(clip(X+(%s)+%d,0,W-1),Y)':g='g(clip(X+(%s),0,W-1),Y)':b='b(clip(X+(%s)-%d,0,W-1),Y)'" % (dx, shift, dx, dx, shift)
+    second = "geq=" + ":".join("%s='floor(%s(X,Y)*%s/%s)*%s'" % (c, c, scan, q, q) for c in "rgb")
+    return first, second
+
+
+def transition_frame_filters(row: dict, frame: int, i: float, src: str, size: tuple) -> tuple:
+    """([filter strings], the label of the result) for one frame of a transition: a stream of one frame (`src`, a label without brackets) is drawn with the
+    kind's chain, every number a constant (no time expression), every label starting with `tr_`. `row` holds kind, params (the kind's numbers from the data
+    file) and, for blur_to_card, color. The picture is planar RGB at full range (gbrp)."""
+    w, h = size
+    p, kind, f = row["params"], row["kind"], "%d" % frame
+    out = "tr_f%s" % f
+    if kind == "glitch":
+        first, second = glitch_expressions(frame, i)
+        return ["[%s]%s,%s[%s]" % (src, first, second, out)], out
+    if kind == "dip":
+        lut = "val*%s" % _g(1 - i)
+        return ["[%s]lutrgb=r='%s':g='%s':b='%s'[%s]" % (src, lut, lut, lut, out)], out
+    if kind == "blur_to_card":
+        d = p["darken"] * i
+        bg = row["color"].lstrip("#")
+        chans = [int(bg[k:k + 2], 16) for k in (0, 2, 4)]
+        lut = ":".join("%s='val*%s+%s'" % (c, _g(1 - d), _g(v * d)) for c, v in zip("rgb", chans))
+        return ["[%s]gblur=sigma=%s:steps=3,lutrgb=%s[%s]" % (src, _g(p["sigma"] * i), lut, out)], out
+    if kind == "bloom":
+        keep = "if(gte(val,%d),val,0)" % p["threshold"]
+        g = ["[%s]split=2[tr_o%s][tr_h%s]" % (src, f, f),
+             "[tr_h%s]lutrgb=r='%s':g='%s':b='%s',scale=%d:%d:flags=area+accurate_rnd+bitexact,gblur=sigma=%s:steps=3,scale=%d:%d:flags=%s[tr_b%s]"
+             % (f, keep, keep, keep, w // 4, h // 4, _g(p["sigma"] * i), w, h, TR_SCALE, f),
+             "[tr_o%s][tr_b%s]blend=all_mode=screen:all_opacity=%s[%s]" % (f, f, _g(p["opacity"] * i), out)]
+        return g, out
+    if kind == "zoom_blur":
+        c = p["copies"]
+        heads = "".join("[tr_z%s_%d]" % (f, k) for k in range(c))
+        g = ["[%s]split=%d%s" % (src, c, heads)]
+        for k in range(1, c):
+            grow = 1 + p["spread"] * i * k / float(c - 1)
+            g.append("[tr_z%s_%d]scale=%d:%d:flags=%s,crop=%d:%d:(iw-%d)/2:(ih-%d)/2[tr_y%s_%d]" % (f, k, _even(w * grow), _even(h * grow), TR_SCALE, w, h, w, h, f, k))
+        ins = "[tr_z%s_0]" % f + "".join("[tr_y%s_%d]" % (f, k) for k in range(1, c))
+        shift = int(js_round(p["shift_px"] * i))
+        g.append("%smix=inputs=%d:weights='%s',rgbashift=rh=-%d:bh=%d[%s]" % (ins, c, " ".join(["1"] * c), shift, shift, out))
+        return g, out
+    raise Refusal("bad_transition", kind)
+
+
+def transition_stage(cur: str, rows: list, fps, total: int, size: tuple) -> tuple:
+    """([filter strings], the label) of the transitions, drawn on the composed picture `cur` (a label without brackets, planar RGB), under the captions.
+    The picture is split in as many branches as there are segments, in output-frame order: a plain run is `trim`med as it is, each frame of a transition is
+    its own one-frame segment drawn with the kind's chain (`transition_frame_filters`), and a `concat` joins them and retimes once on the frame grid
+    (`settb`, then the frame number: the retime of R3-11). No frame is added or removed. `rows` are the plan's transitions (frames sorted, never overlapping);
+    every label the stage writes starts with `tr_`."""
+    frames = sorted((f, i, r) for r in rows for f, i in r["frames"])
+    segs, pos = [], 0
+    for f, i, r in frames:
+        if f > pos:
+            segs.append((pos, f, None, 0.0))
+        segs.append((f, f + 1, r, i))
+        pos = f + 1
+    if pos < total:
+        segs.append((pos, total, None, 0.0))
+    m = len(segs)
+    g = ["[%s]split=%d%s" % (cur, m, "".join("[tr_s%d]" % k for k in range(m)))]
+    outs = []
+    for k, (a, b, r, i) in enumerate(segs):
+        cut = "[tr_s%d]trim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS" % (k, a, b)
+        if r is None:
+            g.append("%s[tr_p%d]" % (cut, k))
+            outs.append("[tr_p%d]" % k)
+            continue
+        g.append("%s[tr_t%d]" % (cut, k))
+        more, label = transition_frame_filters(r, a, i, "tr_t%d" % k, size)
+        g += more
+        outs.append("[%s]" % label)
+    g.append("%sconcat=n=%d:v=1:a=0,settb=1/%s,setpts=N[tr_out]" % ("".join(outs), m, fps))
+    return g, "tr_out"
+
+
 def compose_argv(ffmpeg: str, plan: dict) -> list:
     """The whole render as one ffmpeg command, built as a list. `plan` holds:
 
@@ -807,7 +913,8 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
     # retimed the same way, so every edge is on its frame (R3-11).
     g.append("[cv]settb=1/%s,setpts=N[cvt]" % fps)
 
-    if not idx and not pips and not clips and not splits:
+    transitions = plan.get("transitions") or []
+    if not idx and not pips and not clips and not splits and not transitions:
         g.append("[cvt]%s[vout]" % TAGS)
     else:
         g.append("[cvt]scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=gbrp[base]" % SWS)
@@ -844,14 +951,20 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
             g.append("[%s][%s]overlay=0:0:format=gbrp[oc%d]" % (cur, label, i))
             cur = "oc%d" % i
         for layer in ("beat", "caption"):
+            if layer == "caption" and transitions:      # the transitions are drawn on everything under the captions, which stay sharp over them
+                more, cur = transition_stage(cur, transitions, fps, plan["out_frames"], plan["size"])
+                g += more
             if layer in idx:
                 g.append("[%d:v]format=gbrap[l_%s]" % (idx[layer], layer))
                 g.append("[%s][l_%s]overlay=0:0:format=gbrp[c_%s]" % (cur, layer, layer))
                 cur = "c_%s" % layer
         g.append("[%s]scale=in_range=pc:out_range=tv:out_color_matrix=bt709:flags=%s,format=yuv420p,%s[vout]" % (cur, SWS, TAGS))
 
+    graph = ";".join(g)
+    if len(graph.encode()) > GRAPH_MAX_BYTES:      # validity: refused here, before any frame is drawn, and not by the operating system
+        raise Refusal("graph_too_long", "compose")
     argv = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-filter_threads", str(THREADS), "-filter_complex_threads", str(THREADS),
-            *inputs, "-filter_complex", ";".join(g), "-map", "[vout]"]
+            *inputs, "-filter_complex", graph, "-map", "[vout]"]
     if has_audio:
         argv += ["-map", "[aout]"]
     argv += output_options(plan)

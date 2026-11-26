@@ -373,6 +373,22 @@ def test_a_theme_whose_cutaway_look_is_a_slide_or_a_zoom_cannot_use_a_clip_yet()
     assert LOOKS["transition"] == "cut"
 
 
+def test_a_transition_row_on_the_beat_decides_whether_a_clip_may_be_drawn():
+    """P1a. The page look of a cutaway beat is the beat's own (`entry["transition"]`, set by a transition row), else the theme's: only a slide or a zoom is refused for a clip."""
+    data = copy.deepcopy(DATA)
+    data["presets"]["cutaway"]["looks"]["transition"] = "slide"
+    ffmpeg_kind = timeline_with("oh:cutaway")
+    ffmpeg_kind["beats"][0]["transition"] = "cut"                      # an ffmpeg kind on the beat: the page draws a cut
+    _render.settle_clips(vocab(), data, ffmpeg_kind, {"beat3": CLIP})
+    assert ffmpeg_kind["beats"][0]["params_kind"] == {"asset": "clip"}
+    for page_kind in ("slide", "zoom"):
+        tl = timeline_with("oh:cutaway")
+        tl["beats"][0]["transition"] = page_kind
+        assert code_of(_render.settle_clips, vocab(), DATA, tl, {"beat3": CLIP}) == ("clip_transition", "beat3"), page_kind      # refused even when the theme is a cut
+    plain = timeline_with("oh:cutaway")
+    assert code_of(_render.settle_clips, vocab(), data, plain, {"beat3": CLIP}) == ("clip_transition", "beat3")      # no row: the theme's slide, as before
+
+
 def test_the_rows_of_the_plan_say_cover_for_a_tall_clip_and_glass_for_the_rest():
     def row(width, height, fit=None, looks=None):
         data = copy.deepcopy(DATA)

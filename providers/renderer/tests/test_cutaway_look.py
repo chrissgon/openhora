@@ -81,7 +81,7 @@ def at(shot, x, y):
     return tuple(rows[y][x * bpp:x * bpp + 3])
 
 
-def draw(tmp_path, image, params=None, look=None, times=(0.5,), duration=2.0, shots=True):
+def draw(tmp_path, image, params=None, look=None, times=(0.5,), duration=2.0, shots=True, transition=None):
     """Open the page on a served image and draw it at each time. Returns a list of (box, state, screenshot or None) per time."""
     serve, _ = _frames.load_templates([TEMPLATE])
     serve["/assets/pic.png"] = (image, "image/png")
@@ -91,6 +91,8 @@ def draw(tmp_path, image, params=None, look=None, times=(0.5,), duration=2.0, sh
         page = chrome.new_page(1080, 1920)
         page.open("/t/" + TEMPLATE, {"colors": COLORS, "fonts": {}, "images": {"pic": _cdp.ORIGIN + "/assets/pic.png"}})
         payload = {"params": {"asset": "pic", **(params or {})}, "look": {**LOOKS, **(look or {})}, "zones": {}, "duration": duration}
+        if transition is not None:      # a transition row's look for this beat (P1a: `_payload.beat_data` adds it), else the theme's
+            payload["transition"] = transition
         for t in times:
             page.frame(t, payload)
             state = page.evaluate("JSON.stringify({box: window.__box, img: (function(){var e=document.querySelector('#stage > *');"
@@ -160,6 +162,24 @@ def test_the_cut_shows_the_picture_at_full_opacity_with_no_offset_on_the_first_a
 def test_the_slide_stays_a_value_a_theme_may_pick(tmp_path):
     frames, _ = draw(tmp_path, two_colours(600, 1000), {"fit": "cover"}, look={"transition": "slide"}, times=(0.0, 1.0), shots=False)
     assert frames[0][0]["img"]["transform"] == "translateX(1080px) scale(1)" and frames[1][0]["img"]["transform"] == "translateX(0px) scale(1)"
+
+
+@needs_browser
+@pytest.mark.parametrize("kind", ["slide", "zoom", "cut"])
+def test_a_beats_own_transition_draws_the_frames_the_theme_value_would_have_drawn(tmp_path, kind):
+    """P1a. `data.transition` (set by a transition row on a cutaway beat) replaces the theme's `look.transition` for that beat alone: the frames are the same bytes as a
+    theme that holds the same value, whatever the theme's own is."""
+    image = two_colours(600, 1000)
+    times = (0.0, 0.1, 0.5, 1.0, 1.9)
+    own, _ = draw(tmp_path / "own", image, {"fit": "cover", "label": "Aster Lane"}, look={"transition": "cut" if kind != "cut" else "slide"}, transition=kind, times=times)
+    theme, _ = draw(tmp_path / "theme", image, {"fit": "cover", "label": "Aster Lane"}, look={"transition": kind}, times=times)
+    assert [s for _, s in own] == [s for _, s in theme] and [st for st, _ in own] == [st for st, _ in theme]
+
+
+@needs_browser
+def test_without_a_beats_transition_the_page_follows_the_theme(tmp_path):
+    with_none, _ = draw(tmp_path / "a", two_colours(600, 1000), {"fit": "cover"}, look={"transition": "slide"}, times=(0.0,), shots=False)
+    assert with_none[0][0]["img"]["transform"] == "translateX(1080px) scale(1)"
 
 
 @needs_browser

@@ -22,7 +22,7 @@ import _layout
 from _layout import zones  # noqa: F401  (moved: `_edl.zones` is still the name callers and tests use)
 from _text import Refusal, clean_text
 from _timeline import (build_words, caption_chunks, check_transcript, retime_misplaced, kept_ranges, normalise_words, find_phantoms, out_frames_of)
-from _vocab import HEX_COLOR, check_params, script_section, slot_params
+from _vocab import HEX_COLOR, check_params, load_data, script_section, slot_params
 
 EDL_SCHEMA_VERSION = 2     # 2: zoom.anchor_y is required and normalisation lists retimed_words and unplaced_words (and, optionally, phantom_words)
 BEATS_SCHEMA_VERSION = 1
@@ -37,7 +37,7 @@ RETAKE_MODES = ("auto", "propose")
 SOURCE_KEYS = {"sha256", "duration", "width", "height", "has_audio", "color_matrix"}
 BUCKET_KINDS = {"overlays": ("overlay", "effect"), "layouts": ("layout",)}      # an effect beat (`aside`) sits with the overlays: it keeps the speaker on screen
 BEATS_REQUIRED = {"schema_version", "threshold", "overlays", "layouts", "slots", "report", "unmatched", "fallbacks"}
-BEATS_KEYS = BEATS_REQUIRED | {"script", "punches", "effects"}      # `script`, `punches` and `effects` are optional: a beats file without them stays valid, schema_version 1
+BEATS_KEYS = BEATS_REQUIRED | {"script", "punches", "effects", "transitions"}      # `script`, `punches`, `effects` and `transitions` are optional: a beats file without them stays valid, schema_version 1
 PUNCH_KEYS = {"beat", "word_from", "word_to", "score"}               # a script punch: the beat's number and the words it was aligned to
 EFFECT_KEYS = {"id", "kind", "word_from", "word_to"}                 # a review effect (V9a-3)
 EFFECT_KINDS = ("punch", "flash", "dip", "mono", "tint")
@@ -49,6 +49,12 @@ BEATS_CEILING = 99              # validity: a closed document, the ids go up to 
 PUNCHES_CEILING = 99            # validity: a closed document, the script's punch ids are p1 to p99
 ZOOM_MAX = 10.0                 # validity: ffmpeg zoompan's zoom range is 1 to 10
 PUNCH_SHORT_SECONDS = 0.4       # a punch clipped to less than this is drawn all the same, with advice (`punch_short`); one with no frame left is not
+TRANSITION_KEYS = {"id", "kind", "word", "beat"}                     # a transition row (P1a): exactly one of `word` and `beat`
+FFMPEG_TRANSITIONS = ("glitch", "bloom", "zoom_blur", "blur_to_card", "dip")      # drawn by ffmpeg over the composed picture, under the captions
+PAGE_TRANSITIONS = ("slide", "zoom")                                 # drawn by the cutaway page, for one beat
+TRANSITION_KINDS = FFMPEG_TRANSITIONS + PAGE_TRANSITIONS
+TRANSITION_ID = re.compile(r"t[1-9][0-9]?")
+TRANSITIONS_MAX = 99            # validity: a closed document, the id format t1-t99 (runtime/step_media.py)
 ENTRY_REQUIRED = {"id", "beat", "preset", "params", "word_from", "word_to", "score"}
 ENTRY_KEYS = ENTRY_REQUIRED | {"role", "emphasis", "block"}      # the beat's role and emphasis from the script, and the block that draws it, all optional
 SCRIPT_KEYS = {"title", "loop"}
@@ -543,6 +549,8 @@ def check_beats(beats, edl, vocab: dict) -> dict:
         texts.extend(check_script_object(beats["script"], vocab))
     check_punches(beats.get("punches", []), index_set, vocab, advice)
     check_effects(beats.get("effects", []), index_set)
+    if "transitions" in beats:
+        check_transitions(beats["transitions"], index_set, {e["id"]: e["preset"] for e in beats["overlays"] + beats["layouts"]})
     # the script checker's rules of an effect preset (`aside`), held again here: at most one in a video, and never with a punch on its beat
     effect_beats = [e["beat"] for e in beats["overlays"] if vocab["presets"][e["preset"]]["kind"] == "effect"]
     asides = [e["id"] for e in beats["overlays"] if e["beat"] in effect_beats]
@@ -606,6 +614,83 @@ def check_effects(effects, index_set: set) -> None:
                                                    and g["word_from"] <= e["word_to"] for g in grades):
                 raise Refusal("effect_overlap", field)
             grades.append(e)
+
+
+def check_transition_config(data: dict) -> None:
+    """The defaults of `transitions.kinds` in the data file: only what a filter or the document needs (validity). A breach is `bad_transition_config` naming
+    `transitions.<kind>.<key>`. Nothing here limits how many transitions a video has, or where."""
+    cfg = data.get("transitions") if isinstance(data, dict) else None
+    width = data["frame"]["width"]
+    if not isinstance(cfg, dict) or not isinstance(cfg.get("kinds"), dict) or set(cfg["kinds"]) != set(FFMPEG_TRANSITIONS):
+        raise Refusal("bad_transition_config", "transitions.kinds")
+    for kind, row in cfg["kinds"].items():
+        def bad(key):
+            return Refusal("bad_transition_config", "transitions.%s.%s" % (kind, key))
+        inten = row.get("intensity")
+        if not isinstance(inten, list) or not inten or not all(_num(i) and i >= 0 for i in inten):
+            raise bad("intensity")
+        if not _int(row.get("lead")) or not 0 <= row["lead"] <= len(inten):
+            raise bad("lead")
+        top = max(inten)
+        if kind == "glitch" and top > 2:
+            raise bad("intensity")
+        if kind == "dip" and top > 1:
+            raise bad("intensity")
+        if kind == "bloom":
+            if not _int(row.get("threshold")) or not 0 <= row["threshold"] <= 255:
+                raise bad("threshold")
+            if not _num(row.get("sigma")) or not 0 <= row["sigma"] * top <= 1024:
+                raise bad("sigma")
+            if not _num(row.get("opacity")) or not 0 <= row["opacity"] * top <= 1:
+                raise bad("opacity")
+        if kind == "zoom_blur":
+            if not _int(row.get("copies")) or not 2 <= row["copies"] <= 32767:
+                raise bad("copies")
+            if not _num(row.get("spread")) or not 1 <= 1 + row["spread"] * top <= ZOOM_MAX:
+                raise bad("spread")
+            if not _num(row.get("shift_px")) or not 0 <= row["shift_px"] * top <= width:
+                raise bad("shift_px")
+        if kind == "blur_to_card":
+            if not _num(row.get("sigma")) or not 0 <= row["sigma"] * top <= 1024:
+                raise bad("sigma")
+            if not _num(row.get("darken")) or not 0 <= row["darken"] * top <= 1:
+                raise bad("darken")
+
+
+def check_transitions(rows, index_set: set, presets: dict) -> None:
+    """The transitions in beats.json: at most TRANSITIONS_MAX, each a closed row of an id (`t1` to `t99`, once), a kind and exactly one anchor, a `word` (an
+    index of the edit list's words) or a `beat` (the id of an overlay or layout entry). One transition to an anchor. A page kind (slide, zoom) is drawn
+    by the cutaway page only: on a word, or on a beat whose preset is not `cutaway`, it is `transition_not_drawable`. `presets` maps each entry id to its preset."""
+    if not isinstance(rows, list):
+        raise Refusal("not_list", "beats.transitions")
+    if len(rows) > TRANSITIONS_MAX:
+        raise Refusal("too_many_transitions", "beats.transitions")
+    seen, taken = set(), set()
+    for k, t in enumerate(rows):
+        field = "beats.transitions[%d]" % k
+        closed(t, TRANSITION_KEYS, field, {"id", "kind"})
+        if not isinstance(t["id"], str) or not TRANSITION_ID.fullmatch(t["id"]) or t["id"] in seen:
+            raise Refusal("bad_id", field)
+        seen.add(t["id"])
+        if t["kind"] not in TRANSITION_KINDS or ("word" in t) == ("beat" in t):
+            raise Refusal("bad_transition", field)
+        if "word" in t:
+            anchor = ("word", t["word"])
+            if not _int(t["word"]) or t["word"] not in index_set:
+                raise Refusal("bad_transition_anchor", field)
+            if t["kind"] in PAGE_TRANSITIONS:
+                raise Refusal("transition_not_drawable", field)
+        else:
+            anchor = ("beat", t["beat"])
+            if not isinstance(t["beat"], str) or t["beat"] not in presets:
+                raise Refusal("bad_transition_anchor", field)
+            if t["kind"] in PAGE_TRANSITIONS and presets[t["beat"]] != "cutaway":
+                raise Refusal("transition_not_drawable", field)
+        if anchor in taken:
+            raise Refusal("transition_anchor_taken", field)
+        taken.add(anchor)
+    if rows:
+        check_transition_config(load_data())
 
 
 # ---------------------------------------------------------------- the timeline
@@ -734,6 +819,85 @@ def resolve_grades(edl: dict, beats: dict, data: dict) -> tuple:
     return kept, dropped
 
 
+def _inside_word(words: list, frame: int, fps: int) -> bool:
+    """Whether output frame `frame` is inside a word: the half frame at each edge keeps the frame a word starts or ends on out of it (a frame exactly half a frame
+    from an edge is outside: the nanosecond of slack is so that the float arithmetic of a time never decides it)."""
+    t, half = frame / float(fps), 0.5 / fps + 1e-9
+    return any(w["start"] + half < t < w["end"] - half for w in words)
+
+
+def resolve_transitions(edl: dict, beats: dict, entries: list, data: dict) -> tuple:
+    """(rows, dropped): the review's transitions as frame spans of the OUTPUT timeline. `entries` are the timeline's kept beats; a page kind (slide, zoom)
+    sets `entry["transition"]` on its beat and an ffmpeg kind on a cutaway beat sets it to `cut`, so the page draws no motion under the effect.
+
+    The anchor frame J: a `word` that opens a kept range k >= 1 is that range's first output frame (the cut), any other word is the frame it starts on; a
+    `beat` is that entry's first frame (a beat the timeline dropped drops its row: `transition_beat_dropped`). A transition never starts inside a word (validity:
+    a cut never clips speech): J moves forward to the first frame that is not inside one, and the lead frames inside a word are dropped from the front. The
+    frames are the kind's `intensity` list from J - lead, cut at the video's start and end. A row that starts before the end of the one before it is dropped
+    (`transition_overlap`). A row: {id, kind, start_frame, end_frame, frames: [[frame, intensity], ...], anchor: cut|word|beat} and, for blur_to_card, `color` (the theme's bg).
+    A page kind has no frames: start_frame == end_frame, the beat's first."""
+    rows_in = beats.get("transitions") or []
+    if not rows_in:
+        return [], []
+    cfg = data["transitions"]["kinds"]
+    fps, n = edl["fps"], edl["out_frames"]
+    words = edl["words"]
+    by_index = {w["index"]: w for w in words}
+    table = range_table(edl)
+    opens = {}
+    for w in words:
+        opens.setdefault(_range_of(table, _frame_at(w["start"], fps, n)), w["index"])
+    by_id = {e["id"]: e for e in entries}
+    spans, dropped, pages = [], [], []
+    for t in sorted(rows_in, key=lambda r: int(r["id"][1:])):
+        if "beat" in t:
+            entry = by_id.get(t["beat"])
+            if entry is None:
+                dropped.append({"id": t["id"], "reason": "transition_beat_dropped"})
+                continue
+            if t["kind"] in PAGE_TRANSITIONS:
+                pages.append((t, entry))
+                continue
+            j, anchor = entry["start_frame"], "beat"
+        else:
+            sf = _frame_at(by_index[t["word"]]["start"], fps, n)
+            k = _range_of(table, sf)
+            if k >= 1 and opens.get(k) == t["word"]:
+                j, anchor, entry = table[k][0], "cut", None
+            else:
+                j, anchor, entry = sf, "word", None
+        while j < n - 1 and _inside_word(words, j, fps):
+            j += 1
+        row = cfg[t["kind"]]
+        first = j - row["lead"]
+        cut = 0
+        while first + cut < j and (first + cut < 0 or _inside_word(words, first + cut, fps)):
+            cut += 1
+        frames = [[first + i, float(v)] for i, v in enumerate(row["intensity"]) if i >= cut and 0 <= first + i < n]
+        if not frames:
+            dropped.append({"id": t["id"], "reason": "transition_overlap"})
+            continue
+        spans.append({"id": t["id"], "kind": t["kind"], "start_frame": frames[0][0], "end_frame": frames[-1][0] + 1, "frames": frames, "anchor": anchor, "beat": t.get("beat")})
+    spans.sort(key=lambda r: (r["start_frame"], r["end_frame"], int(r["id"][1:])))
+    kept, until = [], 0
+    for r in spans:
+        if r["start_frame"] < until:
+            dropped.append({"id": r["id"], "reason": "transition_overlap"})
+            continue
+        until = r["end_frame"]
+        beat = r.pop("beat")
+        if beat is not None and by_id[beat]["preset"] == "cutaway":
+            by_id[beat]["transition"] = "cut"
+        if r["kind"] == "blur_to_card":
+            r["color"] = edl["theme"]["colors"]["bg"]
+        kept.append(r)
+    for t, entry in pages:
+        entry["transition"] = t["kind"]
+        kept.append({"id": t["id"], "kind": t["kind"], "start_frame": entry["start_frame"], "end_frame": entry["start_frame"], "frames": [], "anchor": "beat"})
+    kept.sort(key=lambda r: (r["start_frame"], r["end_frame"], int(r["id"][1:])))
+    return kept, dropped
+
+
 def resolve_asides(edl: dict, entries: list, vocab: dict, data: dict) -> tuple:
     """(grades, echoes) of the effect beats (`aside`) of the timeline, from their spans as the beat track left them (words, tail, cut by the next beat).
 
@@ -858,6 +1022,7 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
     aside_grades, echoes = resolve_asides(edl, entries, vocab, data)      # an aside's grey is a mono grade over its beat; its echo is a row of its own
     if aside_grades:
         grades = sorted(grades + aside_grades, key=lambda r: (r["start_frame"], r["end_frame"], r["id"]))
+    transitions, transitions_dropped = resolve_transitions(edl, beats, entries, data)
     for e in entries:
         e["face"] = span_face(edl, data, e["start_frame"], e["end_frame"], punches)
     cap = data["caption"]
@@ -877,7 +1042,9 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
             continue
         captions.append({"word_from": a, "word_to": b, "start_frame": sf, "end_frame": ef, "face": span_face(edl, data, sf, ef, punches)})
     out = {"captions": captions, "beats": entries, "dropped": dropped, "punches": punches, "grades": grades, "echoes": echoes,
-           "effects_dropped": sorted(punches_dropped + grades_dropped, key=lambda r: r["id"])}
+           "effects_dropped": sorted(punches_dropped + grades_dropped + transitions_dropped, key=lambda r: r["id"])}
+    if transitions:  # only a timeline with a transition has the key: any other is what it always was (S2)
+        out["transitions"] = transitions
     if advice:       # only a timeline with a choice past a default has the key: any other is what it always was
         out["advice"] = _advice.rows(advice)
     if dropped:      # every id of `dropped` has one reason row (V9b-3f); the layout passes add theirs (`pip_no_room`, `split_no_room`)

@@ -1435,7 +1435,7 @@ def localize(sentence, cfg=None):
 
 # --- the card of an effect, line by line (package FND) ---------------------------------------------------------------------------------------------------
 
-CARD_FAMILY = re.compile(r"CARD_[A-Z0-9_]{1,40}")
+CARD_FAMILY = re.compile(r"CARD_[A-Z0-9_]{1,48}")
 CARD_LINES_MAX = 300        # lines in one card
 # The lines that show the CURRENT text of something the person owns (an event's title, place and notes as the service holds them, the message a reply answers) and the lines of an
 # e-mail (who it goes to, its subject, its text, the names of its attachments): a messaging app draws them only for a
