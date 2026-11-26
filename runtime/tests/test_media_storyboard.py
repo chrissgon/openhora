@@ -212,7 +212,7 @@ def test_the_return_has_the_key_the_sheet_the_beats_the_engine_and_the_advisory_
     assert set(found) == {"key", "sheet", "beats", "engine", "advisory"} and found["sheet"] == "sheet.png" and found["engine"] == "ffmpeg"
     assert found["advisory"] == phrases.en("VID_STORYBOARD_ADVISORY")
     assert [(b["beat"], b["preset"], b["file"]) for b in found["beats"]] == [(1, "keyword", "beat-1.png"), (2, "cutaway", "beat-2.png")]
-    assert found["beats"][0]["drawn_block"] == "oh:keyword" and found["beats"][0]["video_block"] == "hf:spring-pop"      # the block each engine's preset map names for the keyword preset: the video differs from the drawing
+    assert found["beats"][0]["drawn_block"] == "hf:spring-pop" and found["beats"][0]["video_block"] == "hf:spring-pop"      # the block each engine's preset map names for the keyword preset: since M2 (PF-a4f) both engines name the port
 
 
 def test_video_block_is_the_engines_block_for_the_cutaway_since_v9b_2(world, drawing):

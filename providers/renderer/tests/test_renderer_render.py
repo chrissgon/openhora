@@ -345,7 +345,7 @@ def test_a_browser_that_does_not_start_is_a_browser_failure_that_says_why_in_one
 @needs_all
 def test_a_beat_that_names_a_block_the_engine_cannot_draw_is_refused_before_any_frame(short, tmp_path):
     folder = tmp_path / "b"
-    shutil.copytree(K.BLOCKS, folder)
+    shutil.copytree(K.oh_blocks(), folder)
     K.write_hf_fixture(folder)
     pins = hashlib.sha256((folder / "pins.json").read_bytes()).hexdigest()
 
@@ -364,7 +364,7 @@ def test_a_beat_that_names_a_block_the_engine_cannot_draw_is_refused_before_any_
     rc, out, err = render_with("oh:list")
     assert rc == 1 and err.startswith("refused: block_preset_mismatch"), err
     rc, out, err = render_with("oh:keyword")
-    assert rc == 0 and "oh:keyword" in out["blocks"] and out["blocks_sha256"] == K.BLOCKS_SHA256, err
+    assert rc == 0 and "oh:keyword" in out["blocks"] and out["blocks_sha256"] == K.oh_blocks_sha256(), err
     assert out["beats_drawn"][0]["block"] == "oh:keyword" and not (tmp_path / "never").exists()
     rc, out, err = render_with("oh:keyword", "--blocks-sha256", "0" * 64)
     assert rc == 1 and err.startswith("refused: blocks_changed"), err

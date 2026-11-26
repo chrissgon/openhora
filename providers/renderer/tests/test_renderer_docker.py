@@ -460,7 +460,7 @@ def test_the_whole_host_side_end_to_end_with_the_entry_point_run_by_the_fake_doc
     assert (tmp_path / "cover.png").read_bytes()[:4] == b"\x89PNG"
     run = world.runs()[before]["argv"]
     assert run[run.index("--network") + 1] == "none" and [run[i + 1] for i, a in enumerate(run) if a == "-v"][0] == "%s:/in/recording:ro" % src
-    assert run[run.index("--blocks-sha256") + 1] == K.BLOCKS_SHA256 == out["blocks_sha256"] and "oh:caption" in out["blocks"]
+    assert run[run.index("--blocks-sha256") + 1] == K.oh_blocks_sha256() == out["blocks_sha256"] and "oh:caption" in out["blocks"]
     again = world.host(*render)
     assert again[0] == 0 and again[1]["sha256"] == out["sha256"] and again[1]["replayed"] is True
     work = world.state / "renderer" / "work"
@@ -556,7 +556,7 @@ def test_the_ffmpeg_engine_stages_the_test_blocks_folder_only_in_test_mode(world
     assert out["command"][out["command"].index(flag) + 1] == pins
     rc, out, err = dry_render(world, tmp_path, env={"RENDERER_BLOCKS_DIR": str(folder)})                        # no RENDERER_TEST: the committed pins
     assert rc == 0 and out["command"][out["command"].index(flag) + 1] == K.BLOCKS_SHA256
-    rc, out, err = dry_render(world, tmp_path)
+    rc, out, err = dry_render(world, tmp_path, env={"RENDERER_TEST": "0"})                                      # test mode off: the committed pins
     assert rc == 0 and out["command"][out["command"].index(flag) + 1] == K.BLOCKS_SHA256
 
 

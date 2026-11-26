@@ -816,20 +816,20 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "3c8aebda86cac54fdf464649b22edc6b2fadae9650b34043b8eb885e3bf8d459",
+ "blocks_sha256": "dfa87fe399a2220eaeaf49aa1f7fc2063d710e418d97f1b06bce0ef426631518",
  "engines": {
   "ffmpeg": {
    "presets": {
     "aside": "oh:aside",
-    "caption": "oh:caption",
+    "caption": "hf:caption-highlight",
     "cutaway": "oh:cutaway",
-    "keyword": "oh:keyword",
+    "keyword": "hf:spring-pop",
     "list": "oh:list",
     "mark": "oh:mark",
     "nametag": "oh:nametag",
-    "number": "oh:number",
+    "number": "hf:count-up",
     "pip": "oh:pip",
-    "quote": "oh:quote",
+    "quote": "hf:testimonial-card",
     "split": "oh:split",
     "sticker": "oh:sticker"
    },

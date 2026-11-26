@@ -254,13 +254,14 @@ def test_an_hf_port_is_refused_on_the_ffmpeg_engine_naming_the_blocks_it_does_dr
     preset = PORTS[short][0]
     if short not in NOT_ADMITTED:           # admitted by its determinism record: selectable by name on the ffmpeg engine, never the engine's default of its preset
         assert _blocks.resolve(catalogue, "ffmpeg", preset, "hf:" + short, "beats.b1")["name"] == "hf:" + short
-        assert catalogue["engines"]["ffmpeg"]["presets"][preset] == "oh:" + preset
+        default = "hf:" + short if short != "caption-pill-karaoke" else "hf:caption-highlight"      # M2 (PF-a4f): four ports are the ffmpeg engine's defaults; the karaoke caption is selectable by name only
+        assert catalogue["engines"]["ffmpeg"]["presets"][preset] == default
         return
     with pytest.raises(Refusal) as caught:
         _blocks.resolve(catalogue, "ffmpeg", preset, "hf:" + short, "beats.b1")
     assert caught.value.code == "block_not_on_engine" and caught.value.field == "oh:" + preset
-    assert catalogue["engines"]["ffmpeg"]["presets"] == {"aside": "oh:aside", "caption": "oh:caption", "cutaway": "oh:cutaway", "keyword": "oh:keyword", "list": "oh:list",
-                                                         "mark": "oh:mark", "nametag": "oh:nametag", "number": "oh:number", "pip": "oh:pip", "quote": "oh:quote",
+    assert catalogue["engines"]["ffmpeg"]["presets"] == {"aside": "oh:aside", "caption": "hf:caption-highlight", "cutaway": "oh:cutaway", "keyword": "hf:spring-pop", "list": "oh:list",
+                                                         "mark": "oh:mark", "nametag": "oh:nametag", "number": "hf:count-up", "pip": "oh:pip", "quote": "hf:testimonial-card",
                                                          "split": "oh:split", "sticker": "oh:sticker"}
 
 

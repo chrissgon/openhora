@@ -26,9 +26,42 @@ BLOCKS = RENDERER / "blocks"
 BLOCKS_SHA256 = hashlib.sha256((BLOCKS / "pins.json").read_bytes()).hexdigest()
 
 
+_OH_BLOCKS: list = []
+
+
+def oh_blocks() -> str:
+    """A copy of the committed blocks whose ffmpeg engine draws every preset with its `oh:` page, pinned again. Since M2 (PF-a4f) the committed
+    ffmpeg engine draws caption, keyword, number and quote with the ports, which need the image's gsap runtime; the offline tests that are not
+    about the ports draw with this copy (test mode: RENDERER_TEST=1 and RENDERER_BLOCKS_DIR). Built once per process."""
+    if not _OH_BLOCKS:
+        import atexit
+        import tempfile
+        root = tempfile.mkdtemp(prefix="oh-blocks-")
+        atexit.register(shutil.rmtree, root, True)
+        folder = Path(root) / "blocks"
+        shutil.copytree(BLOCKS, folder)
+        oh_defaults_in(folder)
+        _OH_BLOCKS.append(str(folder))
+    return _OH_BLOCKS[0]
+
+
+def oh_blocks_sha256() -> str:
+    """The sha256 of the pins of `oh_blocks()`, as a render staged from it reports `blocks_sha256`."""
+    return hashlib.sha256((Path(oh_blocks()) / "pins.json").read_bytes()).hexdigest()
+
+
+def oh_defaults_in(folder) -> None:
+    """Make the ffmpeg engine of a copy of the blocks draw every preset with its `oh:` page, then pin the copy again."""
+    folder = Path(folder)
+    engine = json.loads((folder / "engines" / "ffmpeg.json").read_text())
+    engine["presets"] = {preset: "oh:" + preset for preset in engine["presets"]}
+    (folder / "engines" / "ffmpeg.json").write_text(json.dumps(engine, indent=1))
+    _blocks.write_pins(str(folder))
+
+
 def template_of(preset: str) -> str:
-    """The page the ffmpeg engine draws a preset with, as a path inside blocks/ ("oh/keyword/renderat.html")."""
-    cat = _blocks.load_catalogue(str(BLOCKS))
+    """The `oh:` page of a preset, as a path inside blocks/ ("oh/keyword/renderat.html")."""
+    cat = _blocks.load_catalogue(oh_blocks())
     return _blocks.implementation(cat, cat["blocks"][cat["engines"]["ffmpeg"]["presets"][preset]], "ffmpeg")
 
 
@@ -461,6 +494,11 @@ def write_json(path, obj) -> str:
 def run_verb(*args, env=None, timeout=900):
     """Run the container entry point (_inner.py) as a subprocess on the host. Returns (returncode, parsed stdout or None, stderr)."""
     e = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""), **({"RENDERER_BROWSER": BROWSER} if BROWSER else {}), **(env or {})}
+    args = list(args)
+    if "RENDERER_BLOCKS_DIR" not in e and "RENDERER_TEST" not in e:      # a test that sets RENDERER_TEST itself (even to "0") is not changed
+        e.update(RENDERER_TEST="1", RENDERER_BLOCKS_DIR=oh_blocks())      # the offline tests draw with the oh: pages unless they bring their own folder
+        if args and args[0] in ("render", "storyboard") and "--blocks" not in args:
+            args += ["--blocks", oh_blocks()]
     done = subprocess.run([sys.executable, str(SCRIPT), *map(str, args)], capture_output=True, text=True, timeout=timeout, env=e)
     try:
         out = json.loads(done.stdout) if done.stdout.strip() else None

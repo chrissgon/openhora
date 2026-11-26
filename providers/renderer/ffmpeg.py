@@ -364,7 +364,7 @@ def verb_storyboard(args) -> dict:
         job.max_entries = D.STORYBOARD_OUT_ENTRIES
         inner = ["storyboard", "--vocabulary", job.stage("vocabulary.json", args.vocabulary), "--out", D.MOUNT_OUT, "--scratch", D.MOUNT_SCRATCH,
                  "--jobs", str(max(1, min(args.jobs, 2 * max(1, job.limits()[0]))))]
-        blocks_args = stage_blocks(job)
+        blocks_args = stage_blocks(job, _blocks.blocks_dir())
         inner += blocks_args
         if args.post:
             inner += ["--post", job.stage("post.md", args.post, 2 * 1024 * 1024), "--checker", job.stage("check_script.py", args.checker, 1024 * 1024)]

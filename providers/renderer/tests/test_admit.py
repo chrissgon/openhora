@@ -326,7 +326,7 @@ def test_a_page_that_draws_on_the_speakers_face_is_admitted_nothing_is_refused_f
 @needs_all
 def test_the_vendor_folder_cannot_be_replaced_outside_test_mode(tmp_path):
     args, env, _ = check_args(tmp_path, samples=[{"text": "Go"}])
-    rc, out, err = K.run_verb(*args, env={})
+    rc, out, err = K.run_verb(*args, env={"RENDERER_TEST": "0"})      # test mode off, on purpose
     assert rc == 2 and "--vendor is for the tests" in err, err
 
 

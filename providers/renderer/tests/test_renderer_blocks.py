@@ -36,7 +36,7 @@ def sha(path) -> str:
 
 def blocks_copy(tmp_path, name="b") -> str:
     folder = tmp_path / name
-    shutil.copytree(BLOCKS, folder)
+    shutil.copytree(K.oh_blocks(), folder)
     return str(folder)
 
 
@@ -73,12 +73,16 @@ def test_every_file_under_blocks_is_pinned_and_every_pin_names_a_file():
     assert found - set(_blocks.UNPINNED) == set(_blocks.read_pins()[1])
 
 
-def test_the_ffmpeg_engine_maps_caption_and_every_vocabulary_preset_to_an_oh_block_it_can_draw():
+# M2 (PF-a4f): the ffmpeg engine's defaults that are ports; every other preset defaults to its oh: page
+PORT_DEFAULTS = {"caption": "hf:caption-highlight", "keyword": "hf:spring-pop", "number": "hf:count-up", "quote": "hf:testimonial-card"}
+
+
+def test_the_ffmpeg_engine_maps_caption_and_every_vocabulary_preset_to_a_block_it_can_draw():
     cat = _blocks.load_catalogue()
     presets = cat["engines"]["ffmpeg"]["presets"]
     assert set(presets) == set(VOCAB["presets"]) | {"caption"} and set(presets) == set(DATA["presets"]) | {"caption"}
     for preset, name in presets.items():
-        assert name.startswith("oh:") and "ffmpeg" in _blocks.engines_of(cat, cat["blocks"][name]), preset
+        assert (name == "oh:" + preset or name in PORT_DEFAULTS.values()) and "ffmpeg" in _blocks.engines_of(cat, cat["blocks"][name]), preset
 
 
 def test_an_oh_block_declares_its_presets_kind_and_parameters_and_the_page_reads_no_other():
@@ -238,7 +242,7 @@ def test_resolve_refuses_an_unknown_block_another_preset_and_an_unknown_engine()
     assert refused(_blocks.resolve, cat, "ffmpeg", "keyword", "oh:list", "beats.b1").code == "block_preset_mismatch"
     assert refused(_blocks.resolve, cat, "nothere", "keyword", None, "beats.b1").code == "engine_unknown"
     assert refused(_blocks.resolve, cat, "ffmpeg", "unknown_preset", None, "beats.b1").code == "preset_not_on_engine"
-    assert _blocks.resolve(cat, "ffmpeg", "keyword", None, "beats.b1")["name"] == "oh:keyword"
+    assert _blocks.resolve(cat, "ffmpeg", "keyword", None, "beats.b1")["name"] == "hf:spring-pop"      # M2 (PF-a4f): the default of keyword is the port
 
 
 class StubJob:
@@ -333,7 +337,7 @@ def test_the_cutaway_page_the_screenshot_page_follows_keeps_its_image_path_byte_
 
 
 def test_a_beat_naming_the_screenshot_block_is_drawn_by_its_page_on_the_ffmpeg_engine_and_the_cutaway_by_its_own_by_default():
-    cat = _blocks.load_catalogue()
+    cat = _blocks.load_catalogue(K.oh_blocks())      # the caption of the committed engine is a port since M2: a page of the second contract has no `renderat` template
     entry = {"id": "b1", "preset": "cutaway", "block": "oh:screenshot", "params": {"asset": "slot-1", "fit": "contain"}}
     templates, names = _blocks.templates_for(cat, "ffmpeg", {"beats": [entry]}, VOCAB, with_caption=False)
     assert templates == {"caption": "oh/caption/renderat.html", "oh:screenshot": "oh/screenshot/renderat.html"} and names == ["oh/screenshot/renderat.html"]

@@ -260,7 +260,7 @@ def served_of(files_text: dict) -> str:
 def blocks_folder(tmp, hf_entry, name="blocks") -> str:
     """A copy of the committed blocks with `hf_entry` as the one allowlist entry, the ffmpeg engine drawing the keyword preset with it, pinned again."""
     folder = Path(tmp) / name
-    shutil.copytree(K.BLOCKS, folder)
+    shutil.copytree(K.oh_blocks(), folder)
     allow = json.loads((folder / "hf" / "allowlist.json").read_text())
     allow.update(registry_commit=COMMIT, blocks=[hf_entry])
     (folder / "hf" / "allowlist.json").write_text(json.dumps(allow, indent=1))

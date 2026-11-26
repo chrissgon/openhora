@@ -190,7 +190,7 @@ def test_the_container_gets_no_recording_and_no_in_flag_only_the_staged_job_and_
     assert "--in" not in inner and "--transcript" not in inner and "--analysis" not in inner and "--network" in argv
     assert argv[argv.index("--network") + 1] == "none" and not (tmp_path / "o").exists()
     assert "--beat" not in inner and "--post" in inner
-    assert inner[inner.index("--blocks") + 1] == "/job/blocks" and inner[inner.index("--blocks-sha256") + 1] == K.BLOCKS_SHA256
+    assert inner[inner.index("--blocks") + 1] == "/job/blocks" and inner[inner.index("--blocks-sha256") + 1] == K.oh_blocks_sha256()
 
 
 def test_post_and_beat_are_exclusive_and_the_checker_goes_with_the_post(tmp_path):
@@ -214,7 +214,7 @@ def test_the_storyboard_result_is_rebuilt_from_a_closed_schema_and_a_png_that_is
     digest = hashlib.sha256(still.read_bytes()).hexdigest()
     result = {"ok": True, "beats": [{"beat": 1, "preset": "keyword", "file": "beat-1.png", "sha256": digest, "frame": 3}], "skipped": [], "words": 8, "frame_jobs": 1, "frames_checked": 1,
               "jobs": 1, "sheet": {"file": "sheet.png", "sha256": digest, "tiles": 1, "columns": 1, "width": 282, "height": 492},
-              "face_box": {"x": 240, "y": 620, "w": 600, "h": 560}, "fonts": {}, "blocks": {}, "blocks_sha256": K.BLOCKS_SHA256, "font_fallbacks": [], "mentions": [], "planted": "x"}
+              "face_box": {"x": 240, "y": 620, "w": 600, "h": 560}, "fonts": {}, "blocks": {}, "blocks_sha256": K.oh_blocks_sha256(), "font_fallbacks": [], "mentions": [], "planted": "x"}
     world.cfg["run"] = "files"
     world.cfg["files"] = {"result.json": {"text": json.dumps(result)}, "beat-1.png": {"text": still.read_text(encoding="latin-1")},
                           "sheet.png": {"text": still.read_text(encoding="latin-1")}}
@@ -395,7 +395,7 @@ def test_a_card_that_touches_the_face_box_is_drawn_and_the_still_is_written(tmp_
     bad = html.replace("pos.style.top = z[0] + 'px';", "pos.style.top = '650px';")
     assert bad != html
     (copy / "blocks" / "oh" / "keyword" / "renderat.html").write_text(bad)
-    _blocks.write_pins(str(copy / "blocks"))
+    K.oh_defaults_in(copy / "blocks")      # also pins the copy again
     out = tmp_path / "o"
     env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "RENDERER_BROWSER": K.BROWSER}
     done = subprocess.run([sys.executable, str(copy / "_inner.py"), "storyboard", "--beat", str(write(tmp_path, "k.json", BEAT_KEYWORD)), "--vocabulary", str(K.VOCABULARY),
@@ -477,7 +477,7 @@ def test_a_card_that_overshoots_onto_the_face_box_while_it_pops_in_is_drawn_and_
     bad = bad.replace("window.renderAt = function (t, data) {", "window.renderAt = function (t, data) {\n  window.__t = t;", 1)
     assert bad != html and "window.__t = t" in bad
     (copy / "blocks" / "oh" / "keyword" / "renderat.html").write_text(bad)
-    _blocks.write_pins(str(copy / "blocks"))
+    K.oh_defaults_in(copy / "blocks")      # also pins the copy again
     env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "RENDERER_BROWSER": K.BROWSER}
     args = [sys.executable, str(copy / "_inner.py"), "storyboard", "--beat", str(write(tmp_path, "k.json", BEAT_KEYWORD)), "--vocabulary", str(K.VOCABULARY)]
     done = subprocess.run([*args, "--out", str(tmp_path / "o")], capture_output=True, text=True, env=env, timeout=300)
@@ -616,7 +616,7 @@ def test_a_png_whose_header_is_larger_than_the_frame_or_the_grid_is_refused_by_t
         result = {"ok": True, "beats": [{"beat": 1, "preset": "keyword", "file": "beat-1.png", "sha256": hashlib.sha256(still).hexdigest(), "frame": 3}],
                   "skipped": [], "words": 8, "frame_jobs": 1, "frames_checked": 5, "jobs": 1,
                   "sheet": {"file": "sheet.png", "sha256": hashlib.sha256(sheet).hexdigest(), "tiles": 1, "columns": 1, "width": 282, "height": 492},
-                  "face_box": {"x": 240, "y": 620, "w": 600, "h": 560}, "fonts": {}, "blocks": {}, "blocks_sha256": K.BLOCKS_SHA256, "font_fallbacks": [], "mentions": []}
+                  "face_box": {"x": 240, "y": 620, "w": 600, "h": 560}, "fonts": {}, "blocks": {}, "blocks_sha256": K.oh_blocks_sha256(), "font_fallbacks": [], "mentions": []}
         world.cfg["run"] = "files"
         world.cfg["files"] = {"result.json": {"text": json.dumps(result)}, "beat-1.png": {"kind": "bytes", "hex": still.hex()}, "sheet.png": {"kind": "bytes", "hex": sheet.hex()}}
         world.save()
