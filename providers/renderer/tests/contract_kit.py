@@ -282,6 +282,21 @@ def planted_renderat(tmp, which: str) -> Path:
     return folder
 
 
+def planted_unproven_port(tmp, port: str = "spring-pop") -> Path:
+    """A copy of the committed blocks where the port `hf:<port>` has no determinism record, pinned again: the catalogue then lists it on the HyperFrames
+    engine only, so the ffmpeg engine refuses it with `block_not_on_engine` (every committed port has a record since PF-a4e)."""
+    folder = Path(tmp) / ("blocks-unproven-" + port)
+    shutil.rmtree(str(folder), ignore_errors=True)
+    shutil.copytree(K.BLOCKS, folder)
+    path = folder / "hf" / port / "block.json"
+    block = json.loads(path.read_text(encoding="utf-8"))
+    assert "determinism" in block
+    del block["determinism"]
+    path.write_text(json.dumps(block, indent=1), encoding="utf-8")
+    _blocks.write_pins(str(folder))
+    return folder
+
+
 def planted_blank(tmp) -> Path:
     """HyperFrames only: a copy of the committed blocks plus a fictional caption block, `hf:demo-blank`, whose words are drawn at
     `font-size: 0px`, set as the engine's caption. The gates report it as advice `caption_not_drawn` (video P0b); it is drawn."""

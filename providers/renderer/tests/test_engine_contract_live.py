@@ -599,7 +599,12 @@ def test_f7_what_the_engine_cannot_draw_and_a_recording_that_is_not_the_list_are
     if engine == "ffmpeg":
         spring = copy.deepcopy(beats)
         spring["overlays"][0]["block"] = "hf:spring-pop"
-        refused_with(lab, engine, "f7d-" + engine, rec, edl_file, K.write_json(work / "beats-d.json", spring), "block_not_on_engine")
+        beats_d = K.write_json(work / "beats-d.json", spring)
+        # a port with no determinism record is HyperFrames only (the committed ports all have one since PF-a4e): planted by removing the record
+        refused_with(lab, engine, "f7d-" + engine, rec, edl_file, beats_d, "block_not_on_engine", blocks=C.planted_unproven_port(work))
+        # and the committed spring-pop, with its record, is drawn by the ffmpeg engine under the second contract
+        drawn = lab.render(engine, "f7d-drawn-" + engine, rec, edl_file, beats_d)
+        assert drawn.rc == 0 and "hf:spring-pop" in drawn.out["hf_proofs"], (drawn.rc, drawn.out, drawn.err[-800:])
     else:
         tr = C.short_transcript()
         (work / "post.md").write_text(K.SHORT_POST, encoding="utf-8")

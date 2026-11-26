@@ -99,16 +99,17 @@ def test_l2_naming_ffmpeg_renders_the_same_inputs_with_the_other_engine(lab):
     assert result["sha256"] == reference["sha256"], "the seam's render is not the same engine's render of the same inputs"
 
 
-def test_l3_block_params_is_answered_by_the_engine_the_project_names_and_refused_by_the_other(tmp_path):
+def test_l3_block_params_is_answered_by_the_engine_the_project_names_and_a_proven_port_by_both(tmp_path):
     params = K.write_json(tmp_path / "p.json", {"text": "Every step counts"})
     args = ["--block", "hf:spring-pop", "--params", str(params), "--vocabulary", str(K.VOCABULARY)]
     done = seams.MediaEngine(ROOT, None).call("renderer:video", "block-params", args, 120)
     assert done["ok"] is True and done["engine"] == "hyperframes" and done["block"] == "hf:spring-pop"
     other = seams.MediaEngine(ROOT, "ffmpeg").call("renderer:video", "block-params", ["--block", "oh:keyword", *args[2:]], 120)
     assert other["engine"] == "ffmpeg"
-    with pytest.raises(seams.StepServiceError) as wrong_engine:
-        seams.MediaEngine(ROOT, "ffmpeg").call("renderer:video", "block-params", args, 120)
-    assert wrong_engine.value.code == "refused" and wrong_engine.value.reason == "block_not_on_engine oh:keyword"
+    # every committed port has a determinism record since PF-a4e, so the ffmpeg engine answers it too
+    ported = seams.MediaEngine(ROOT, "ffmpeg").call("renderer:video", "block-params", args, 120)
+    assert ported["ok"] is True and ported["engine"] == "ffmpeg" and ported["block"] == "hf:spring-pop"
+    # the refusal of a port with no record is proved by f7d of test_engine_contract_live (a planted blocks folder, which block-params does not read) and offline by test_hf_ports
     assert leftovers() == []
 
 
