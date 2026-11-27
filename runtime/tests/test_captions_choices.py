@@ -240,3 +240,14 @@ def test_a_choice_made_at_the_delivery_approval_reaches_the_next_base_so_the_new
     assert flag(args, "--caption-block") == "oh:caption" and flag(args, "--push-in") == "0" and "--zoom" not in args
     [fresh_gate] = open_items(world, task)
     assert fresh_gate["payload_sha256"] != gate["payload_sha256"]
+
+
+def test_the_font_op_accepts_every_id_of_the_committed_allow_list_with_its_weight():
+    weights = ops_media_edit.theme.font_weights(str(REPO))
+    assert {"montserrat-800", "anton-400", "oswald-700", "poppins-500"} <= set(weights)
+    edited, review = fresh()
+    for ident, weight in weights.items():
+        _, held, _ = apply(edited, review, [{"op": "font", "role": "display", "id": ident}], font_ids=weights)
+        assert held["fonts"]["display"] == {"id": ident, "weight": weight} and cap.FONT_ID.fullmatch(ident)
+        _, again, _ = apply(edited, review, [{"op": "font", "role": "text", "id": ident, "weight": 700}], font_ids=weights)
+        assert again["fonts"]["text"]["weight"] == 700
