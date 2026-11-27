@@ -53,6 +53,19 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - AGENT-DIRECT: Ask an agent, or give it a task, directly, without going through the planner (#977, `backlog: runtime`)
 - VOICE-MODE: Talk to openhora by voice, and let it see what the person shows (#978, `backlog: runtime`)
 - CARD-READ: Decision cards on a phone are easy to read, in the project's language (#987, `backlog: runtime`)
+- AC0: The dated entries of the agent company's decisions in the runtime contract (#989, `backlog: runtime`)
+- AC1: Agent profiles: a persona per agent, written by the person (#990, `backlog: runtime`)
+- AC2: A conversation per agent (#991, `backlog: runtime`)
+- AC3: The conversation lane: fast replies in the service, streamed (#992, `backlog: runtime`)
+- AC4: What the screen shows while an agent works (#993, `backlog: runtime`)
+- AC5: Agent memory in four layers (#994, `backlog: runtime`)
+- AC6: The knowledge base: hybrid search with local embeddings (#995, `backlog: runtime`)
+- AC7: Messages between agents, under the audit records (#996, `backlog: runtime`)
+- AC8: Self-managing agents, without managers (#997, `backlog: runtime`)
+- AC9: Proof of the conversation lane (#998, `backlog: runtime`)
+- AC10: The office: a spike of the Habblaud fork, then its wiring (#999, `backlog: runtime`)
+- AC11: Questions between agents by level, with delegations (#1000, `backlog: runtime`)
+- AC12: Peer review and the autonomous work mode (#1001, `backlog: runtime`)
 
 ## Website
 
