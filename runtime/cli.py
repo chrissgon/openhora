@@ -200,6 +200,9 @@ captions-edit edits the captions of a new video (--task <id>) at the caption rev
           start it with video-run. An effect over words is `{"op": "effect", "kind": "flash", "word_from": <i>, "word_to": <j>}` (kinds punch,
           flash, dip, mono, tint; at most 99, and no two of flash, dip and tint over the same words), removed with `{"op": "effect", "id": "e1", "remove": true}`;
           `{"op": "effect", "id": "p3", "remove": true}` drops the script's punch of beat 3.
+          A transition is `{"op": "transition", "kind": "glitch", "word": <i>}` (at the cut before word i when it opens a shot, else on its first
+          frame) or `{"op": "transition", "kind": "slide", "beat": <n>}` (that beat's entry). The kinds are glitch, bloom, zoom_blur, blur_to_card,
+          dip, and slide or zoom for a cutaway picture only. At most 99, one per join, removed with `{"op": "transition", "id": "t1", "remove": true}`.
 video-download saves the delivered video (--task <id>) to --out, a new file outside the project: only the exact render the approval
           named, hashed again as it is copied.
 video-still saves the still of a new video (--task <id>), the frame of the face box, to --out, a new file outside the project.

@@ -328,7 +328,7 @@ CARD_VIDEO_POST: Publicação: <post>
 CARD_VIDEO_PREVIEW: prévia 0123456789abcdef, feita de <origin>
 CARD_VIDEO_SCAN_CLEAN: <slot>: nenhum texto ou código QR encontrado.
 CARD_VIDEO_SCAN_FAILED: Estas imagens não foram verificadas em busca de texto ou códigos QR (the file is too large). Você ainda pode aprová-las.
-CARD_VIDEO_SCAN_HEADING: Verificado neste computador, em busca de texto e códigos QR:
+CARD_VIDEO_SCAN_HEADING: Verificamos neste computador se há texto ou códigos QR:
 CARD_VIDEO_SCAN_NOT_RUN: Estas imagens não foram verificadas em busca de texto ou códigos QR. Você ainda pode aprová-las.
 CARD_VIDEO_SCAN_PARTIAL: <slot>: o tempo da verificação acabou neste clipe, então só parte dele foi verificada (códigos QR em yes de 4 quadros).
 CARD_VIDEO_SCAN_QR_ACTION: <slot>: a imagem mostra um código QR que inicia uma ação no celular (<scheme>).

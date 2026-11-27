@@ -177,7 +177,7 @@
 .wb-cr-head { margin: 0; color: var(--pui-text-muted); font-size: 12px; font-weight: 600; }
 .wb-cr-counts, .wb-cr-line, .wb-cr-note, .wb-cr-range { margin: 0; overflow-wrap: anywhere; }
 .wb-cr-scan-row { color: var(--wb-ink-warn); }
-.wb-cr-scan-quote { display: grid; gap: 2px; margin: 0; padding-left: 10px; border-left: 3px solid var(--pui-border); overflow-wrap: anywhere; }
+.wb-cr-scan-quote { display: grid; gap: 2px; margin: 0; padding-left: 10px; border-left: 3px solid light-dark(var(--pui-border), var(--pui-text-muted)); overflow-wrap: anywhere; }      /* the bar is the muted text colour in dark, where the border token is too faint */
 .wb-cr-scan-quote > * { margin: 0; }
 .wb-cr-scan-line { font-style: italic; }
 .wb-cr-note { color: var(--pui-text-muted); font-size: 12px; }

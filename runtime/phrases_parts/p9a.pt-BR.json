@@ -1,7 +1,7 @@
 {
   "package": "p9a",
   "table": {
-    "CARD_VIDEO_SCAN_HEADING": "Verificado neste computador, em busca de texto e códigos QR:",
+    "CARD_VIDEO_SCAN_HEADING": "Verificamos neste computador se há texto ou códigos QR:",
     "CARD_VIDEO_SCAN_TEXT_FOUND": "{slot}: a imagem mostra texto ({chars} caracteres). Lido pelo computador, não conferido:",
     "CARD_VIDEO_SCAN_QR_LINK": "{slot}: a imagem mostra um código QR que abre um link em {host}. Quem apontar o celular para o seu vídeo pode abri-lo.",
     "CARD_VIDEO_SCAN_QR_LINK_UNKNOWN": "{slot}: a imagem mostra um código QR com um link cujo endereço não pôde ser lido como o nome de um site.",
