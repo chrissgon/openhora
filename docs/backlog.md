@@ -34,6 +34,8 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - T43: What policies per person leave out (POL-2) (#875, `backlog: tooling`)
 - T44: Recompute and compare `approval_digest` at every firing (#876, `backlog: tooling`)
 - T46: Versioned, immutable measured pairs: adding a model or updating the image never changes a pair already meas... (#877, `backlog: tooling`)
+- SKILL-SEARCH: Before writing a new skill, look for what already exists (#980, `backlog: tooling`)
+- LAYOUT-CHECK: Every project keeps the same kind of file in the same place (#981, `backlog: tooling`)
 
 ## Agent runtime
 
@@ -45,6 +47,10 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - R17: A task's footprint names its own files, so tasks of one floor run together (#883, `backlog: runtime`)
 - R23: The interface as a virtual office: Habblaud as inspiration, and possibly as the agents' interface (#884, `backlog: runtime`)
 - INSTRUCTIONS: The field evidence of a use with standing instructions (#885, `backlog: runtime`)
+- UI-E2E: End-to-end tests of the interface against a mocked backend (#975, `backlog: runtime`)
+- SETUP-GUIDE: A guided setup of a project from zero, in the interface, over a command-line tool (#976, `backlog: runtime`)
+- AGENT-DIRECT: Ask an agent, or give it a task, directly, without going through the planner (#977, `backlog: runtime`)
+- VOICE-MODE: Talk to openhora by voice, and let it see what the person shows (#978, `backlog: runtime`)
 
 ## Website
 
@@ -52,6 +58,7 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - W4: The claims picker scrolls the page (#887, `backlog: website`)
 - W5: The website has no documentation section (#888, `backlog: website`)
 - W6: openhora.dev does not appear in search results (#889, `backlog: website`)
+- DESIGN-FILES: The website, and later the interface, documented in Figma (#979, `backlog: website`)
 
 ## E-mail
 
@@ -119,6 +126,10 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - NS12: Agent `explorer` (#927, `backlog: next skills`)
 - NS13: The next version of `design-system` (#928, `backlog: next skills`)
 - NS14: Skill `biz-validate-idea` (#929, `backlog: next skills`)
+- DESIGN-BLOCKS: The design skills go from screen documents to component blocks before whole screens (#982, `backlog: next skills`)
+- AIV1: AI video from start to end: script, generation, editing and voice (#983, `backlog: next skills`)
+- AIV2: The person's own voice, generated: a local voice-cloning model reads the script (#984, `backlog: next skills`)
+- AIV3: The presenter's image, generated: a face that speaks the script (#985, `backlog: next skills`)
 
 ## Found by the audit of 2026-10-02
 
