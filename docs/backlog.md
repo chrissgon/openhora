@@ -52,6 +52,7 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - SETUP-GUIDE: A guided setup of a project from zero, in the interface, over a command-line tool (#976, `backlog: runtime`)
 - AGENT-DIRECT: Ask an agent, or give it a task, directly, without going through the planner (#977, `backlog: runtime`)
 - VOICE-MODE: Talk to openhora by voice, and let it see what the person shows (#978, `backlog: runtime`)
+- CARD-READ: Decision cards on a phone are easy to read, in the project's language (#987, `backlog: runtime`)
 
 ## Website
 
