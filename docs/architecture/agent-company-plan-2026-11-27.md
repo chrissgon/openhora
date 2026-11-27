@@ -13,7 +13,7 @@ History:
   - plan release joins the autonomous parts that need `agent-chains`;
   - the review gets a mode of the contained run of its own;
   - the group gets one function, a closed list of starters and a row for every channel;
-  - a routine's holding is put to the maintainer (OPEN-15);
+  - a routine's holding is put to the maintainer (OPEN-15, which the maintainer then decided: AC-D17);
   - the dependencies of the packages are corrected.
 
 The main changes from version 3, made in version 4:
@@ -53,7 +53,7 @@ The maintainer's words, 2026-11-27, translated:
 - What the person and the agent said is kept, as the person's memory and the agent's.
 - It must be simple and look like people working, while being AI agents.
 
-On the same day the maintainer added the points recorded as AC-D1 to AC-D16 (section 3):
+On the same day the maintainer added the points recorded as AC-D1 to AC-D17 (section 3):
 - no managers;
 - a persona per agent;
 - agents that talk with the person and with each other without weakening security or governance;
@@ -125,6 +125,7 @@ The record is `docs/decisions/2026-11-27-ac-0-agent-company.md`. In short:
   - **What leaves the host:** the replies of runs and the turns between agents, in chains whose starter holds a **`new`** capability group, `agent-chains`, may reach the lane's model route.
   - **The group's defaults:** it is in the terminal, which is never narrowed, and on the page by default. It is in no default on messaging. The person gives it to a sender's profile, their own or a trusted person's, with `accept-config --widen`, and may take it off the page.
   - **What it changes:** only which chains get the autonomous parts. It never changes what agents may read or do (section 4.13).
+- **AC-D17. A routine holds `agent-chains` only when it was approved on a channel that holds it** (OPEN-15). That holding enters the routine's content hash, as the consent of D34 does. A routine drafted from messaging holds it only through the channel that approved it, and it loses the group at its next run when that channel no longer holds it.
 
 ## 4. Design
 
@@ -561,7 +562,7 @@ A request from someone other than the person, or a forwarded text with a hidden 
 | The MCP mode | Never, in v1: a model client must not start autonomous chains | No |
 | The person's own messaging profile | Does not hold it: the runtime does not know which sender is the person until the person says so | Yes: one `accept-config --widen` for that profile; the guided setup (SETUP-GUIDE, #976) offers it |
 | Another messaging sender, for example a team member | Does not hold it | Yes: the exception, widened for that sender's profile |
-| A routine | Does not hold it until OPEN-15 is decided | OPEN-15 |
+| A routine | Holds it only when it was approved on a channel that holds it; the holding enters the routine's content hash (AC-D17) | Yes: through the channel that approves it |
 | A handler tick, or anything else (a chain started by external content) | Never | No: it is not a starter of the list |
 
 A chain whose starter does not hold the group still runs, with the person in between:
@@ -672,6 +673,7 @@ Decided by the maintainer on 2026-11-27 (section 11):
 - **OPEN-6. How long threads and memories are kept.** Decided: until the person erases them, with tombstones and an export; records between agents are kept like the other governance records (AC-D13).
 - **OPEN-7. The consent of plan release.** Decided: part of the autonomous work mode's consent (AC-D11); section 4.2 makes it a consent kind of its own, and `auto` agents get plan release by proof only.
 - **OPEN-10. The dated L63 decision for the lane.** Decided: page and terminal lines; messaging later (AC-D12).
+- **OPEN-15. Whether a routine holds `agent-chains`.** Decided: only when it was approved on a channel that holds it, with the holding in the routine's content hash (AC-D17).
 - **OPEN-14. Run replies and messages between agents on the lane's route.** Decided (section 13): by who started the chain, through the capability group `agent-chains`, with the defaults of section 4.13 (AC-D16).
 
 Still open:
@@ -683,10 +685,6 @@ Still open:
 - **OPEN-9. Memory written by an agent.** Recommended: allowed without approval inside a task or a turn, always visible and erasable, marked when it came from external content, and kept out of turns that carry an effect proposal.
 - **OPEN-11. Reading memories from MCP or messaging.** Recommended: not in v1.
 - **OPEN-12. How a delegation names a kind of decision.** Recommended: free words written by the person, matched by a model behind a measured guard, with a doubtful match sent to the person.
-- **OPEN-15. Whether a routine holds `agent-chains`.** A routine can be drafted from messaging under `routine-edit` and approved on a page; it is also where external content arrives unattended. Until decided, a routine does not hold the group. Recommended:
-  - a routine holds the group only when it was approved on a channel that holds it, and that holding enters the routine's content hash, as the consent of D34 does;
-  - a routine drafted from messaging holds it only through the channel that approved it;
-  - when a later page entry drops the group, the routines it approved lose it at their next run, because holding is checked again at each step.
 - **OPEN-13. The number of review rounds and the reviewer's budget.** Recommended: two rounds before the tiebreak, fixed in AC12's spec from the first measurements.
 
 ## 8. Not in this plan
@@ -806,7 +804,7 @@ A new reviewer of the same kind read version 5 against the code. It raised 12 fi
 | 3. A capability group cannot produce the stated defaults: `holds()` is False for a channel with no entry; no operation named | 4.13 (attached to `say`, `request` and `route` with the kind `chain-autonomy`; `chain_autonomy` with a closed truth table; a page entry written before the group loses it) |
 | 4. No row for MCP, `chat` or handler ticks | 4.13 (a closed list of starters; MCP never in v1; `chat` recorded as the carrying channel; handler ticks never) |
 | 5. When the group is checked, and who the starter is, were undefined | 4.13 (the actor label at the request's creation, inherited, never changed by approving or answering; checked again at each autonomous step) |
-| 6. The routine row was not in the decision record | OPEN-15 (until decided, a routine does not hold the group) |
+| 6. The routine row was not in the decision record | OPEN-15, put to the maintainer and decided as AC-D17 |
 | 7. Chains without the group contradicted 4.10 and the brakes | 4.10, 4.13 (N1 becomes a proposed request the person approves), 4.3 and section 5 (starters of the closed list) |
 | 8. Package dependencies did not match the text | Section 6 (the `sources` key and the access sets in AC7; AC3's tools limited to reading; AC5 adds memory retrieval and needs AC3 and AC7; AC6 adds the search tool and needs AC7; AC11 needs AC8; a new order) |
 | 9. The guards of the downgrades and the delegation match had no evidence kind | 4.8 (cases of the lane's evidence kind, added by AC11), section 6 |
