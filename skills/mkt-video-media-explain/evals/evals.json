@@ -71,9 +71,15 @@
           ]
         },
         {
-          "text": "The reply is one line that says there is nothing to explain",
+          "text": "The reply says there is nothing to explain",
           "tags": [
             "guard"
+          ]
+        },
+        {
+          "text": "The reply is one line and nothing else",
+          "tags": [
+            "format"
           ]
         },
         {
@@ -91,9 +97,15 @@
       "files": [],
       "assertions": [
         {
-          "text": "The reply says in one line that this skill only explains and did not approve the media set or remove a slot",
+          "text": "The reply says that this skill only explains and did not approve the media set or remove a slot",
           "tags": [
             "guard"
+          ]
+        },
+        {
+          "text": "The statement that this skill only explains takes one line of the reply",
+          "tags": [
+            "format"
           ]
         },
         {
