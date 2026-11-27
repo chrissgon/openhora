@@ -24,9 +24,8 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - T22: Move the dated fixtures forward before 2027-10-02 (#864, `backlog: tooling`)
 - T47: Remove the compatibility stages of the rename to openhora (formerly the rename items of T23) (#865, `backlog: tooling`)
 - T48: The runtime workarounds marked `T23:` (formerly workarounds 4 to 8 of T23) (#866, `backlog: tooling`)
-- T49: A floor pair on the OpenCode 2 line is not planned (#867, `backlog: tooling`)
+- T49: An opencode runner pair on the OpenCode 2 line is not planned (#867, `backlog: tooling`)
 - T26: Smaller findings of the reviews before the battery (#868, `backlog: tooling`)
-- T27: The early-end rule does not catch a collapse of a model's tool calls (#869, `backlog: tooling`)
 - T31: The installers carry what a skill needs of `providers/` and print the workbench root (#870, `backlog: tooling`)
 - T33: The inventory snapshot cites the head commit of the checkout that generated it (#871, `backlog: tooling`)
 - T34: The providers say "no token" when the credentials directory is unsafe (#872, `backlog: tooling`)
@@ -45,12 +44,11 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - R12: The adapter's report of the skills a run loaded is not reliable (#880, `backlog: runtime`)
 - R14: Standard flows for common requests (#881, `backlog: runtime`)
 - R16: Every skill reachable from the interface (#882, `backlog: runtime`)
-- R17: A task's footprint names its own files, so tasks of one floor run together (#883, `backlog: runtime`)
+- R17: A task's footprint names its own files, so tasks of one area run together (#883, `backlog: runtime`)
 - R23: The interface as a virtual office: Habblaud as inspiration, and possibly as the agents' interface (#884, `backlog: runtime`)
 - INSTRUCTIONS: The field evidence of a use with standing instructions (#885, `backlog: runtime`)
 - UI-E2E: End-to-end tests of the interface against a mocked backend (#975, `backlog: runtime`)
 - SETUP-GUIDE: A guided setup of a project from zero, in the interface, over a command-line tool (#976, `backlog: runtime`)
-- AGENT-DIRECT: Ask an agent, or give it a task, directly, without going through the planner (#977, `backlog: runtime`)
 - VOICE-MODE: Talk to openhora by voice, and let it see what the person shows (#978, `backlog: runtime`)
 - CARD-READ: Decision cards on a phone are easy to read, in the project's language (#987, `backlog: runtime`)
 - AC0: The dated entries of the agent company's decisions in the runtime contract (#989, `backlog: runtime`)
@@ -119,8 +117,6 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 
 - NR4: Confirmed writes in words (#912, `backlog: answers`)
 - NR6: A drafted body, contacts, the titles of the calendar index, FIND-1 (#913, `backlog: answers`)
-- EMB: Embeddings as a measured middle tier (#914, `backlog: answers`)
-- AQ4: Chunking and retrieval for a source over 256 KiB (#915, `backlog: answers`)
 
 ## Accounts
 
