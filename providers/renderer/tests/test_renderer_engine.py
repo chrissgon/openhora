@@ -418,8 +418,8 @@ def test_fonts_come_only_from_the_allow_list_and_are_hash_checked(tmp_path, monk
     fonts.mkdir(parents=True)
     data = b"wOF2" + b"\x00" * 64
     (fonts / "test-800.woff2").write_bytes(data)
-    (fonts / "allowlist.json").write_text(json.dumps({"version": 1, "fonts": [
-        {"id": "test-800", "file": "test-800.woff2", "sha256": hashlib.sha256(data).hexdigest(), "weight": 800, "licence": "fictional", "source": "fictional"}]}))
+    (fonts / "test-OFL.txt").write_text("fictional licence text")
+    (fonts / "allowlist.json").write_text(json.dumps({"version": 2, "fonts": [dict(font_row("test-800", data), file="test-800.woff2", weight=800)]}))
     monkeypatch.setenv("RENDERER_TEST", "1")
     monkeypatch.setenv("RENDERER_ASSETS_DIR", str(tmp_path / "assets"))
     allow = _frames.font_allowlist()
@@ -437,19 +437,66 @@ def test_fonts_come_only_from_the_allow_list_and_are_hash_checked(tmp_path, monk
     assert _frames.fonts_dir().endswith(os.path.join("renderer", "assets", "fonts"))      # outside test mode the folder is not redirectable
 
 
-def test_the_shipped_allow_list_is_the_one_pinned_set_with_its_licences_and_its_weaker_provenance_stated():
+INTEGRITY = "sha512-" + "A" * 86 + "=="
+
+
+def font_row(font_id, data, **over):
+    """A fictional allow-list row that meets every condition of the rule; a test breaks one condition at a time."""
+    row = {"id": font_id, "file": font_id + ".woff2", "sha256": hashlib.sha256(data).hexdigest(), "weight": 400, "family": "Test Face", "licence": "OFL-1.1",
+           "licence_file": "test-OFL.txt", "package": "@example/test-face", "package_version": "1.2.3", "integrity": INTEGRITY, "source": "fictional package"}
+    row.update(over)
+    return row
+
+
+def test_the_font_conditions_are_checked_in_code_one_at_a_time(tmp_path, monkeypatch):
+    fonts = tmp_path / "assets" / "fonts"
+    fonts.mkdir(parents=True)
+    (fonts / "test-OFL.txt").write_text("fictional licence text")
+    monkeypatch.setenv("RENDERER_TEST", "1")
+    monkeypatch.setenv("RENDERER_ASSETS_DIR", str(tmp_path / "assets"))
+
+    def listed(**over):
+        row = font_row("test-400", b"wOF2", **over)
+        for k in [k for k, v in over.items() if v is None]:
+            del row[k]
+        (fonts / "allowlist.json").write_text(json.dumps({"version": 2, "fonts": [row]}))
+        return _frames.font_allowlist()
+    assert set(listed()) == {"test-400"} and set(listed(licence="Apache-2.0")) == {"test-400"}
+    for bad in ({"licence": "CC-BY-4.0"}, {"licence": "MIT"}, {"licence": None}, {"licence_file": None}, {"licence_file": "missing.txt"}, {"licence_file": "../x.txt"},
+                {"family": None}, {"family": " "}, {"package": None}, {"package_version": None}, {"package_version": "5"}, {"integrity": None},
+                {"integrity": "sha256-abc"}, {"integrity": "sha512-short"}, {"sha256": "abc"}, {"sha256": None}, {"source": None}):
+        with pytest.raises(Refusal) as e:
+            listed(**bad)
+        assert e.value.code == "bad_font_allowlist", bad
+    (fonts / "allowlist.json").write_text(json.dumps({"version": 2, "fonts": [font_row("test-400", b"a"), font_row("test-400", b"a")]}))
+    with pytest.raises(Refusal):                                         # one id twice
+        _frames.font_allowlist()
+
+
+NEW_FAMILIES = {"Inter": {800, 500}, "JetBrains Mono": {500}, "Montserrat": {800, 500}, "Anton": {400}, "Poppins": {800, 500}, "Oswald": {700, 400}}
+
+
+def test_the_shipped_allow_list_meets_the_font_conditions_and_names_a_pinned_source_for_every_file():
     folder = os.path.join(str(K.RENDERER), "assets", "fonts")
-    allow = _frames.font_allowlist()
-    assert set(allow) == {"inter-800", "inter-500", "jetbrains-mono-500"}
-    assert {k: allow[k]["weight"] for k in allow} == {"inter-800": 800, "inter-500": 500, "jetbrains-mono-500": 500}
+    allow = _frames.font_allowlist()                                     # the rule itself refuses a row that fails a condition
+    assert set(allow) == {"inter-800", "inter-500", "jetbrains-mono-500", "montserrat-800", "montserrat-500", "anton-400", "poppins-800", "poppins-500",
+                          "oswald-700", "oswald-400"}
+    got = {}
     for row in allow.values():
+        got.setdefault(row["family"], set()).add(row["weight"])
         data = open(os.path.join(folder, row["file"]), "rb").read()
         assert hashlib.sha256(data).hexdigest() == row["sha256"] and data[:4] == b"wOF2"
-        assert row["licence"] == "OFL-1.1" and "Latin subset" in row["source"] and "not recorded" in row["source"]
+        assert row["id"] == "%s-%d" % (row["package"].split("/")[1], row["weight"]) and row["package_version"] == "5.3.0"
+        assert row["licence"] == "OFL-1.1" and "Latin subset" in row["source"] and row["package"] + "@5.3.0" in row["source"]
         licence = open(os.path.join(folder, row["licence_file"]), encoding="utf-8").read()
-        assert "SIL OPEN FONT LICENSE Version 1.1" in licence and licence.startswith("Copyright")
+        assert "SIL Open Font License, Version 1.1" in licence and licence.startswith("Copyright")
+    assert got == NEW_FAMILIES
+    assert len({row["integrity"] for row in allow.values()}) == len(NEW_FAMILIES)           # one integrity per package
+    assert {r["id"]: r["sha256"] for r in allow.values() if r["id"].startswith(("inter", "jetbrains"))} == {         # the three first files, byte for byte as before
+        "inter-800": "a7d0a50f15d389cad679238466bdb5fc9787aa0715719064ce25abaff042820d", "inter-500": "f3779f1efccc4bdcdf9c0a02ab95bf6bd092ed09c48c08cedc725889edd1d19f",
+        "jetbrains-mono-500": "cb182feeed4d798ff6961d3c79f7026279448fca0676438aaecb21f3fc39553a"}
     note = json.load(open(os.path.join(folder, "allowlist.json")))["note"]
-    assert "WEAKER PROVENANCE" in note and "Fontsource" in note and "not the upstream releases" in note
+    assert "pinned source" in note and "font_allowlist" in note and "Fontsource" in note
     terms_file = os.environ.get("WORKBENCH_PRIVATE_TERMS") or os.path.join(str(K.RENDERER.parents[1]), ".private-terms")
     terms = []                                                          # the maintainer's own list of what must not appear (git-ignored, absent in CI)
     if os.path.isfile(terms_file):

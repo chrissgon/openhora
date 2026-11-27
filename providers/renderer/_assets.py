@@ -49,15 +49,29 @@ def fonts_dir() -> str:
     return os.path.join(HERE, "assets", "fonts")
 
 
+FONT_LICENCES = ("OFL-1.1", "Apache-2.0")
+FONT_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
+FONT_INTEGRITY = re.compile(r"sha512-[A-Za-z0-9+/]{86}==")
+
+
 def font_allowlist(directory=None) -> dict:
-    """{id: row} of the allow-list file: each row has id, file (a plain name), sha256, weight, licence and source."""
+    """{id: row} of the allow-list file. The conditions of a font (P2b, replacing VD6's one fixed set): each row has an id, a file (a plain name), the sha256 of
+    that file, a weight and a `family`; a licence of OFL-1.1 or Apache-2.0 and its licence file, present in the folder; and a pinned source: the package, its
+    exact version and its integrity (sha512). A row that fails one of them refuses the whole list, so no font outside the conditions is ever served."""
     directory = directory or fonts_dir()
     doc = read_json(os.path.join(directory, "allowlist.json"))
     rows = {}
     try:
         for row in doc["fonts"]:
             if not FONT_ID.fullmatch(row["id"]) or os.path.basename(row["file"]) != row["file"] or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) \
-                    or not row.get("licence") or not row.get("source") or row["id"] == "default":
+                    or not row.get("source") or row["id"] == "default" or row["id"] in rows:
+                raise Refusal("bad_font_allowlist", "allowlist.json")
+            lic = row.get("licence_file")
+            if row.get("licence") not in FONT_LICENCES or not isinstance(lic, str) or not lic or os.path.basename(lic) != lic \
+                    or not os.path.isfile(os.path.join(directory, lic)):
+                raise Refusal("bad_font_allowlist", "allowlist.json")
+            if not (isinstance(row.get("family"), str) and row["family"].strip()) or not (isinstance(row.get("package"), str) and row["package"]) \
+                    or not FONT_VERSION.fullmatch(str(row.get("package_version"))) or not FONT_INTEGRITY.fullmatch(str(row.get("integrity"))):
                 raise Refusal("bad_font_allowlist", "allowlist.json")
             rows[row["id"]] = row
     except (KeyError, TypeError):

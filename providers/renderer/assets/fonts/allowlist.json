@@ -1,6 +1,6 @@
 {
- "version": 1,
- "note": "The fonts a render may use (decision VD6: one pinned permissive set). Each row names the file in this folder, its sha256, its licence (SIL Open Font License 1.1, texts beside the files: the licence asks for them to travel with the fonts) and its source. WEAKER PROVENANCE, stated on purpose: the files are Fontsource's Latin subsets of Inter and JetBrains Mono, not the upstream releases; the exact version of the npm packages they came from was not recorded, and the licence inside the packages was not read (the OFL texts here are the upstream projects'). A Latin subset draws Portuguese and English text; another script needs another file. A font that is not listed here is never used: the render falls back to the image's free font and says so.",
+ "version": 2,
+ "note": "The fonts a render may use. Each row is a pinned source: the npm package and its exact version, the package's integrity (the sha512 of its tarball, as the registry reports it), the sha256 of the file taken from it, its licence (SIL Open Font License 1.1) and the licence text of that package beside the files (the licence asks for it to travel with the fonts). The rule is checked in code (font_allowlist): a licence of OFL-1.1 or Apache-2.0, a licence file present in this folder, a package, a version, an integrity and a sha256, and a family. A font that is not listed here is never used: the render falls back to the image's free font and says so. A Latin subset draws Portuguese, Spanish and English text; another script needs another file. The files are Fontsource's Latin subsets, not the upstream releases.",
  "fonts": [
   {
    "id": "inter-800",
@@ -10,7 +10,10 @@
    "family": "Inter",
    "licence": "OFL-1.1",
    "licence_file": "Inter-OFL.txt",
-   "source": "@fontsource/inter@5 and @fontsource/jetbrains-mono@5 (npm packages), Latin subset, exact package version not recorded"
+   "package": "@fontsource/inter",
+   "package_version": "5.3.0",
+   "integrity": "sha512-RofMylZmjlJEfELXeNHFWBRcSs75rGU/6bV2S2jfnvv/3rPXPGe0LgUJTklcHZ9lM4OZmAVFhcJPnACfb91A3g==",
+   "source": "@fontsource/inter@5.3.0 (npm), files/inter-latin-800-normal.woff2, Latin subset"
   },
   {
    "id": "inter-500",
@@ -20,7 +23,10 @@
    "family": "Inter",
    "licence": "OFL-1.1",
    "licence_file": "Inter-OFL.txt",
-   "source": "@fontsource/inter@5 and @fontsource/jetbrains-mono@5 (npm packages), Latin subset, exact package version not recorded"
+   "package": "@fontsource/inter",
+   "package_version": "5.3.0",
+   "integrity": "sha512-RofMylZmjlJEfELXeNHFWBRcSs75rGU/6bV2S2jfnvv/3rPXPGe0LgUJTklcHZ9lM4OZmAVFhcJPnACfb91A3g==",
+   "source": "@fontsource/inter@5.3.0 (npm), files/inter-latin-500-normal.woff2, Latin subset"
   },
   {
    "id": "jetbrains-mono-500",
@@ -30,7 +36,101 @@
    "family": "JetBrains Mono",
    "licence": "OFL-1.1",
    "licence_file": "JetBrainsMono-OFL.txt",
-   "source": "@fontsource/inter@5 and @fontsource/jetbrains-mono@5 (npm packages), Latin subset, exact package version not recorded"
+   "package": "@fontsource/jetbrains-mono",
+   "package_version": "5.3.0",
+   "integrity": "sha512-fqDfB5I9f1p1TV486aUgB9t8zP84P0O1FtQR5Ol9vjwPy+S+EIGlVYm1cvj2W5shcZMTg2nZFdVMoH5wFu8a1A==",
+   "source": "@fontsource/jetbrains-mono@5.3.0 (npm), files/jetbrains-mono-latin-500-normal.woff2, Latin subset"
+  },
+  {
+   "id": "montserrat-800",
+   "file": "montserrat-800.woff2",
+   "sha256": "ba826fb84c2e961578adf3a08b5778b87905d4443445d1d56d84f9f157d5ea4b",
+   "weight": 800,
+   "family": "Montserrat",
+   "licence": "OFL-1.1",
+   "licence_file": "Montserrat-OFL.txt",
+   "package": "@fontsource/montserrat",
+   "package_version": "5.3.0",
+   "integrity": "sha512-iQPDtZOnmM5ih4JBGaMSXisRap0ixb9bAUw2hDtY7EjVfaqiiNlKtVuJl9XclxUwtwMMHNcWXfQR6zI9x05+Tg==",
+   "source": "@fontsource/montserrat@5.3.0 (npm), files/montserrat-latin-800-normal.woff2, Latin subset"
+  },
+  {
+   "id": "montserrat-500",
+   "file": "montserrat-500.woff2",
+   "sha256": "2b53300fb9471520df2f4905847fb7a209879b2029ae893c05c6ee346b1320cd",
+   "weight": 500,
+   "family": "Montserrat",
+   "licence": "OFL-1.1",
+   "licence_file": "Montserrat-OFL.txt",
+   "package": "@fontsource/montserrat",
+   "package_version": "5.3.0",
+   "integrity": "sha512-iQPDtZOnmM5ih4JBGaMSXisRap0ixb9bAUw2hDtY7EjVfaqiiNlKtVuJl9XclxUwtwMMHNcWXfQR6zI9x05+Tg==",
+   "source": "@fontsource/montserrat@5.3.0 (npm), files/montserrat-latin-500-normal.woff2, Latin subset"
+  },
+  {
+   "id": "anton-400",
+   "file": "anton-400.woff2",
+   "sha256": "d0fa07ff63dd60cbc0e2f58e29c802dca2a5ae0276c999f59c6111ab7bbaec3b",
+   "weight": 400,
+   "family": "Anton",
+   "licence": "OFL-1.1",
+   "licence_file": "Anton-OFL.txt",
+   "package": "@fontsource/anton",
+   "package_version": "5.3.0",
+   "integrity": "sha512-OR1D5n124n2XRs66SbX7IjcOSptljEJE8FcDNnlni2y1/M6KpTx7cU2PIWzTSsBj4WFkHPw24On8qw3qkQZuTw==",
+   "source": "@fontsource/anton@5.3.0 (npm), files/anton-latin-400-normal.woff2, Latin subset"
+  },
+  {
+   "id": "poppins-800",
+   "file": "poppins-800.woff2",
+   "sha256": "60bf0aba6526436f3930c58c12047687fbb6bff4dd180cce4613458ed3439ea2",
+   "weight": 800,
+   "family": "Poppins",
+   "licence": "OFL-1.1",
+   "licence_file": "Poppins-OFL.txt",
+   "package": "@fontsource/poppins",
+   "package_version": "5.3.0",
+   "integrity": "sha512-cms1nM7U6SN8epIV1WMVOV8VsA645aSm3wHfzIQnkk188U341ThbJGSl2Sv54V29gnDbT2arMPfLzvVIIVCceQ==",
+   "source": "@fontsource/poppins@5.3.0 (npm), files/poppins-latin-800-normal.woff2, Latin subset"
+  },
+  {
+   "id": "poppins-500",
+   "file": "poppins-500.woff2",
+   "sha256": "cd36de204aca2d5fa263a731f7c20009b5e3d754ba1f1e03c33e93a48f3e7446",
+   "weight": 500,
+   "family": "Poppins",
+   "licence": "OFL-1.1",
+   "licence_file": "Poppins-OFL.txt",
+   "package": "@fontsource/poppins",
+   "package_version": "5.3.0",
+   "integrity": "sha512-cms1nM7U6SN8epIV1WMVOV8VsA645aSm3wHfzIQnkk188U341ThbJGSl2Sv54V29gnDbT2arMPfLzvVIIVCceQ==",
+   "source": "@fontsource/poppins@5.3.0 (npm), files/poppins-latin-500-normal.woff2, Latin subset"
+  },
+  {
+   "id": "oswald-700",
+   "file": "oswald-700.woff2",
+   "sha256": "aae665c75af89ea7cb7d8ccc8b0911ea72267442ebcd84f6e3efa041ad3b3c16",
+   "weight": 700,
+   "family": "Oswald",
+   "licence": "OFL-1.1",
+   "licence_file": "Oswald-OFL.txt",
+   "package": "@fontsource/oswald",
+   "package_version": "5.3.0",
+   "integrity": "sha512-16r2aHActe0pH+9FLdk/74/YxXM7HpGak05kAzx3RvSToiJwGvyhv6GvckPz+YuZmvL1nxWbEop2jAXRcXYPRg==",
+   "source": "@fontsource/oswald@5.3.0 (npm), files/oswald-latin-700-normal.woff2, Latin subset"
+  },
+  {
+   "id": "oswald-400",
+   "file": "oswald-400.woff2",
+   "sha256": "e902b779e43944c300cf8ae5e4a1affa68cb8a823fd263dd2f479c4cdfbd213c",
+   "weight": 400,
+   "family": "Oswald",
+   "licence": "OFL-1.1",
+   "licence_file": "Oswald-OFL.txt",
+   "package": "@fontsource/oswald",
+   "package_version": "5.3.0",
+   "integrity": "sha512-16r2aHActe0pH+9FLdk/74/YxXM7HpGak05kAzx3RvSToiJwGvyhv6GvckPz+YuZmvL1nxWbEop2jAXRcXYPRg==",
+   "source": "@fontsource/oswald@5.3.0 (npm), files/oswald-latin-400-normal.woff2, Latin subset"
   }
  ]
 }
