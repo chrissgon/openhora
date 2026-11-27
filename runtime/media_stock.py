@@ -71,6 +71,11 @@ CLIP_SECONDS_MAX = 10.0                               # = providers/renderer/_me
 SET, APPROVED, SHEET, SHEET_PREVIEW = "set.json", "approved.json", "sheet.png", "sheet-preview.png"
 SCAN = "scan.json"                                    # P9-a: what the scan of the set's files read (text and QR codes): kept here, never served, never in the set document or its hash
 SCAN_VERSION = 1
+EXPLAINED = "scan-explained.json"                     # P9-a3: what the model that was asked to explain the text found said (the one route of limit L83): kept here beside `scan.json`, never served, never in the set document or its hash, never a name a step may read
+EXPLAINED_VERSION = 1
+EXPLAIN_SOURCES = ("text", "qr")                      # = skills/mkt-video-media-explain/scripts/check_explained.py SOURCES, CONCERNS, MAX_QUOTE, MAX_EXPLANATION, MAX_FINDINGS (a test compares)
+EXPLAIN_CONCERNS = ("licence_mark", "contact", "link", "brand", "claim", "language", "sensitive", "none", "unclear")
+EXPLAIN_QUOTE_MAX, EXPLAIN_TEXT_MAX, EXPLAIN_FINDINGS_MAX = 200, 240, 12
 SCAN_LINES_MAX, SCAN_LINE_MAX, SCAN_CHARS_MAX, SCAN_QR_MAX, SCAN_QR_TEXT_MAX = 8, 160, 600, 4, 120      # validity: = providers/renderer/_scan.py TEXT_LINES_MAX, LINE_MAX, TEXT_CHARS_MAX, QR_MAX, QR_TEXT_MAX (a test compares)
 SCAN_FRAMES_MAX = 601                                 # = providers/renderer/_host.py SCAN_FRAMES_MAX
 QUARANTINE = media.STOCK_QUARANTINE
@@ -255,8 +260,8 @@ def _write_in(fd: int, name: str, data: bytes, mode: int) -> None:
 
 
 def write_doc(data_dir: str, rid: str, name: str, doc: dict) -> str:
-    """Write `set.json`, `approved.json` or `scan.json` whole (a temporary file, then a rename, mode 0600). Returns the sha256 of the bytes."""
-    if name not in (SET, APPROVED, SCAN):
+    """Write `set.json`, `approved.json`, `scan.json` or `scan-explained.json` whole (a temporary file, then a rename, mode 0600). Returns the sha256 of the bytes."""
+    if name not in (SET, APPROVED, SCAN, EXPLAINED):
         raise StockError("that is not a document of the stock folder", "usage")
     data = (json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
     if len(data) > DOC_LIMIT:
@@ -266,12 +271,12 @@ def write_doc(data_dir: str, rid: str, name: str, doc: dict) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _read_scan_bytes(data_dir: str, rid: str):
-    """The bytes of `scan.json` (a plain file with one link, at most DOC_LIMIT), or None when it is not there or there is no stock folder."""
+def _read_scan_bytes(data_dir: str, rid: str, name: str = SCAN):
+    """The bytes of `scan.json` or `scan-explained.json` (a plain file with one link, at most DOC_LIMIT), or None when it is not there or there is no stock folder."""
     try:
         with _open(data_dir, rid) as fd:
             try:
-                handle = os.open(SCAN, os.O_RDONLY | NOFOLLOW, dir_fd=fd)
+                handle = os.open(name, os.O_RDONLY | NOFOLLOW, dir_fd=fd)
             except FileNotFoundError:
                 return None
             except OSError:
@@ -291,11 +296,11 @@ def _read_scan_bytes(data_dir: str, rid: str):
 
 
 def read_doc(data_dir: str, rid: str, name: str):
-    """`set.json`, `approved.json` or `scan.json` as a dict, or None when it is not there; `unreadable` for a file that is not JSON or not an object."""
-    if name not in (SET, APPROVED, SCAN):
+    """`set.json`, `approved.json`, `scan.json` or `scan-explained.json` as a dict, or None when it is not there; `unreadable` for a file that is not JSON or not an object."""
+    if name not in (SET, APPROVED, SCAN, EXPLAINED):
         raise StockError("that is not a document of the stock folder", "usage")
     try:
-        data = _read_scan_bytes(data_dir, rid) if name == SCAN else media.read_work(data_dir, rid, "stock/" + name, DOC_LIMIT)      # scan.json is not a name a step may read (media.STOCK_FILE): only this module opens it
+        data = _read_scan_bytes(data_dir, rid, name) if name in (SCAN, EXPLAINED) else media.read_work(data_dir, rid, "stock/" + name, DOC_LIMIT)      # scan.json is not a name a step may read (media.STOCK_FILE): only this module opens it
     except media.MediaError as e:
         if e.code == "not_found":
             return None
@@ -363,6 +368,53 @@ def read_scan(data_dir: str, rid: str) -> dict:
 def scan_digest(doc: dict):
     """The sha256 of a scan document's canonical JSON, or None when it holds no file: what `approved.json` records of what the person was shown."""
     return hashlib.sha256(canonical(doc)).hexdigest() if doc.get("assets") else None
+
+
+def explain_items(assets, doc: dict) -> list:
+    """What the scan of the set's files read that a model could be asked to explain (P9-a3): for each asset (sorted by slot) whose entry of `read_scan`'s `doc` holds text lines (its code `text_found`) or QR
+    items with a host, a scheme or a text, {"slot", "sha256", "source", "lines": [text], "qr": [{"kind": "link", "host"} | {"kind": "action", "scheme"} | {"kind": "text", "text"}]}; everything was cleaned
+    when it was read. A link whose host could not be read, an unreadable code and a clean file give nothing. The picture, a frame, the slot's search words and the rest of the asset's record are never in it."""
+    out = []
+    for a in sorted(assets, key=lambda a: a["slot"]):
+        entry = (doc.get("assets") or {}).get(a["sha256"])
+        if entry is None:
+            continue
+        lines = list(entry["text"]["lines"]) if "text_found" in entry["codes"] else []
+        qr, seen = [], set()
+        for q in entry["qr"]:
+            item = ({"kind": "link", "host": q["host"]} if q["kind"] == "link" and q["host"] else {"kind": "action", "scheme": q["scheme"]} if q["kind"] == "action" and q["scheme"]
+                    else {"kind": "text", "text": q["text"]} if q["kind"] == "text" and q["text"] else None)
+            if item is not None and tuple(sorted(item.items())) not in seen:
+                seen.add(tuple(sorted(item.items())))
+                qr.append(item)
+        if lines or qr:
+            out.append({"slot": a["slot"], "sha256": a["sha256"], "source": a["source"], "lines": lines, "qr": qr})
+    return out
+
+
+def clean_findings(raw) -> list:
+    """The findings of one file of `scan-explained.json` read as untrusted (P9-a3): at most EXPLAIN_FINDINGS_MAX, each with a source and a concern from the closed lists, the quote and the explanation
+    cleaned again and cut; a finding that is not of that shape is left out."""
+    out = []
+    for f in (raw if isinstance(raw, list) else [])[:EXPLAIN_FINDINGS_MAX]:
+        if not (isinstance(f, dict) and f.get("source") in EXPLAIN_SOURCES and f.get("concern") in EXPLAIN_CONCERNS):
+            continue
+        quote, explanation = _scan_text(f.get("quote"), EXPLAIN_QUOTE_MAX), _scan_text(f.get("explanation"), EXPLAIN_TEXT_MAX)
+        if quote and explanation:
+            out.append({"source": f["source"], "quote": quote, "concern": f["concern"], "explanation": explanation})
+    return out
+
+
+def read_explained(data_dir: str, rid: str) -> dict:
+    """`scan-explained.json` of the stock folder, read as untrusted and cleaned: {"model", "assets": {sha256: [finding]}, "at"}; empty `assets` when there is none. What a model said about the text
+    a scan read (limit L83): shown on this computer's page as "not checked", never an input of anything."""
+    doc = read_doc(data_dir, rid, EXPLAINED) or {}
+    assets = {}
+    for digest, raw in (doc.get("assets") if isinstance(doc.get("assets"), dict) else {}).items():
+        found = clean_findings(raw) if isinstance(digest, str) and SHA256.fullmatch(digest) else []
+        if found:
+            assets[digest] = found
+    return {"version": EXPLAINED_VERSION, "model": _scan_text(doc.get("model"), 80), "assets": assets, "at": _scan_text(doc.get("at"), 40)}
 
 
 def read_served(data_dir: str, rid: str, name: str, limit: int = 32 * MIB) -> bytes:
@@ -515,13 +567,13 @@ def clear_candidates(data_dir: str, rid: str, keep=()) -> int:
 def clear_licensed(data_dir: str, rid: str) -> int:
     """What a new `video-media-find` removes (V9b-3b): the licensed previews, the full files, the contact sheets, the scratch folders and every `asset-*`. The quarantine stays (the web
     candidates of the set that are carried over)."""
-    return remove_where(data_dir, rid, lambda n: n.startswith(("prev-", "full-", ".work")) or n in SERVED or n == SCAN or ASSET_FILE.fullmatch(n) is not None)
+    return remove_where(data_dir, rid, lambda n: n.startswith(("prev-", "full-", ".work")) or n in SERVED or n in (SCAN, EXPLAINED) or ASSET_FILE.fullmatch(n) is not None)
 
 
 def clear_web(data_dir: str, rid: str) -> int:
     """What a new `video-media-websearch` removes (V9b-3b): the quarantine, the full files, the contact sheets, the scratch folders and every `asset-*`. The licensed previews stay (the
     licensed candidates of the set that are carried over)."""
-    return remove_where(data_dir, rid, lambda n: n == QUARANTINE or n.startswith(("full-", ".work")) or n in SERVED or n == SCAN or ASSET_FILE.fullmatch(n) is not None)
+    return remove_where(data_dir, rid, lambda n: n == QUARANTINE or n.startswith(("full-", ".work")) or n in SERVED or n in (SCAN, EXPLAINED) or ASSET_FILE.fullmatch(n) is not None)
 
 
 def prune_quarantine(data_dir: str, rid: str, keep) -> int:

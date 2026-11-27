@@ -349,21 +349,35 @@ def test_v9b_3b_the_web_search_and_the_approval_of_a_file_found_on_the_web_are_r
         ("video_media_websearch", {"task_id": 7, "confirm": True}), ("video_media_approve_asset", {"task_id": 7, "slot": "beat7", "sha256": "a" * 64, "confirm": "a" * 12})]
 
 
+def test_p9_a3_the_explanation_of_the_text_found_is_refused_on_the_lan_socket_and_reaches_the_operation_on_loopback_as_a_job(stand):
+    use_lan(stand)
+    data = json.dumps({"confirm": True}).encode("utf-8")
+    status, _, payload = service.handle(stand.svc, "POST", url(stand, "/videos/7/media/scan-explain"), headers_of(len(data), "application/json", lan=True), data, lan=True)
+    assert status == 409 and json.loads(payload)["message"] == operations.LAN_REFUSED_MEDIA
+    assert media_calls(stand) == [], "no operation was called"
+    stand.fake.answers["video_media_scan_explain"] = {"confirmed": False, "slots": [], "left_out": [], "message": "m"}
+    status, _, payload = service.handle(stand.svc, "POST", url(stand, "/videos/7/media/scan-explain"), headers_of(len(data), "application/json"), data)
+    assert status in (200, 202), (status, payload)
+    if status == 202:
+        wait_job(stand, json.loads(payload)["job"])
+    assert [(c[0], {k: v for k, v in c[2].items() if k != "channel"}) for c in media_calls(stand)] == [("video_media_scan_explain", {"task_id": 7, "confirm": True})]
+
+
 def test_the_constants_of_the_media_routes():
     assert service.MEDIA_UPLOAD_BYTES == media.MEDIA_MAX_BYTES
-    assert operations.LAN_REFUSED_OPS == ("media-in", "video-download", "video-still", "video-watch", "video-media-find", "video-media-fetch-picks", "video-media-approve", "video-credits", "video-media-websearch", "video-media-approve-asset")
+    assert operations.LAN_REFUSED_OPS == ("media-in", "video-download", "video-still", "video-watch", "video-media-find", "video-media-fetch-picks", "video-media-approve", "video-credits", "video-media-websearch", "video-media-approve-asset", "video-media-scan-explain")
     group = operations.GROUPS["media"]
-    assert len(group["operations"]) == 20 and group["kind"] is None
+    assert len(group["operations"]) == 21 and group["kind"] is None
     assert {op for _, _, op in MEDIA_ROUTES} | {"video-catalogue", "video-storyboard", "video-storyboard-file", "media-remove", "video-watch",
                                                 "video-media-find", "video-media-fetch-picks", "video-media-sheet-file", "video-media-approve", "video-credits",
-                                                "video-media-websearch", "video-media-approve-asset"} == set(group["operations"])
+                                                "video-media-websearch", "video-media-approve-asset", "video-media-scan-explain"} == set(group["operations"])
     for channel, listed in operations.GRANTS.items():
         assert "media" not in listed, channel
     assert operations.PAGE_ONLY_GROUPS == ("approve-effects",) and "media" not in operations.DEFAULT_POLICY.get("messaging", ())
     assert "local network" in operations.GROUP_TEXT["media"]
     for name in operations.GROUPS["media"]["operations"]:
         assert operations.by_name(name)["channels"] == (("page",) if name in ("video-watch", "video-storyboard-file", "video-media-sheet-file") else ("terminal", "page"))
-        assert bool(operations.by_name(name).get("job")) is (name in ("video-new", "video-run", "video-storyboard", "video-media-find", "video-media-fetch-picks", "video-media-websearch"))
+        assert bool(operations.by_name(name).get("job")) is (name in ("video-new", "video-run", "video-storyboard", "video-media-find", "video-media-fetch-picks", "video-media-websearch", "video-media-scan-explain"))
 
 
 # 10. end to end, with the real operations

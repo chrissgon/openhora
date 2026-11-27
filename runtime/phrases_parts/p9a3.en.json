@@ -1,0 +1,22 @@
+{
+  "package": "p9a3",
+  "table": {
+    "VID_SCAN_EXPLAIN_BUTTON": "Explain the text found",
+    "VID_SCAN_EXPLAIN_PREVIEW": "The text found in the pictures listed here will be sent to {model}, the model that explains it, and to that model's company. Nothing else is sent: no picture, no frame, no search words and nothing of your recording.",
+    "VID_SCAN_EXPLAIN_CONFIRM": "Send this text and explain it",
+    "VID_SCAN_EXPLAIN_LEFT_OUT": "{slot}: its text was not sent, because the picture did not come from a stock library or the web.",
+    "VID_SCAN_EXPLAIN_NOTHING": "There is no text or QR code found that can be explained.",
+    "VID_SCAN_EXPLAIN_FAILED": "The explanation did not finish; nothing was kept.",
+    "VID_SCAN_EXPLAIN_BY": "Explained by {model}, not checked:",
+    "VID_SCAN_EXPLAIN_SUPERVISED": "This explanation comes from a skill that has no proven result yet. Read it with care.",
+    "VID_SCAN_CONCERN_LICENCE_MARK": "Stock or licence mark",
+    "VID_SCAN_CONCERN_CONTACT": "Contact",
+    "VID_SCAN_CONCERN_LINK": "Link",
+    "VID_SCAN_CONCERN_BRAND": "Someone else's name",
+    "VID_SCAN_CONCERN_CLAIM": "Claim or call to act",
+    "VID_SCAN_CONCERN_LANGUAGE": "Other language",
+    "VID_SCAN_CONCERN_SENSITIVE": "Sensitive words",
+    "VID_SCAN_CONCERN_NONE": "No concern",
+    "VID_SCAN_CONCERN_UNCLEAR": "Unclear"
+  }
+}

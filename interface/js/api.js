@@ -508,6 +508,12 @@ export function videoMediaWebsearch(p, id, confirm, { signal } = {}) {
   return send("POST", `/projects/${enc(p)}/videos/${enc(id)}/media/websearch`, { body: { confirm: Boolean(confirm) }, signal });
 }
 
+/** POST /projects/{p}/videos/{id}/media/scan-explain (job): without `confirm` the text the scan found in the pictures that would be sent to the model that explains it, and which model, nothing sent; with it that
+ *  model runs and the job's result carries its explanation (text nobody checked). */
+export function videoMediaScanExplain(p, id, confirm, { signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/videos/${enc(id)}/media/scan-explain`, { body: { confirm: Boolean(confirm) }, signal });
+}
+
 /** POST /projects/{p}/videos/{id}/media/approve-asset: the approval of one file found on the web. Without `confirm` the copyright warning, the host, the page and the claim; with `confirm` (the first 12 hex
  *  digits of `sha256`) the file is approved for this video. */
 export function videoMediaApproveAsset(p, id, slot, sha256, confirm, { signal } = {}) {

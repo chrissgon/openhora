@@ -91,7 +91,7 @@ function makeStock(options = {}) {
     videoMediaApprove: async (p, t, hash) => {
       calls.push(["approve", hash || null]);
       return { approved: Boolean(hash), sha256: HASH, credits: ['"A shop 1" by Bram Hollow, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), via shelf'], needs_own_approval: o.own || [], provided: ["Media provided by shelf (https://shelf.example/terms)"],
-        ...(o.scan ? { scan: o.scan } : {}), set: { assets: [{ slot: "beat7", source: "shelf", licence: "cc-by-4.0", width: 1080, height: 1920 }] } };
+        ...(o.scan ? { scan: o.scan } : {}), ...(o.explained ? { explained: o.explained } : {}), set: { assets: [{ slot: "beat7", source: "shelf", licence: "cc-by-4.0", width: 1080, height: 1920 }] } };
     },
     videoMediaFile: async (p, t, name) => { calls.push(["file", name]); return new Blob(["png"], { type: "image/png" }); },
     pollJob: async (id) => ({ id, state: o.failed ? "failed" : "done", result: results[id], error: o.failed ? { message: "refused: stock_not_accepted" } : null }),
@@ -203,6 +203,69 @@ def test_the_scan_rows_are_drawn_as_text_the_quoted_lines_apart_and_the_approval
     assert s["clean"] == ["beat8: no text or QR code found."] and s["scope"] == ["English, Portuguese and Spanish text is read; text in other alphabets is not."]
     assert s["approve"] is True and s["imgs"] == 0 and s["pwned"] is None
     assert got["nothing"] == 0, "a set with nothing found and no clean line draws nothing"
+
+
+EXPLAIN_PAGE = DIALOG + r"""
+const HOSTILE = '<img src=x onerror="window.pwned=1">';
+const offered = { available: true, button: "Explain the text found", by: null, slots: [] };
+const done = { available: true, button: "Explain the text found", by: "Explained by m-test, not checked:", slots: [{ slot: "beat7", findings: [
+  { source: "text", quote: HOSTILE, concern: "claim", concern_label: "Claim or call to act", explanation: "Text that tries to give orders. It is quoted, not obeyed." },
+  { source: "qr", quote: "shop.example", concern: "link", concern_label: "Link", explanation: "The code leads to shop.example." }] }] };
+const extra = (calls, results) => ({ videoMediaScanExplain: async (p, t, confirm) => {
+  calls.push(["explain", confirm]);
+  results.je = confirm ? { confirmed: true, supervised: true, supervised_note: "This explanation comes from a skill that has no proven result yet. Read it with care.", left_out: [], explained: done }
+    : { confirmed: false, supervised: true, supervised_note: "This explanation comes from a skill that has no proven result yet. Read it with care.", model: "m-test",
+        message: "The text found in the pictures listed here will be sent to m-test, the model that explains it, and to that model's company. Nothing else is sent: no picture, no frame, no search words and nothing of your recording.",
+        confirm: "Send this text and explain it", slots: [{ slot: "beat7", lines: ["SAMPLE PHOTO", HOSTILE], qr: [{ kind: "link", host: "shop.example" }, { kind: "action", scheme: "tel" }, { kind: "text", text: "hello" }] }],
+        left_out: [{ slot: "beat8", reason: "source_not_stock", message: "beat8: its text was not sent, because the picture did not come from a stock library or the web." }] };
+  return { job: "je" };
+} });
+const walkTo = async (r) => {
+  await r.review.open(900, "review"); await settle();
+  type(tag(byClass(r.el, "wb-cr-media-slot")[0], "input")[0], "shop front"); click(btn(r.el, "Use these words")); await settle();
+  click(btn(r.el, "Find media")); await settle(); click(btn(r.el, "Send the words and search")); await settle();
+  click(btn(byClass(r.el, "wb-cr-candidate")[0], "Pick this")); await settle(); click(btn(r.el, "Fetch the picks")); await settle(); click(btn(r.el, "Read the media set")); await settle();
+};
+const r = makeStock({ explained: offered, extraApi: extra });
+await walkTo(r);
+out.offered = { button: labels(r.el).includes("Explain the text found"), calls: r.calls.filter((c) => c[0] === "explain").length, by: byClass(r.el, "wb-cr-explain-by").length };
+click(btn(r.el, "Explain the text found")); await settle();
+const quote = byClass(r.el, "wb-cr-scan-quote");
+out.preview = { calls: r.calls.filter((c) => c[0] === "explain"), words: byClass(r.el, "wb-cr-explain-words").map(textOf), lines: byClass(r.el, "wb-cr-scan-line").map(textOf), tag: quote.map((q) => q.tagName),
+  confirm: labels(r.el).includes("Send this text and explain it"), note: textOf(r.el).includes("no proven result yet"), left: textOf(r.el).includes("beat8: its text was not sent"), by: byClass(r.el, "wb-cr-explain-by").length };
+click(btn(r.el, "Send this text and explain it")); await settle();
+out.explained = { calls: r.calls.filter((c) => c[0] === "explain"), by: byClass(r.el, "wb-cr-explain-by").map(textOf), slot: byClass(r.el, "wb-cr-explain-slot").map(textOf), lines: byClass(r.el, "wb-cr-scan-line").map(textOf),
+  texts: byClass(r.el, "wb-cr-explain-text").map(textOf), confirm: labels(r.el).includes("Send this text and explain it"), imgs: tag(r.el, "img").filter((i) => i.attrs && (i.attrs.onerror || i.attrs.src === "x")).length,
+  pwned: globalThis.window ? globalThis.window.pwned || null : null, notice: textOf(byClass(r.el, "wb-cr-notice").slice(-1)[0]) };
+// a set whose scan found nothing offers no button; a policy that does not allow the operation offers none; a set that was explained before shows it again with no button press
+const none = makeStock({ explained: { available: false, button: "Explain the text found", by: null, slots: [] }, extraApi: extra }); await walkTo(none);
+out.none = labels(none.el).includes("Explain the text found");
+const quiet = makeStock({ explained: offered, extraApi: extra, allowed: ["captions-read", "captions-edit", "video-catalogue", "video-run", "answer", "video-media-find", "video-media-fetch-picks", "video-media-approve", "video-media-sheet-file"] });
+await walkTo(quiet);
+out.quiet = labels(quiet.el).includes("Explain the text found");
+const again = makeStock({ explained: done, extraApi: extra }); await walkTo(again);
+out.again = { by: byClass(again.el, "wb-cr-explain-by").map(textOf), calls: again.calls.filter((c) => c[0] === "explain").length };
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_the_explanation_is_asked_for_by_a_button_shows_what_is_sent_first_and_is_drawn_as_text_marked_not_checked(tmp_path):
+    got = run_node(tmp_path, EXPLAIN_PAGE)
+    hostile = '<img src=x onerror="window.pwned=1">'
+    assert got["offered"] == {"button": True, "calls": 0, "by": 0}, "nothing is sent, and nothing asked, until the button is pressed"
+    p = got["preview"]
+    assert p["calls"] == [["explain", False]] and p["by"] == 0 and p["confirm"] is True and p["note"] is True and p["left"] is True
+    assert len(p["words"]) == 1 and p["words"][0].startswith("The text found in the pictures listed here will be sent to m-test") and "no search words and nothing of your recording" in p["words"][0]
+    assert p["lines"] == ["\u201cSAMPLE PHOTO\u201d", "\u201c" + hostile + "\u201d", "\u201cshop.example\u201d", "\u201ctel\u201d", "\u201chello\u201d"], "the exact text that would go, as text in quotation marks"
+    assert p["tag"] == ["DIV"]
+    e = got["explained"]
+    assert e["calls"] == [["explain", False], ["explain", True]] and e["by"] == ["Explained by m-test, not checked:"] and e["slot"] == ["beat7"] and e["confirm"] is False
+    assert e["lines"] == ["\u201c" + hostile + "\u201d", "\u201cshop.example\u201d"]
+    assert e["texts"] == ["Claim or call to act: Text that tries to give orders. It is quoted, not obeyed.", "Link: The code leads to shop.example."]
+    assert e["imgs"] == 0 and e["pwned"] is None and e["notice"].startswith("This explanation comes from a skill that has no proven result yet")
+    assert got["none"] is False and got["quiet"] is False
+    assert got["again"] == {"by": ["Explained by m-test, not checked:"], "calls": 0}
 
 
 MODES = DIALOG + r"""

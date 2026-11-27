@@ -6,3 +6,4 @@ mkt-content-plan
 mkt-social-copy
 mkt-messaging
 mkt-video-media-search
+mkt-video-media-explain

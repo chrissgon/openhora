@@ -13,7 +13,7 @@ import { hostOf, onLoopback, LAN_MEDIA } from "../cards/deliver.js";
 import {
   selection, grow, shrink, sameSegment, editOf, retakeEdit, anchorEdit, clearAnchor, overlayEdit, removeAnimation, addAnimation,
   fieldsOf, paramsOf, WHY_TEXT, canEdit, RETAKE_REASONS, retakeState, wordsText,
-  slotStockEdit, slotSearchEdit, slotAssetEdit, clearPickEdit, stockSlots, searchProblem, WANT_KINDS, candidateText, approvalSummary, scanView, layoutFieldsOf, addLayout, isWebCandidate, webLines, SCREEN_WORK_LINE,
+  slotStockEdit, slotSearchEdit, slotAssetEdit, clearPickEdit, stockSlots, searchProblem, WANT_KINDS, candidateText, approvalSummary, scanView, explainView, explainPreviewView, layoutFieldsOf, addLayout, isWebCandidate, webLines, SCREEN_WORK_LINE,
 } from "./lobby-captions-model.js";
 
 export const TITLE = "Check the captions";
@@ -115,6 +115,7 @@ export function createCaptionReview(env) {
   let mediaFetched = null;     // the answer of video-media-fetch-picks
   let mediaApproval = null;    // the answer of video-media-approve without a hash: the set to read
   let webPreview = null;       // the answer of video-media-websearch without confirm: the words that would go to the model's web search
+  let explainPreview = null;   // the answer of video-media-scan-explain without confirm: the text that would go to the model that explains it, and which model
   let ownInfo = {};            // slot -> the answer of video-media-approve-asset without confirm: the warning, the host, the page and the claim of a file found on the web
   let mediaLine = "";          // a plain line about the media set
   let mediaProblem = "";       // the sentence for search words the page can tell are wrong
@@ -445,6 +446,47 @@ export function createCaptionReview(env) {
     return out;
   }
 
+  /** The text found, explained on request (P9-a3): the button (this is the only way the text leaves this computer), then what would be sent and to whom with the button that sends it, then what the model said,
+   *  each finding as the quoted text, its concern and the explanation, all as text and marked "not checked". */
+  function explainParts(explained) {
+    const view = explainView(explained);
+    const out = [];
+    if (!view) return out;
+    if (view.available && may("video-media-scan-explain") && view.button) out.push(h("div", { class: "wb-cr-actions" }, button(view.button, () => explainText(false))));
+    const preview = explainPreviewView(explainPreview);
+    if (preview) {
+      out.push(h("p", { class: "wb-cr-line wb-cr-media-words wb-cr-explain-words", text: preview.message }));
+      if (preview.note) out.push(h("p", { class: "wb-steps-note wb-cr-note", text: preview.note }));
+      for (const s of preview.slots) out.push(h("div", { class: "wb-cr-scan-quote", role: "group", "aria-label": s.slot }, h("p", { class: "wb-steps-note wb-cr-note", text: s.slot }), ...s.lines.map((line) => h("p", { class: "wb-cr-scan-line", text: `\u201c${line}\u201d` }))));
+      for (const line of preview.leftOut) out.push(h("p", { class: "wb-steps-note wb-cr-note", text: line }));
+      if (preview.confirm) out.push(h("div", { class: "wb-cr-actions" }, button(preview.confirm, () => explainText(true))));
+    }
+    if (view.slots.length) {
+      out.push(h("p", { class: "wb-cr-line wb-cr-explain-by", text: view.by }));
+      for (const s of view.slots) {
+        out.push(h("p", { class: "wb-cr-line wb-cr-explain-slot", text: s.slot }));
+        for (const f of s.findings) {
+          out.push(h("div", { class: "wb-cr-scan-quote wb-cr-explain-finding", role: "group", "aria-label": s.slot }, h("p", { class: "wb-cr-scan-line", text: `\u201c${f.quote}\u201d` })));
+          out.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-explain-text", text: f.label ? `${f.label}: ${f.explanation}` : f.explanation }));
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Without `confirm`: what would be sent and to which model, shown with the button that sends it; with it, the model runs and its explanation is kept and shown. */
+  function explainText(confirm) {
+    return mediaStep(() => env.api.videoMediaScanExplain(project(), task, confirm), true, async (result) => {
+      if (!confirm) {
+        explainPreview = result;
+        return;
+      }
+      explainPreview = null;
+      if (result && result.explained) mediaApproval = Object.assign({}, mediaApproval, { explained: result.explained });
+      mediaLine = result && result.supervised ? result.supervised_note || "" : "";
+    });
+  }
+
   /** After the set is approved, the warning of each file found on the web that still needs its own approval (the service asks nothing of the person here; it answers the text). */
   async function loadOwn(answer, mine) {
     if (!answer || !answer.approved || !may("video-media-approve-asset")) return;
@@ -485,6 +527,7 @@ export function createCaptionReview(env) {
   function readApproval() {
     return mediaStep(() => env.api.videoMediaApprove(project(), task), false, async (result, mine) => {
       mediaApproval = result;
+      explainPreview = null;
       ownInfo = {};
       await loadOwn(result, mine);
     });
@@ -597,6 +640,7 @@ export function createCaptionReview(env) {
       for (const a of summary.assets) parts.push(h("p", { class: "wb-steps-note wb-cr-note", text: `${a.slot}: ${a.source}, ${a.licence}, ${a.width}x${a.height}` }));
       for (const line of (mediaApproval && mediaApproval.provided) || []) parts.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-provided", text: line }));
       parts.push(...scanParts(mediaApproval.scan));
+      if (loopback()) parts.push(...explainParts(mediaApproval.explained));
       if (summary.credits.length) {
         parts.push(h("p", { class: "wb-cr-line", text: MEDIA_CREDIT_LINE }));
         for (const line of summary.credits) parts.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-credit", text: line }));
@@ -980,6 +1024,7 @@ export function createCaptionReview(env) {
       mediaFetched = null;
       mediaApproval = null;
       webPreview = null;
+      explainPreview = null;
       ownInfo = {};
       mediaLine = "";
       mediaProblem = "";

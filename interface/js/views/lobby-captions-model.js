@@ -283,6 +283,29 @@ export function approvalSummary(answer) {
     own: Array.isArray(a.needs_own_approval) ? a.needs_own_approval : [], assets: a.set && Array.isArray(a.set.assets) ? a.set.assets : [] };
 }
 
+/** The explanation of the text a scan found (P9-a3), from the `explained` of `video-media-approve` or of `video-media-scan-explain` with `confirm`: whether the button is offered, its label, the sentence "Explained by <model>,
+ *  not checked:", and for each slot its findings (the quoted text, the label of its concern and the explanation: text a model wrote about third-party text, drawn as text). Only strings are kept; null when there is none. */
+export function explainView(explained) {
+  if (!explained || typeof explained !== "object") return null;
+  const text = (v) => (typeof v === "string" ? v : "");
+  const slots = (Array.isArray(explained.slots) ? explained.slots : []).filter((s) => s && typeof s.slot === "string")
+    .map((s) => ({ slot: s.slot, findings: (Array.isArray(s.findings) ? s.findings : []).filter((f) => f && typeof f.quote === "string" && typeof f.explanation === "string")
+      .map((f) => ({ quote: f.quote, label: text(f.concern_label), explanation: f.explanation })) }));
+  return { available: Boolean(explained.available), button: text(explained.button), by: text(explained.by), slots };
+}
+
+/** What would be sent to the model that explains the text found (P9-a3), from `video-media-scan-explain` without `confirm`: the sentence that says what goes to whom, the label of the button that sends it, the lines
+ *  that would be sent for each slot (the exact strings, drawn as quotations), the slots left out with their sentence, and the note that the skill is not proven. Only strings are kept; null when there is none. */
+export function explainPreviewView(preview) {
+  if (!preview || typeof preview !== "object") return null;
+  const text = (v) => (typeof v === "string" ? v : "");
+  const qrText = (q) => (q && typeof q === "object" ? text(q.host) || text(q.scheme) || text(q.text) : "");
+  const slots = (Array.isArray(preview.slots) ? preview.slots : []).filter((s) => s && typeof s.slot === "string")
+    .map((s) => ({ slot: s.slot, lines: [...(Array.isArray(s.lines) ? s.lines.filter((x) => typeof x === "string") : []), ...(Array.isArray(s.qr) ? s.qr.map(qrText) : [])].filter(Boolean) }));
+  return { message: text(preview.message), confirm: text(preview.confirm), note: preview.supervised ? text(preview.supervised_note) : "", slots,
+    leftOut: (Array.isArray(preview.left_out) ? preview.left_out : []).filter((r) => r && typeof r.message === "string").map((r) => r.message) };
+}
+
 /** The scan of a set's pictures and clips as the page draws it (P9-a), from the `scan` of `video-media-approve` and of the one file's box: the project-language sentences the host wrote, each row's
  *  quoted lines apart (the text a picture holds is the picture's, "as read by the computer, not checked": it is drawn as a quotation and never joined to a sentence), and the slots with nothing found.
  *  Only strings are kept; null when the answer has no scan. */

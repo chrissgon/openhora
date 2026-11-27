@@ -550,7 +550,7 @@ def test_a_route_is_a_job_exactly_when_its_table_row_says_so(world):
     assert {r["name"] for r in operations.OPERATIONS if r.get("job")} == \
         {"route", "route-queued", "release", "approve", "run-next", "run-task", "sync", "contained-run", "dispatch", "handler", "say", "ask",
          "event-change", "event-cancel", "research", "file-ask", "mail-ask",
-         "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash", "video-new", "video-run", "video-storyboard", "video-media-find", "video-media-fetch-picks", "video-media-websearch"}
+         "mail-draft", "mail-archive", "mail-move", "mail-mark", "mail-trash", "video-new", "video-run", "video-storyboard", "video-media-find", "video-media-fetch-picks", "video-media-websearch", "video-media-scan-explain"}
 
 
 def test_a_refused_operation_becomes_its_documented_status(world):

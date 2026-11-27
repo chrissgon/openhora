@@ -310,6 +310,25 @@ def _scan_report(ctx: dict, rid: str, assets: list) -> dict:
             "clean_lines": [phrases.text("CARD_VIDEO_SCAN_CLEAN", cfg, slot=slot) for slot in clean]}
 
 
+CONCERN_PHRASE = {c: "VID_SCAN_CONCERN_" + c.upper() for c in media_stock.EXPLAIN_CONCERNS}      # a concern word as a label of the project's language (P9-a3)
+
+
+def _explained_report(ctx: dict, rid: str, assets: list) -> dict:
+    """What the page needs to offer and to show the explanation of the text found (P9-a3, limit L83): {"available": whether a file of `assets` has text or a QR code a model could be asked about, "button",
+    "by": the sentence "Explained by <model>, not checked:" when an explanation is kept (else None), "slots": [{"slot", "findings": [{"source", "quote", "concern", "concern_label", "explanation"}]}]}. The
+    findings are what `scan-explained.json` holds for the files of `assets` (keyed by sha256, read as untrusted and cleaned): text a model wrote about third-party text, shown as text and never in a sentence.
+    It never raises."""
+    cfg = ctx["cfg"]
+    try:
+        items = media_stock.explain_items(assets, media_stock.read_scan(cfg["data_dir"], rid))
+        stored = media_stock.read_explained(cfg["data_dir"], rid)
+    except media_stock.StockError:
+        items, stored = [], {"assets": {}, "model": ""}
+    slots = [{"slot": a["slot"], "findings": [dict(f, concern_label=phrases.text(CONCERN_PHRASE[f["concern"]], cfg)) for f in stored["assets"][a["sha256"]]]}
+             for a in sorted(assets, key=lambda a: a["slot"]) if a["sha256"] in stored["assets"]]
+    return {"available": bool(items), "button": phrases.text("VID_SCAN_EXPLAIN_BUTTON", cfg), "by": phrases.text("VID_SCAN_EXPLAIN_BY", cfg, model=stored["model"]) if slots else None, "slots": slots}
+
+
 # --- the task and its state ---------------------------------------------------------------------------------------------------------------
 
 
@@ -909,7 +928,8 @@ def video_media_approve(project: str, task_id, hash=None, channel=None) -> dict:
     needs = [a["slot"] for a in document["assets"] if a["unverified"] and a["slot"] not in own]
     if hash is None:
         return {"approved": current, "set": document, "sha256": digest, "credits": document["credits"], "needs_own_approval": needs, "own_approved": sorted(own),
-                "provided": _provided(found["assets"], cfg), "credit_heading": phrases.text("VID_STOCK_CREDIT", cfg), "scan": _scan_report(ctx, rid, found["assets"])}
+                "provided": _provided(found["assets"], cfg), "credit_heading": phrases.text("VID_STOCK_CREDIT", cfg), "scan": _scan_report(ctx, rid, found["assets"]),
+                "explained": _explained_report(ctx, rid, found["assets"])}
     if not (isinstance(hash, str) and media_stock.SHA256.fullmatch(hash)):
         raise core.OpsError("the hash is 64 lowercase hexadecimal characters", 2)
     if hash != digest:

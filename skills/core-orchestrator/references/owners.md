@@ -2,6 +2,7 @@
 
 | Artifact | Owning skill | Updated by |
 |----------|--------------|------------|
+| `.workbench-local/video/scan-explained.json` | mkt-video-media-explain | - |
 | `.workbench-local/video/web-candidates.json` | mkt-video-media-search | - |
 | `AGENTS.md` | core-agents-md | core-project-init |
 | `docs/brand/guidelines.md` | brand-guidelines | - |

@@ -419,6 +419,8 @@ ROUTES = (
     # V9b-3b: the web search (a job: it runs a model) and the approval of one file found on the web; both loopback only (operations.LAN_REFUSED_OPS, limits L78 and L80).
     _route("POST", "/projects/{p}/videos/{id}/media/websearch", "video-media-websearch", bind={"task_id": "id"}, take=("confirm",)),
     _route("POST", "/projects/{p}/videos/{id}/media/approve-asset", "video-media-approve-asset", bind={"task_id": "id"}, take=("slot", "sha256", "confirm")),
+    # P9-a3: the explanation of the text a scan found in the pictures (a job: it runs a model); loopback only (operations.LAN_REFUSED_OPS, limit L83).
+    _route("POST", "/projects/{p}/videos/{id}/media/scan-explain", "video-media-scan-explain", bind={"task_id": "id"}, take=("confirm",)),
     # V1c-3: the render of the open deliver decision, for the page to play before the approval (limit L71); loopback only (operations.LAN_REFUSED_OPS).
     _route("GET", "/projects/{p}/videos/{id}/watch", "video-watch", bind={"task_id": "id"}, take=(), raw=True),
     # media-remove: one recording removed for good; only an id crosses, so it may cross the LAN socket (not in operations.LAN_REFUSED_OPS).
