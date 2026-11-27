@@ -204,6 +204,10 @@ captions-edit edits the captions of a new video (--task <id>) at the caption rev
           A transition is `{"op": "transition", "kind": "glitch", "word": <i>}` (at the cut before word i when it opens a shot, else on its first
           frame) or `{"op": "transition", "kind": "slide", "beat": <n>}` (that beat's entry). The kinds are glitch, bloom, zoom_blur, blur_to_card,
           dip, and slide or zoom for a cutaway picture only. At most 99, one per join, removed with `{"op": "transition", "id": "t1", "remove": true}`.
+          A caption style is `{"op": "caption", "block": "hf:caption-pill-karaoke"}` (the caption blocks video-catalogue lists with kind caption) and its
+          place `{"op": "caption", "position": "center"}`; `{"op": "caption", "clear": true}` goes back to the default. The camera is
+          `{"op": "zoom", "push_in": 0}` (also `mode` alternate or none, and `factor`), cleared the same way. A font for one video is
+          `{"op": "font", "role": "display", "id": "<allow-list id>"}` (roles display, text, mono), removed with `"clear": true`.
 video-download saves the delivered video (--task <id>) to --out, a new file outside the project: only the exact render the approval
           named, hashed again as it is copied.
 video-still saves the still of a new video (--task <id>), the frame of the face box, to --out, a new file outside the project.

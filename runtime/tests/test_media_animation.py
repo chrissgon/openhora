@@ -171,14 +171,14 @@ def test_the_listing_says_for_each_block_whether_it_can_be_added_and_why_not(tmp
     assert rows["oh:keyword"]["addable"] is True and rows["oh:keyword"]["why"] is None
     assert (rows["oh:cutaway"]["addable"], rows["oh:cutaway"]["why"]) == (True, None)      # V9b-3a: a layout with one picture parameter is added; its picture comes from the media set
     assert (rows["oh:pip"]["addable"], rows["oh:pip"]["why"]) == (True, None)      # the ffmpeg engine draws the preset pip
-    assert rows["oh:caption"]["why"] == "kind"
+    assert rows["oh:caption"]["why"] == "caption" and rows["oh:caption"]["addable"] is False
     assert rows["oh:bare"]["why"] == "no_preset" and rows["oh:pic"]["why"] is None and rows["oh:only-hf"]["why"] == "engine"
     assert shown["engine"] == "ffmpeg" and shown["presets"]["keyword"] == "hf:spring-pop" and (shown["animations_max"], shown["beats_max"]) == (99, 99)
     monkeypatch.setattr(animation, "engine_name", lambda r, i=None: None)
     none = animation.listing(root)
     whys = {b["name"]: b["why"] for b in none["blocks"]}
     assert none["presets"] == {} and none["engine"] is None
-    assert whys["oh:bare"] == "no_preset" and whys["oh:pic"] == "not_configured" and whys["oh:cutaway"] == "not_configured" and whys["oh:caption"] == "kind"
+    assert whys["oh:bare"] == "no_preset" and whys["oh:pic"] == "not_configured" and whys["oh:cutaway"] == "not_configured" and whys["oh:caption"] == "caption"
     assert all(whys[name] == "not_configured" for name in ("oh:keyword", "oh:list", "oh:number", "oh:quote", "oh:only-hf"))
 
 
@@ -525,3 +525,20 @@ def test_the_asset_kinds_of_an_engine_come_from_the_catalogue_and_an_unknown_eng
     assert animation.asset_kinds(root) == ["image", "clip"]
     root = plant(tmp_path / "odd", lambda doc: doc.update(asset_kinds_by_engine={"ffmpeg": ["video"]}))
     assert animation.asset_kinds(root) == []
+
+
+def test_the_caption_blocks_of_the_engine_are_the_ones_a_caption_edit_may_name_and_an_unreadable_catalogue_gives_none(tmp_path, monkeypatch):
+    root = plant(tmp_path, lambda doc: doc["blocks"].append(entry("oh:twin-caption", kind="caption", preset="caption", engines=("twin",))))
+    monkeypatch.setattr(seams.MediaStore, "renderer", lambda self: "ffmpeg")
+    monkeypatch.setattr(seams.MediaStore, "root", lambda self: root)
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "ffmpeg")
+    assert animation.caption_blocks(ctx_of(tmp_path)) == {"hf:caption-highlight", "hf:caption-pill-karaoke", "oh:caption"}      # the block of another engine is left out
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: None)
+    assert animation.caption_blocks(ctx_of(tmp_path)) is None
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "ffmpeg")
+    monkeypatch.setattr(seams.MediaStore, "root", lambda self: str(tmp_path / "nowhere"))
+    assert animation.caption_blocks(ctx_of(tmp_path)) is None
+    assert "caption" in animation.WHY and animation.why_not(entry("oh:c", kind="caption", preset="caption"), "ffmpeg") == "caption"
+    check = animation.checker(ctx_of(tmp_path))
+    monkeypatch.setattr(seams.MediaStore, "root", lambda self: root)
+    assert refusal(check, "oh:caption", {}, "edits[0]") == ("animation_kind", "edits[0].block")      # a caption block is not added as an animation

@@ -192,6 +192,46 @@ def test_base_takes_colours_as_rrggbb_and_a_font_outside_the_list_falls_back_and
     assert notes == [{"role": "display", "asked": "acme-brand", "used": "default", "reason": "not in the font allow-list"}]
 
 
+def test_base_writes_the_chosen_caption_block_and_with_none_the_list_is_the_one_it_always_was():
+    doc = K.build_transcript()
+    analysis = {"facts": {"duration": doc["duration"], "sha256": "c" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None}
+    plain, _ = _edl.build_base(doc, analysis, DATA, ALLOW, retake_mode="propose")
+    explicit, _ = _edl.build_base(doc, analysis, DATA, ALLOW, retake_mode="propose", caption_block=None)
+    assert "block" not in plain["captions"] and set(plain["captions"]) == {"position", "chunks"}      # P2a: no choice, no key
+    assert json.dumps(plain, sort_keys=True) == json.dumps(explicit, sort_keys=True)
+    chosen, _ = _edl.build_base(doc, analysis, DATA, ALLOW, retake_mode="propose", caption_block="hf:caption-pill-karaoke", caption_position="center")
+    assert chosen["captions"]["block"] == "hf:caption-pill-karaoke" and chosen["captions"]["position"] == "center"
+    assert {k: v for k, v in chosen["captions"].items() if k not in ("block", "position")} == {"chunks": plain["captions"]["chunks"]}
+    assert {k: v for k, v in chosen.items() if k != "captions"} == {k: v for k, v in plain.items() if k != "captions"}
+    _edl.check_edl(chosen, DATA, VOCAB, ALLOW)
+    for bad in ("Karaoke", "caption-pill-karaoke", "xx:caption", "hf:", "hf:Caption", "", 3, ["oh:caption"]):
+        with pytest.raises(Refusal) as e:
+            _edl.build_base(doc, analysis, DATA, ALLOW, retake_mode="propose", caption_block=bad)
+        assert (e.value.code, e.value.field) == ("bad_caption_block", "caption_block"), bad
+
+
+def test_check_accepts_a_caption_block_and_refuses_a_bad_one_and_the_schema_and_the_checker_agree_on_the_caption_keys():
+    edl, beats = make()
+    _edl.check_edl(edl, DATA, VOCAB, ALLOW)
+    for name in ("hf:caption-pill-karaoke", "oh:caption"):
+        chosen = copy.deepcopy(edl)
+        chosen["captions"]["block"] = name
+        _edl.check_edl(chosen, DATA, VOCAB, ALLOW)
+        _edl.check_beats(beats, chosen, VOCAB)
+    for bad in ("Karaoke", "caption", "hf:UP", "hf:" + "a" * 41, None, 7):
+        broken = copy.deepcopy(edl)
+        broken["captions"]["block"] = bad
+        assert code(broken, beats).code == "bad_caption_block"
+    extra = copy.deepcopy(edl)
+    extra["captions"]["style"] = "x"
+    assert code(extra, beats).code == "unknown_key"
+    short = copy.deepcopy(edl)
+    del short["captions"]["position"]
+    assert code(short, beats).code == "missing_key"
+    props = json.loads((K.RENDERER / "edl.schema.json").read_text())["$defs"]["edl"]["properties"]["captions"]
+    assert set(props["properties"]) == {"position", "chunks", "block"} and props["required"] == ["position", "chunks"] and props["additionalProperties"] is False
+
+
 SECRETS = ["sk-" + "a1" * 16, "ghp_" + "Ab3" * 12, "AKIA" + "ABCDEFGHIJKLMNOP", "xoxb-" + "1234567890-abcdefghij",
            "api" + "_key = 'abcd1234efgh5678'", "Bearer " + "abcdefghij0123456789xyz", "https://user:" + "hunter2pass@host.example/x"]
 

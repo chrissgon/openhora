@@ -551,7 +551,7 @@ RESULT_SCHEMAS = {
                 normalisation=dct(words=I, dropped_words=I, dropped_segments=lst(dct(segment=I, words=I, seconds=N), 500), zero_length_words=I,
                                   spread_runs=I, estimated_words=I, clamped_starts=I, retimed_words=lst(dct(index=I, **{"from": lst(N, 2), "to": lst(N, 2)}), 2000), unplaced_words=lst(dct(index=I, start=N, end=N), 2000)),
                 font_fallbacks=lst(dct(role=S, asked=S, used=S, reason=S), 20), proposals=lst(dct(id=S, kind=S, seconds=N, confirmed=B, default=S, reason=S), 100),
-                face_box=dct(x=I, y=I, w=I, h=I), zoom=dct(mode=S, factor=N, push_in=N)),
+                face_box=dct(x=I, y=I, w=I, h=I), zoom=dct(mode=S, factor=N, push_in=N), caption_block=opt(S)),
     "align": dct(ok=B, beats=I, overlays=I, layouts=I, unmatched=lst(I, 100), slots=lst(S, 100), fallbacks=lst(dct(beat=I, **{"from": S, "to": S}), 100),
                  scores=mp(N), reordered=lst(I, 100)),
     "check": dct(ok=B, advice=opt(ADVICE), mentions=lst(S, 500), out_seconds=N, words=I, overlays=I, layouts=I),

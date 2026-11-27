@@ -519,6 +519,29 @@ def test_the_host_passes_the_retake_flags_to_the_inner_verb_and_keeps_the_propos
     assert rc == 0 and world.runs()[before + 1]["argv"][world.runs()[before + 1]["argv"].index("--retakes") + 1] == "auto" and out["proposals"][0]["confirmed"] is True
 
 
+def test_the_host_passes_the_caption_block_to_the_inner_verb_and_the_base_result_keeps_it_through_sanitise(world, tmp_path):
+    doc = K.build_transcript()
+    transcript = K.write_json(tmp_path / "t.json", doc)
+    analysis = K.write_json(tmp_path / "analysis.json", {"schema_version": 1, "noise_db": -35, "min_silence": 0.25, "silences": None, "facts": {
+        "video_start": 0.0, "audio_start": 0.0, "width": 1080, "height": 1920, "rotation": 0, "fps": 30.0, "duration": doc["duration"], "has_audio": True,
+        "codec": "h264", "pix_fmt": "yuv420p", "color_space": None, "color_transfer": None, "color_primaries": None, "color_range": None, "bytes": 1,
+        "audio_codec": "aac", "sha256": "d" * 64}})
+    before = len(world.runs())
+    rc, out, err = world.host("base", "--transcript", transcript, "--analysis", analysis, "--out", tmp_path / "edl.json")
+    assert rc == 0, err
+    assert "--caption-block" not in world.runs()[before]["argv"] and "caption_block" not in out      # no choice: nothing is passed, nothing is answered
+    assert "block" not in json.loads((tmp_path / "edl.json").read_text())["captions"]
+    rc, out, err = world.host("base", "--transcript", transcript, "--analysis", analysis, "--out", tmp_path / "edl2.json", "--caption-block", "hf:caption-pill-karaoke",
+                              "--caption-position", "center")
+    assert rc == 0, err
+    argv = world.runs()[before + 1]["argv"]
+    assert argv[argv.index("--caption-block") + 1] == "hf:caption-pill-karaoke" and argv[argv.index("--caption-position") + 1] == "center"
+    assert out["caption_block"] == "hf:caption-pill-karaoke"
+    assert json.loads((tmp_path / "edl2.json").read_text())["captions"]["block"] == "hf:caption-pill-karaoke"
+    rc, out, err = world.host("base", "--transcript", transcript, "--analysis", analysis, "--out", tmp_path / "edl3.json", "--caption-block", "Karaoke")
+    assert rc == 1 and err.startswith("refused: bad_caption_block")
+
+
 # ---------------------------------------------------------------- the engine contract's host parity (V3c): a cpu set and a test blocks folder
 
 def dry_render(world, tmp_path, *more, env=None):

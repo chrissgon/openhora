@@ -147,14 +147,14 @@ def verb_base(args) -> dict:
     advice = []
     edl, notes = _edl.build_base(transcript, analysis, data, allow, args.fps, args.gap, args.pad_head, args.pad_tail, args.caption_position,
                                  colors, font_flags, face, args.zoom, args.zoom_factor, args.push_in, set(args.confirm or []),
-                                 args.long_cut, args.wordless_max, args.zoom_anchor_y, set(args.keep or []), args.retakes, advice)
+                                 args.long_cut, args.wordless_max, args.zoom_anchor_y, set(args.keep or []), args.retakes, advice, args.caption_block)
     write_json(args.out, edl)
     return {**({"advice": _advice.rows(advice)} if advice else {}), "ok": True, "out": os.path.abspath(args.out), "fps": edl["fps"], "kept_ranges": len(edl["kept"]),
             "out_seconds": round(edl["out_frames"] / edl["fps"], 3), "source_seconds": edl["source"]["duration"],
             "words": len(edl["words"]), "caption_chunks": len(edl["captions"]["chunks"]), "normalisation": edl["normalisation"],
             "font_fallbacks": notes, "proposals": [{"id": p["id"], "kind": p["kind"], "seconds": p["seconds"], "confirmed": p["confirmed"], "default": p["default"], "reason": p["reason"]}
                           for p in edl["proposals"]],
-            "face_box": edl["face_box"], "zoom": edl["zoom"]}
+            "face_box": edl["face_box"], "zoom": edl["zoom"], **({"caption_block": edl["captions"]["block"]} if "block" in edl["captions"] else {})}
 
 
 def verb_align(args) -> dict:
@@ -549,6 +549,7 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--long-cut", type=float, help="a cut this long (seconds) also takes the wordless sound at its edges")
     sp.add_argument("--wordless-max", type=float, help="seconds of sound with no word that a long cut does not leave at an edge")
     sp.add_argument("--caption-position", default="bottom")
+    sp.add_argument("--caption-block", help="the caption block to draw, <ns>:<name> (default: the engine's own)")
     sp.add_argument("--face-box", help="X,Y,W,H in frame pixels (1080x1920): where the speaker's face is; given once per recording")
     sp.add_argument("--zoom", choices=("alternate", "none"))
     sp.add_argument("--zoom-factor", type=float)

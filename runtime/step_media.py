@@ -449,6 +449,18 @@ def _face_args(review: dict) -> list:
     return found
 
 
+def _choice_args(review: dict) -> list:
+    """The flags of the video's own choices (P2a: the caption block and position, the camera's mode, factor and push-in), only those the review holds: no choice, no flag."""
+    args = []
+    for key, flag in (("block", "--caption-block"), ("position", "--caption-position")):
+        if key in review["caption"]:
+            args += [flag, review["caption"][key]]
+    for key, flag in (("mode", "--zoom"), ("factor", "--zoom-factor"), ("push_in", "--push-in")):
+        if key in review["zoom"]:
+            args += [flag, str(review["zoom"][key])]
+    return args
+
+
 def _identity(ctx: steps.Context):
     """The text of the project's identity, or None when there is none (steps.read_file's `missing`)."""
     try:
@@ -468,8 +480,9 @@ def _base(ctx: steps.Context, state: dict) -> dict:
     edited = captions.check_edited(_json(store, rid, EDITED))
     review = _load_review(store, rid)
     flags, record = theme.theme_from_text(_identity(ctx), _asked(store.root), review["theme"] == "default")
+    flags, record = theme.with_fonts(flags, record, review["fonts"], _asked(store.root))
     out = _asked(store.path, rid, EDL, False)
-    args = ["--transcript", _asked(store.path, rid, EDITED), "--analysis", _asked(store.path, rid, ANALYSIS), "--out", out, "--retakes", "propose"] + _face_args(review) + flags
+    args = ["--transcript", _asked(store.path, rid, EDITED), "--analysis", _asked(store.path, rid, ANALYSIS), "--out", out, "--retakes", "propose"] + _face_args(review) + _choice_args(review) + flags
     done = _call(ctx, "renderer:video", "base", args)
     confirm, by_rule, unmatched = [], 0, 0
     entries = captions.cut_entries(review, _json(store, rid, PROPOSAL_EDL))      # what the person saw as cut: theirs and the rule's
@@ -488,7 +501,8 @@ def _base(ctx: steps.Context, state: dict) -> dict:
     edl = _json(store, rid, EDL)
     return {"kept_ranges": _num(done.get("kept_ranges")), "out_seconds": _num(done.get("out_seconds")), "retakes_confirmed": len(confirm), "retakes_by_rule": by_rule, "retakes_unmatched": unmatched,
             "face_box": "set" if review["face_box"] else "default", "theme": {"source": record.get("source"), "reason": record.get("reason")},
-            **_counts(edl)}
+            **({"caption": dict(review["caption"])} if review["caption"] else {}), **({"zoom": dict(edl.get("zoom") or review["zoom"])} if review["zoom"] else {}),
+            **({"fonts": dict(review["fonts"])} if review["fonts"] else {}), **_counts(edl)}
 
 
 SLOT_FALLBACK = "a picture"      # the description when the person gave neither `show` nor search words that fit the renderer's limits (`slot_description_min`, `slot_description_max`, read from the vocabulary file)

@@ -359,7 +359,7 @@ def prepare(*, catalogue: dict, engine: str, timeline: dict, data: dict, edl: di
     import _assets
     import _blocks
     import _hf_port
-    caption_block = _blocks.resolve(catalogue, engine, "caption", None, "edl.captions")
+    caption_block = _blocks.resolve(catalogue, engine, "caption", (edl.get("captions") or {}).get("block"), "edl.captions")
     caption_runtime = _blocks.second_contract_runtime(catalogue, caption_block, engine)
     rows = []                                   # (track, entry index, entry, block, runtime)
     if caption_runtime:

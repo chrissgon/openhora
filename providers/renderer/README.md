@@ -109,6 +109,13 @@ names it (`blocks_sha256`) with the sha256 of each drawn block (`blocks`). The i
 After a reviewed change of a block: `python3 providers/renderer/ffmpeg.py pin-blocks --confirmed` (pins and catalogue). Tests:
 `tests/test_renderer_blocks.py`.
 
+**The caption block is a choice (P2a).** The caption is drawn by the engine's default block for the preset `caption` (`hf:caption-highlight` on `ffmpeg`) unless the edit list
+names another: `base --caption-block <ns>:<name>` writes `captions.block` (a closed name, `bad_caption_block` otherwise; absent when not given, so a list that chooses nothing
+is the list it always was), `check` accepts it, and `render` resolves it with the same rule as a beat's `block` (`block_unknown`, `block_preset_mismatch`,
+`block_not_on_engine` with the field `edl.captions`): a port is drawn by the second contract's page for each caption chunk, `oh:caption` by its own page. `--caption-position`
+(`bottom` or `center`), `--zoom`, `--zoom-factor` and `--push-in` were already flags of `base`; the runtime passes them from the review's own choices.
+Tests: `tests/test_renderer_check.py`, `tests/test_renderer_blocks.py`, `tests/test_hf_port_catalogue.py`, `tests/test_renderer_docker.py` and F13 of `tests/test_engine_contract_live.py`.
+
 Three presets are review-only (V9a-1): `mark` (a short phrase with a hand-drawn underline, circle or arrow), `sticker` (one of twelve drawn glyphs) and
 `nametag` (a lower third). They are declared in the `review_presets` section of `renderer-presets.json`, beside the timings in `presets`;
 `_vocab.load_vocabulary` merges them into the vocabulary it returns with `review_only: true` (a name the vocabulary already holds as its own is refused
@@ -410,6 +417,10 @@ patterns: 60 s in 21 s (14,101,201 bytes), 300 s in 72 s (15,053,020 bytes). Tes
 
 ## What the edit does
 
+- **Choices of the person (P2a).** `base` also takes the caption block (`--caption-block`), its position (`--caption-position`), the zoom (`--zoom` alternate or none,
+  `--zoom-factor`, `--push-in`) and a font per role (`--font ROLE=ID:WEIGHT`, a role once); the caption review stores them per video and the runtime passes only those it holds,
+  so a video that chooses nothing is asked for exactly what it was. The checks are validity: a closed name, a zoom factor from 1 to 10 with factor x (1 + push-in) at most 10,
+  an allow-listed font (else the role's default, reported in `font_fallbacks`).
 - **Cuts.** Silence is the signal (`silencedetect`, -35 dB, 0.25 s): every silence is cut, less 0.14 s after its start (the tail of the
   word before it, `--pad-tail`) and 0.10 s before its end (the attack of the word after it, `--pad-head`). Words only protect speech,
   and only the words that have energy: a word that silence covers for 80 percent of its span is a phantom (a transcriber puts words

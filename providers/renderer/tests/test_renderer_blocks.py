@@ -346,6 +346,23 @@ def test_a_beat_naming_the_screenshot_block_is_drawn_by_its_page_on_the_ffmpeg_e
     assert templates["oh:cutaway"] == "oh/cutaway/renderat.html" and plain["block"] == "oh:cutaway"
 
 
+def test_the_caption_block_the_edit_list_names_is_the_one_templates_for_resolves(tmp_path):
+    cat = _blocks.load_catalogue(BLOCKS)      # the committed catalogue: the ffmpeg engine's caption is the port hf:caption-highlight
+    plain, names = _blocks.templates_for(cat, "ffmpeg", {"beats": []}, VOCAB, with_caption=True)
+    assert plain == {"caption": None} and names == []
+    again, _ = _blocks.templates_for(cat, "ffmpeg", {"beats": []}, VOCAB, with_caption=True, caption_block=None)
+    assert again == plain
+    karaoke, names = _blocks.templates_for(cat, "ffmpeg", {"beats": []}, VOCAB, with_caption=True, caption_block="hf:caption-pill-karaoke")
+    assert karaoke == {"caption": None} and names == []      # a port: the second contract, a page for each caption chunk
+    own, names = _blocks.templates_for(cat, "ffmpeg", {"beats": []}, VOCAB, with_caption=True, caption_block="oh:caption")
+    assert own == {"caption": "oh/caption/renderat.html"} and names == ["oh/caption/renderat.html"]
+    none, names = _blocks.templates_for(cat, "ffmpeg", {"beats": []}, VOCAB, with_caption=False, caption_block="oh:caption")
+    assert none == {"caption": "oh/caption/renderat.html"} and names == []      # no caption chunks: the page is not loaded
+    assert refused(_blocks.templates_for, cat, "ffmpeg", {"beats": []}, VOCAB, True, None, "oh:keyword").code == "block_preset_mismatch"
+    assert refused(_blocks.templates_for, cat, "ffmpeg", {"beats": []}, VOCAB, True, None, "hf:caption-nothing").code == "block_unknown"
+    assert refused(_blocks.templates_for, cat, "ffmpeg", {"beats": []}, VOCAB, True, None, "Karaoke").code == "block_unknown"
+
+
 # ---------------------------------------------------------------- the second page contract's allowlist entries (PF-a2)
 
 def hf_folder(tmp_path, name="hf", **over):

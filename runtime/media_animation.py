@@ -52,7 +52,7 @@ SLOT_TYPES = ("image", "clip")
 HEX64 = re.compile(r"[0-9a-f]{64}")
 PARAMS_MAX_BYTES = 8 * 1024
 BLOCK_PARAMS_TIMEOUT = 60
-WHY = ("kind", "no_preset", "slot", "engine", "not_configured")           # why a block cannot be added now, in the order they are tested
+WHY = ("caption", "kind", "no_preset", "slot", "engine", "not_configured")           # why a block cannot be added now, in the order they are tested
 
 
 class CatalogueError(Exception):
@@ -171,6 +171,8 @@ def why_not(entry: dict, engine, presets=None):
     """The first word of WHY that holds for this block, or None when it can be added now. `slot` is for a block with more than one picture parameter, for an `hf:`
     block that takes one (a block of either kind with exactly one is added: its picture is chosen in the media set, and its kind decides the list of beats it joins). `presets`, when given, is the
     engine's own `{preset: block}`: a layout whose preset the engine does not draw is `engine`."""
+    if entry["kind"] == "caption":      # a caption block is chosen with the review's `caption` edit (P2a), not added as an animation
+        return "caption"
     if entry["kind"] not in ANIMATION_KINDS:
         return "kind"
     if entry["preset"] is None:
@@ -185,6 +187,21 @@ def why_not(entry: dict, engine, presets=None):
     if engine is None:
         return "not_configured"
     return None
+
+
+def caption_blocks(ctx: dict):
+    """The names of the catalogue's blocks of kind `caption` that the project's engine draws (the ones a `caption` edit may name), or None when the catalogue or the
+    engine cannot be read."""
+    store = ops_step_seams.MediaStore(ctx)
+    root = store.root()
+    try:
+        found = read_catalogue(root)
+    except CatalogueError:
+        return None
+    engine = engine_name(root, store.renderer())
+    if engine is None:
+        return None
+    return {name for name, entry in found["blocks"].items() if entry["kind"] == "caption" and engine in entry["engines"]}
 
 
 def asset_kinds(root: str, implementation=None) -> list:
@@ -234,7 +251,7 @@ def engine_of(ctx: dict):
     return ops_step_seams.MediaEngine(store.root(), store.renderer())
 
 
-_CODES = {"kind": "animation_kind", "no_preset": "block_no_preset", "slot": "slot_not_supported", "engine": "block_not_on_engine",
+_CODES = {"caption": "animation_kind", "kind": "animation_kind", "no_preset": "block_no_preset", "slot": "slot_not_supported", "engine": "block_not_on_engine",
           "not_configured": "not_configured"}
 
 
