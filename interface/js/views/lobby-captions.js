@@ -13,7 +13,7 @@ import { hostOf, onLoopback, LAN_MEDIA } from "../cards/deliver.js";
 import {
   selection, grow, shrink, sameSegment, editOf, retakeEdit, anchorEdit, clearAnchor, overlayEdit, removeAnimation, addAnimation,
   fieldsOf, paramsOf, WHY_TEXT, canEdit, RETAKE_REASONS, retakeState, wordsText,
-  slotStockEdit, slotSearchEdit, slotAssetEdit, clearPickEdit, stockSlots, searchProblem, WANT_KINDS, candidateText, approvalSummary, layoutFieldsOf, addLayout, isWebCandidate, webLines, SCREEN_WORK_LINE,
+  slotStockEdit, slotSearchEdit, slotAssetEdit, clearPickEdit, stockSlots, searchProblem, WANT_KINDS, candidateText, approvalSummary, scanView, layoutFieldsOf, addLayout, isWebCandidate, webLines, SCREEN_WORK_LINE,
 } from "./lobby-captions-model.js";
 
 export const TITLE = "Check the captions";
@@ -430,6 +430,21 @@ export function createCaptionReview(env) {
     });
   }
 
+  /** What the scan found in the pictures (P9-a): the heading, then one line per row, with the text a picture holds drawn apart, as a quotation ("As read:"), each line as text inside quotation marks;
+   *  a warning only, the approval below it is never held back. */
+  function scanParts(scan) {
+    const view = scanView(scan);
+    if (!view || (!view.rows.length && !view.cleanLines.length)) return [];
+    const out = [h("p", { class: "wb-cr-line wb-cr-scan-head", text: view.heading })];
+    for (const row of view.rows) {
+      out.push(h("p", { class: "wb-cr-line wb-cr-scan-row", text: row.sentence }));
+      if (row.quote.length) out.push(h("blockquote", { class: "wb-cr-scan-quote", "aria-label": view.quoteLabel }, h("p", { class: "wb-steps-note wb-cr-note", text: view.quoteLabel }), ...row.quote.map((line) => h("p", { class: "wb-cr-scan-line", text: `\u201c${line}\u201d` }))));
+    }
+    for (const line of view.cleanLines) out.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-scan-clean", text: line }));
+    if (view.scope) out.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-scan-scope", text: view.scope }));
+    return out;
+  }
+
   /** After the set is approved, the warning of each file found on the web that still needs its own approval (the service asks nothing of the person here; it answers the text). */
   async function loadOwn(answer, mine) {
     if (!answer || !answer.approved || !may("video-media-approve-asset")) return;
@@ -581,6 +596,7 @@ export function createCaptionReview(env) {
       parts.push(h("p", { class: "wb-cr-line", text: summary.approved ? "This media set is approved." : `This set has the hash ${summary.hash}.` }));
       for (const a of summary.assets) parts.push(h("p", { class: "wb-steps-note wb-cr-note", text: `${a.slot}: ${a.source}, ${a.licence}, ${a.width}x${a.height}` }));
       for (const line of (mediaApproval && mediaApproval.provided) || []) parts.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-provided", text: line }));
+      parts.push(...scanParts(mediaApproval.scan));
       if (summary.credits.length) {
         parts.push(h("p", { class: "wb-cr-line", text: MEDIA_CREDIT_LINE }));
         for (const line of summary.credits) parts.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-credit", text: line }));
@@ -594,6 +610,7 @@ export function createCaptionReview(env) {
           const box = h("div", { class: "wb-cr-item wb-cr-own" }, h("p", { class: "wb-cr-line", text: `Slot ${slot}` }), h("p", { class: "wb-cr-line wb-cr-warning", role: "note", text: info.warning || "" }));
           box.append(h("p", { class: "wb-steps-note wb-cr-note", text: `Claimed by the page, not checked: ${info.licence_claim || "none stated"}` }));
           if (info.screen_work) box.append(h("p", { class: "wb-steps-note wb-cr-note", text: SCREEN_WORK_LINE }));
+          box.append(...scanParts(info.scan));
           const img = info.file ? sheetImage(info.file, `The file for slot ${slot}`) : null;
           if (img) box.append(img);
           box.append(h("div", { class: "wb-cr-actions" }, button("Approve this file", () => approveOwn(slot))));

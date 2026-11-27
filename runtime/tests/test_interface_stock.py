@@ -91,7 +91,7 @@ function makeStock(options = {}) {
     videoMediaApprove: async (p, t, hash) => {
       calls.push(["approve", hash || null]);
       return { approved: Boolean(hash), sha256: HASH, credits: ['"A shop 1" by Bram Hollow, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), via shelf'], needs_own_approval: o.own || [], provided: ["Media provided by shelf (https://shelf.example/terms)"],
-        set: { assets: [{ slot: "beat7", source: "shelf", licence: "cc-by-4.0", width: 1080, height: 1920 }] } };
+        ...(o.scan ? { scan: o.scan } : {}), set: { assets: [{ slot: "beat7", source: "shelf", licence: "cc-by-4.0", width: 1080, height: 1920 }] } };
     },
     videoMediaFile: async (p, t, name) => { calls.push(["file", name]); return new Blob(["png"], { type: "image/png" }); },
     pollJob: async (id) => ({ id, state: o.failed ? "failed" : "done", result: results[id], error: o.failed ? { message: "refused: stock_not_accepted" } : null }),
@@ -164,6 +164,45 @@ def test_the_pictures_section_sends_nothing_until_the_words_are_confirmed_and_wa
     assert got["read"]["calls"] == [["approve", None]] and got["approved"]["calls"] == [["approve", None], ["approve", "a" * 64]], "the approval names the hash that was read"
     assert got["approved"]["text"] is True and got["approved"]["button"] is False
     assert got["cleared"] == [{"op": "slot_asset", "slot": "beat7", "clear": True}]
+
+
+SCAN_PAGE = DIALOG + r"""
+const HOSTILE = '<img src=x onerror="window.pwned=1">';
+const scan = { state: "done", reason: null, heading: "Checked on this computer for text and QR codes:", scope: "English, Portuguese and Spanish text is read; text in other alphabets is not.", quote_label: "As read:",
+  rows: [{ slot: "beat7", code: "text_found", chars: 40, quote: ["SAMPLE PHOTO", HOSTILE], cut: false, sentence: "beat7: the picture shows text (40 characters). Read by the computer, not checked:" },
+         { slot: "beat7", code: "qr_link", host: "shop.example", count: 1, sentence: "beat7: the picture shows a QR code that opens a link on shop.example. Anyone who points a phone at your video can open it." }],
+  clean: ["beat8"], clean_lines: ["beat8: no text or QR code found."] };
+const r = makeStock({ scan });
+await r.review.open(900, "review"); await settle();
+type(tag(byClass(r.el, "wb-cr-media-slot")[0], "input")[0], "shop front"); click(btn(r.el, "Use these words")); await settle();
+click(btn(r.el, "Find media")); await settle(); click(btn(r.el, "Send the words and search")); await settle();
+click(btn(byClass(r.el, "wb-cr-candidate")[0], "Pick this")); await settle(); click(btn(r.el, "Fetch the picks")); await settle();
+out.beforeRead = byClass(r.el, "wb-cr-scan-row").length;
+click(btn(r.el, "Read the media set")); await settle();
+const quote = byClass(r.el, "wb-cr-scan-quote");
+out.scan = { head: byClass(r.el, "wb-cr-scan-head").map(textOf), rows: byClass(r.el, "wb-cr-scan-row").map(textOf), quotes: quote.length, lines: byClass(r.el, "wb-cr-scan-line").map(textOf),
+  tag: quote.map((q) => q.tagName), clean: byClass(r.el, "wb-cr-scan-clean").map(textOf), scope: byClass(r.el, "wb-cr-scan-scope").map(textOf), approve: !btn(r.el, "Approve the media").disabled,
+  imgs: tag(r.el, "img").filter((i) => i.attrs && (i.attrs.onerror || i.attrs.src === "x")).length, pwned: globalThis.window ? globalThis.window.pwned || null : null };
+const none = makeStock({ scan: { state: "done", reason: null, heading: "h", scope: "s", quote_label: "q", rows: [], clean: [], clean_lines: [] } });
+await none.review.open(900, "review"); await settle();
+type(tag(byClass(none.el, "wb-cr-media-slot")[0], "input")[0], "shop front"); click(btn(none.el, "Use these words")); await settle();
+click(btn(none.el, "Find media")); await settle(); click(btn(none.el, "Send the words and search")); await settle();
+click(btn(byClass(none.el, "wb-cr-candidate")[0], "Pick this")); await settle(); click(btn(none.el, "Fetch the picks")); await settle(); click(btn(none.el, "Read the media set")); await settle();
+out.nothing = byClass(none.el, "wb-cr-scan-head").length;
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_the_scan_rows_are_drawn_as_text_the_quoted_lines_apart_and_the_approval_is_never_held_back(tmp_path):
+    got = run_node(tmp_path, SCAN_PAGE)
+    assert got["beforeRead"] == 0, "the warnings come with the set to read, before the approve button"
+    s = got["scan"]
+    assert s["head"] == ["Checked on this computer for text and QR codes:"] and len(s["rows"]) == 2 and s["rows"][0].endswith("Read by the computer, not checked:")
+    assert s["quotes"] == 1 and s["tag"] == ["BLOCKQUOTE"] and s["lines"] == ["\u201cSAMPLE PHOTO\u201d", "\u201c" + '<img src=x onerror="window.pwned=1">' + "\u201d"], "each quoted line is text inside quotation marks"
+    assert s["clean"] == ["beat8: no text or QR code found."] and s["scope"] == ["English, Portuguese and Spanish text is read; text in other alphabets is not."]
+    assert s["approve"] is True and s["imgs"] == 0 and s["pwned"] is None
+    assert got["nothing"] == 0, "a set with nothing found and no clean line draws nothing"
 
 
 MODES = DIALOG + r"""

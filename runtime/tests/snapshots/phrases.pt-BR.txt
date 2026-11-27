@@ -326,6 +326,19 @@ CARD_VIDEO_NO_PREVIEW: sem prévia
 CARD_VIDEO_PLATFORM: Plataforma: social-x
 CARD_VIDEO_POST: Publicação: <post>
 CARD_VIDEO_PREVIEW: prévia 0123456789abcdef, feita de <origin>
+CARD_VIDEO_SCAN_CLEAN: <slot>: nenhum texto ou código QR encontrado.
+CARD_VIDEO_SCAN_FAILED: Estas imagens não foram verificadas em busca de texto ou códigos QR (the file is too large). Você ainda pode aprová-las.
+CARD_VIDEO_SCAN_HEADING: Verificado neste computador, em busca de texto e códigos QR:
+CARD_VIDEO_SCAN_NOT_RUN: Estas imagens não foram verificadas em busca de texto ou códigos QR. Você ainda pode aprová-las.
+CARD_VIDEO_SCAN_PARTIAL: <slot>: o tempo da verificação acabou neste clipe, então só parte dele foi verificada (códigos QR em yes de 4 quadros).
+CARD_VIDEO_SCAN_QR_ACTION: <slot>: a imagem mostra um código QR que inicia uma ação no celular (<scheme>).
+CARD_VIDEO_SCAN_QR_LINK: <slot>: a imagem mostra um código QR que abre um link em <host>. Quem apontar o celular para o seu vídeo pode abri-lo.
+CARD_VIDEO_SCAN_QR_LINK_UNKNOWN: <slot>: a imagem mostra um código QR com um link cujo endereço não pôde ser lido como o nome de um site.
+CARD_VIDEO_SCAN_QR_TEXT: <slot>: a imagem mostra um código QR com texto, não com um link:
+CARD_VIDEO_SCAN_QR_UNREADABLE: <slot>: algo na imagem parece um código QR que não pôde ser lido.
+CARD_VIDEO_SCAN_QUOTE: Como foi lido:
+CARD_VIDEO_SCAN_SCOPE: Só texto em inglês, português e espanhol é lido; texto em outros alfabetos não é.
+CARD_VIDEO_SCAN_TEXT_FOUND: <slot>: a imagem mostra texto (<chars> caracteres). Lido pelo computador, não conferido:
 CARD_VIDEO_VERIFIED: verificado para social-x
 CARD_VIDEO_WEB: Encontrado na internet, licença não verificada: <host>
 CHANGED: Esta decisão mudou desde que você a viu.

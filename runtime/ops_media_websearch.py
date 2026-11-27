@@ -451,7 +451,7 @@ def video_media_approve_asset(project: str, task_id, slot, sha256, confirm=None,
         host = (row.get("page_host") if isinstance(row.get("page_host"), str) else "") or urllib.parse.urlsplit(page).hostname or ""
         return {"approved": False, "slot": slot, "sha256": sha256, "file": "sheet.png" if asset.get("kind") == "clip" else f"asset-{sha256[:12]}.png", "host": host, "page": page, "licence_claim": asset.get("licence_claim") or "",
                 "licence_claim_note": CLAIM_NOTE, "screen_work": bool(row.get("screen_work")), "warning": phrases.text("VID_WEB_WARNING", cfg, host=host, page=page),
-                "confirm": f"--confirm-digits {sha256[:12]}"}
+                "confirm": f"--confirm-digits {sha256[:12]}", "scan": ops_media_stock.scan_report(ctx, rid, [asset])}
     if confirm != sha256[:12]:
         raise _fail("wrong_confirm", "type the first 12 hexadecimal digits of the file's sha256")
     given = dict(approved.get("unverified") if isinstance(approved.get("unverified"), dict) else {})

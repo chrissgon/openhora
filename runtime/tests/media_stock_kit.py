@@ -130,8 +130,37 @@ class FakeSheets:
 
     def __init__(self):
         self.calls, self.fail, self.mutate, self.clip_seconds = [], None, None, 4.0
+        self.order = []      # the verbs called, in order
+        self.scans, self.scan_fail, self.planted, self.scan_mutate = [], None, {}, None      # P9-a: the calls of `scan`, an exception it raises, the findings planted per slot, a change of its answer
+
+    def _scan(self, args):
+        """The renderer's `scan` verb as the host would answer it: every slot clean unless `planted[slot]` gives its codes, text lines and QR rows."""
+        flags = {}
+        for i, a in enumerate(args):
+            if a == "--asset":
+                slot, _, path = args[i + 1].partition("=")
+                flags[slot] = path
+        self.scans.append({"slots": sorted(flags), "files": {k: Path(v).name for k, v in flags.items()}})
+        if self.scan_fail is not None:
+            raise self.scan_fail
+        assets = []
+        for slot, path in sorted(flags.items()):
+            found = self.planted.get(slot, {})
+            clip = path.endswith(".mp4")
+            lines = list(found.get("lines", []))
+            codes = sorted(set(found.get("codes", [])) | ({"text_found"} if lines else set()))
+            assets.append({"slot": slot, "file": Path(path).name, "kind": "clip" if clip else "image", "frames": 30 if clip else 1, "frames_qr": 30 if clip else 1,
+                           "frames_text": 5 if clip else 1, "frames_changed": 7 if clip else 0, "partial": False, "codes": codes,
+                           "text": {"lines": lines, "chars": found.get("chars", sum(len(x) for x in lines)), "cut": found.get("cut", False)}, "qr": list(found.get("qr", []))})
+        done = {"ok": True, "lang": "eng+por+spa", "versions": {"tesseract": "5.3.0", "opencv": "4.14.0", "tessdata": ["eng", "osd", "por", "spa"]}, "assets": assets,
+                "image": {"id": "sha256:" + "0" * 64, "tag": "scan-test"}}
+        return self.scan_mutate(done) if self.scan_mutate else done
 
     def call(self, cls, verb, args, timeout):
+        self.order.append(verb)
+        if verb == "scan":
+            assert cls == "renderer:video"
+            return self._scan(args)
         assert (cls, verb) == ("renderer:video", "asset-sheet")
         if self.fail is not None:
             raise self.fail

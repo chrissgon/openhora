@@ -59,6 +59,13 @@ import steps  # noqa: E402
 CLASS = media_stock.CLASS
 CHANNELS = (None, "terminal", "page")
 SEARCH_TIMEOUT, FETCH_TIMEOUT, SHEET_TIMEOUT = 60, 300, 400
+SCAN_TIMEOUT = 660      # validity: the scan's container ends at 600 s (providers/renderer/_host.py SCAN_TIMEOUT), the host waits a minute more
+SCAN_LANG = "eng+por+spa"      # = providers/renderer/_host.py SCAN_LANG (a test compares): the languages Tesseract reads
+SCAN_ROW_CODES = media_stock.SCAN_CODES + ("scan_failed",)      # the rows' closed codes: the renderer's, and this module's own (a test compares the first with providers/renderer/_scan.py SCAN_CODES)
+SCAN_PHRASE = {"text_found": "CARD_VIDEO_SCAN_TEXT_FOUND", "qr_link": "CARD_VIDEO_SCAN_QR_LINK", "qr_action": "CARD_VIDEO_SCAN_QR_ACTION", "qr_text": "CARD_VIDEO_SCAN_QR_TEXT",
+               "qr_unreadable": "CARD_VIDEO_SCAN_QR_UNREADABLE", "scan_partial": "CARD_VIDEO_SCAN_PARTIAL", "scan_failed": "CARD_VIDEO_SCAN_FAILED"}
+SCAN_FIELDS = frozenset({"slot", "host", "scheme", "count", "chars", "value", "total", "reason"})      # S4: the only fields a scan sentence is built from; the text a picture holds is never one of them (L82)
+SCAN_PHRASE_KEYS = tuple(SCAN_PHRASE.values()) + ("CARD_VIDEO_SCAN_QR_LINK_UNKNOWN", "CARD_VIDEO_SCAN_NOT_RUN", "CARD_VIDEO_SCAN_HEADING", "CARD_VIDEO_SCAN_CLEAN", "CARD_VIDEO_SCAN_SCOPE", "CARD_VIDEO_SCAN_QUOTE")
 ITEM = re.compile(r"[A-Za-z0-9_-]{1,64}")
 URL = re.compile(r"https://[^\s]{1,2040}")
 TEXT = 120
@@ -132,21 +139,25 @@ ASSET_PHRASE = {"asset_too_small": "VID_STOCK_ASSET_SMALL"}      # every other c
 
 
 class SheetEngine(ops_step_seams.MediaEngine):
-    """The media engine with one difference: a refusal of `asset-sheet` keeps its closed code (the first line of the renderer's stderr, `refused: <code> <field>`), read only if
-    the code is in ASSET_CODES, so the person is told why a picture was refused. Every other answer and failure is the engine's own."""
+    """The media engine with one difference: a refusal of `asset-sheet` or of `scan` keeps its closed code (the first line of the renderer's stderr, `refused: <code> <field>`), read only if
+    the code is in ASSET_CODES (for `scan`, media_stock.SCAN_REASONS), so the person is told why a picture was refused or why a scan did not run; a scan that timed out is the code `timeout`.
+    Every other answer and failure is the engine's own."""
 
     def call(self, cls, verb, args, timeout):
-        if verb != "asset-sheet":
+        if verb not in ("asset-sheet", "scan"):
             return super().call(cls, verb, args, timeout)
         resolver = project_config.resolver(self._root)
+        closed = ASSET_CODES if verb == "asset-sheet" else media_stock.SCAN_REASONS
         try:
             done = resolver.call(cls, verb, list(args), root=self._root, timeout=timeout, env=resolver.provider_environment(cls, None, ()),
                                  **({"implementation": self._renderer} if self._renderer else {}))
         except resolver.ProviderCallError as e:
             if e.kind == "not-configured":
                 raise ops_step_seams.StepServiceError("not_configured") from None
+            if verb == "scan" and e.kind == "timeout":
+                raise ops_step_seams.StepServiceError("refused", "timeout") from None
             found = ops_step_seams.REFUSAL_LINE.search(getattr(e, "stderr_tail", "") or "") if e.kind != "usage" and e.exit_code == 1 else None
-            if found and found.group(1) in ASSET_CODES:
+            if found and found.group(1) in closed:
                 raise ops_step_seams.StepServiceError("refused", found.group(1)) from None
             raise ops_step_seams.StepServiceError("refused" if e.kind == "usage" or e.exit_code == 1 else "engine_failed") from None
         if not isinstance(done, dict):
@@ -170,6 +181,133 @@ def _sheet(ctx: dict, mode: str, items: dict, out: str, fps=None) -> dict:
         raise _fail("engine_refused" if e.code == "refused" else "not_configured" if e.code == "not_configured" else "engine_failed",
                     "the renderer could not make the sheet") from None
     return done if isinstance(done, dict) else {}
+
+
+# --- the scan of the set's files (P9-a): text and QR codes, a warning and never a refusal -----------------------------------------------------------
+
+
+class ScanFailed(Exception):
+    """The scan did not give an answer: `reason` is one of media_stock.SCAN_REASONS."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _scan_call(ctx: dict, items: list) -> dict:
+    """One `scan` call of the renderer (a container of its own, no network, on the normalised files): `items` is [(slot, path, width, height)]. Returns {"scanner": {...}, "assets": {slot: entry}}
+    with every entry cleaned again (`media_stock.clean_scan_entry`), the answer being untrusted; ScanFailed otherwise."""
+    flags = []
+    for slot, path, width, height in items:
+        flags += ["--asset", f"{slot}={path}", "--size", f"{slot}={width}x{height}"]
+    try:
+        done = _engine_of(ctx).call("renderer:video", "scan", flags, SCAN_TIMEOUT)
+    except ops_step_seams.StepServiceError as e:
+        raise ScanFailed("not_ready" if e.code == "not_configured" else e.reason if e.code == "refused" and e.reason in media_stock.SCAN_REASONS else "container_failed") from None
+    rows = done.get("assets") if isinstance(done, dict) else None
+    if not (isinstance(done, dict) and done.get("ok") is True and isinstance(rows, list) and done.get("lang") == SCAN_LANG
+            and sorted(r.get("slot") for r in rows if isinstance(r, dict)) == sorted(i[0] for i in items) and len(rows) == len(items)):
+        raise ScanFailed("container_result_invalid")
+    versions = done.get("versions") if isinstance(done.get("versions"), dict) else {}
+    image = done.get("image") if isinstance(done.get("image"), dict) else {}
+    entries = {r["slot"]: media_stock.clean_scan_entry(r) for r in rows}
+    if any(e is None for e in entries.values()):
+        raise ScanFailed("container_result_invalid")
+    return {"scanner": {"image": image.get("tag"), "lang": SCAN_LANG, "tesseract": versions.get("tesseract"), "opencv": versions.get("opencv")}, "assets": entries}
+
+
+def _scan_set(ctx: dict, data_dir: str, rid: str, assets: list) -> None:
+    """Scan the files of a fetched set and keep the result in `scan.json`, keyed by each file's sha256: a file whose entry is already there (a re-fetch that kept it) is not read again, and the
+    entries of files that are no longer in the set go. It never raises and never refuses anything: a scan that fails is written as its closed reason, and the person is told on the approval."""
+    try:
+        before = media_stock.read_scan(data_dir, rid)
+    except media_stock.StockError:
+        before = {"scanner": {}, "assets": {}}
+    keep = {a["sha256"] for a in assets}
+    cached = {d: e for d, e in before["assets"].items() if d in keep} if before["scanner"].get("lang") == SCAN_LANG else {}
+    todo = [a for a in assets if a["sha256"] not in cached]
+    entries, scanner, failed = dict(cached), before["scanner"] if cached else {}, None
+    if todo:
+        folder = media_stock.folder_of(data_dir, rid)
+        try:
+            got = _scan_call(ctx, [(a["slot"], os.path.join(folder, media_stock.asset_name(a)), a["width"], a["height"]) for a in todo])
+            scanner = got["scanner"]
+            for a in todo:
+                entries[a["sha256"]] = got["assets"][a["slot"]]
+        except ScanFailed as e:
+            failed = e.reason
+    try:
+        media_stock.write_doc(data_dir, rid, media_stock.SCAN, {"version": media_stock.SCAN_VERSION, "scanner": scanner, "assets": entries, "failed": failed, "at": media_stock.now_stamp()})
+    except media_stock.StockError:
+        pass      # a warning that cannot be kept is shown as not run on the approval
+
+
+def _quote(lines) -> list:
+    """The text a picture held, as the lines the page quotes: cleaned again, at most 8 lines and 600 characters in all (L82: never part of a sentence)."""
+    out, total = [], 0
+    for line in lines if isinstance(lines, list) else []:
+        line = _text(line, media_stock.SCAN_LINE_MAX)
+        if line and len(out) < media_stock.SCAN_LINES_MAX and total + len(line) <= media_stock.SCAN_CHARS_MAX:
+            out.append(line)
+            total += len(line)
+    return out
+
+
+def _scan_rows(slot: str, entry: dict, cfg: dict) -> list:
+    """The rows of one file's entry, in the order the codes are listed: {"slot", "code", ...the numbers, the host or scheme..., "sentence"}; the text read is only in `quote`. A clean file has none."""
+    say = lambda key, **fields: phrases.text(key, cfg, **fields)      # noqa: E731
+    rows, codes = [], entry["codes"]
+    if "text_found" in codes:
+        rows.append({"slot": slot, "code": "text_found", "chars": entry["text"]["chars"], "quote": _quote(entry["text"]["lines"]), "cut": entry["text"]["cut"],
+                     "sentence": say(SCAN_PHRASE["text_found"], slot=slot, chars=entry["text"]["chars"])})
+    links, actions = {}, {}
+    for q in entry["qr"]:
+        if q["kind"] == "link":
+            links[q["host"]] = links.get(q["host"], 0) + 1
+        elif q["kind"] == "action":
+            actions[q["scheme"]] = actions.get(q["scheme"], 0) + 1
+        elif q["text"]:
+            rows.append({"slot": slot, "code": "qr_text", "quote": [_text(q["text"], media_stock.SCAN_QR_TEXT_MAX)], "sentence": say(SCAN_PHRASE["qr_text"], slot=slot)})
+    for host, count in sorted(links.items(), key=lambda kv: (kv[0] is None, kv[0] or "")):
+        rows.append({"slot": slot, "code": "qr_link", "host": host, "count": count,
+                     "sentence": say(SCAN_PHRASE["qr_link"], slot=slot, host=host) if host else say("CARD_VIDEO_SCAN_QR_LINK_UNKNOWN", slot=slot)})
+    for scheme, count in sorted(actions.items()):
+        rows.append({"slot": slot, "code": "qr_action", "scheme": scheme, "count": count, "sentence": say(SCAN_PHRASE["qr_action"], slot=slot, scheme=scheme)})
+    if "qr_unreadable" in codes:
+        rows.append({"slot": slot, "code": "qr_unreadable", "sentence": say(SCAN_PHRASE["qr_unreadable"], slot=slot)})
+    if "scan_partial" in codes:
+        rows.append({"slot": slot, "code": "scan_partial", "value": entry["frames_qr"], "total": entry["frames"],
+                     "sentence": say(SCAN_PHRASE["scan_partial"], slot=slot, value=entry["frames_qr"], total=entry["frames"])})
+    return rows
+
+
+def scan_report(ctx: dict, rid: str, assets: list) -> dict:
+    """What the scan found in `assets` (the set's assets, or the one the person is about to approve), for the approval, read from `scan.json`: {"state": "done" when every file has its entry, "failed"
+    when the scan could not run (and "reason"), "not_run" when none was made (a set fetched before the scan existed); "heading", "scope" and "quote_label" (the project's language), "rows", "clean": the
+    slots with nothing found, "clean_lines"}. Each row's sentence is a phrase of the closed fields; the quoted text is in `quote` and nowhere else. It never raises: an unreadable `scan.json` is "not_run"."""
+    cfg = ctx["cfg"]
+    try:
+        doc = media_stock.read_scan(cfg["data_dir"], rid)
+    except media_stock.StockError:
+        doc = {"assets": {}, "failed": None}
+    rows, clean, missing = [], [], []
+    for a in sorted(assets, key=lambda a: a["slot"]):
+        entry = doc["assets"].get(a["sha256"])
+        if entry is None:
+            missing.append(a["slot"])
+            continue
+        found = _scan_rows(a["slot"], entry, cfg)
+        rows += found
+        if not found:
+            clean.append(a["slot"])
+    state, reason = "done", None
+    if missing:
+        state, reason = ("failed", doc["failed"]) if doc["failed"] else ("not_run", None)
+        rows.append({"slot": None, "code": "scan_failed", "reason": reason,
+                     "sentence": phrases.text(SCAN_PHRASE["scan_failed"], cfg, reason=reason) if reason else phrases.text("CARD_VIDEO_SCAN_NOT_RUN", cfg)})
+    return {"state": state, "reason": reason, "heading": phrases.text("CARD_VIDEO_SCAN_HEADING", cfg), "scope": phrases.text("CARD_VIDEO_SCAN_SCOPE", cfg),
+            "quote_label": phrases.text("CARD_VIDEO_SCAN_QUOTE", cfg), "rows": rows, "clean": clean,
+            "clean_lines": [phrases.text("CARD_VIDEO_SCAN_CLEAN", cfg, slot=slot) for slot in clean]}
 
 
 # --- the task and its state ---------------------------------------------------------------------------------------------------------------
@@ -622,6 +760,7 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
         media_stock.write_doc(data_dir, rid, media_stock.SET, found)
     except media_stock.StockError as e:
         raise _stock_error(e) from None
+    _scan_set(ctx, data_dir, rid, assets)      # P9-a: text and QR codes, in a container of its own; it fails alone and refuses nothing
     message = "Check the pictures, then approve the media set."
     if any(a["kind"] == "clip" for a in assets):
         message += " " + phrases.text("VID_STOCK_CLIP_TRIM", cfg, max=int(media_stock.CLIP_SECONDS_MAX))
@@ -630,7 +769,7 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
     return {"assets": [{k: a[k] for k in ("slot", "source", "kind", "licence", "width", "height", "seconds")}
                        | {"pick": f"{a['source']}:{a['item']}", "file": None if a["kind"] == "clip" else media_stock.asset_name(a)}
                        for a in assets],
-            "sheet": media_stock.SHEET, "provided": _provided(assets, cfg), "without_picture": without, "message": message}
+            "sheet": media_stock.SHEET, "provided": _provided(assets, cfg), "without_picture": without, "message": message, "scan": scan_report(ctx, rid, assets)}
 
 
 def _source_link(root: str, source: str) -> str:
@@ -770,13 +909,17 @@ def video_media_approve(project: str, task_id, hash=None, channel=None) -> dict:
     needs = [a["slot"] for a in document["assets"] if a["unverified"] and a["slot"] not in own]
     if hash is None:
         return {"approved": current, "set": document, "sha256": digest, "credits": document["credits"], "needs_own_approval": needs, "own_approved": sorted(own),
-                "provided": _provided(found["assets"], cfg), "credit_heading": phrases.text("VID_STOCK_CREDIT", cfg)}
+                "provided": _provided(found["assets"], cfg), "credit_heading": phrases.text("VID_STOCK_CREDIT", cfg), "scan": scan_report(ctx, rid, found["assets"])}
     if not (isinstance(hash, str) and media_stock.SHA256.fullmatch(hash)):
         raise core.OpsError("the hash is 64 lowercase hexadecimal characters", 2)
     if hash != digest:
         raise _fail("stale_hash", f"the set is not the one that hash names; read it again (current sha256 {digest})")
     names = sorted(media_stock.sources_of(cfg))
-    record = {"hash": digest, "at": media_stock.now_stamp(), "task": task_id, "sources": names, "unverified": own,      # the same set approved again keeps what was approved file by file; a new set starts with none
+    try:
+        shown = media_stock.scan_digest(media_stock.read_scan(data_dir, rid))      # what the person was shown (an audit; the step kind never reads it)
+    except media_stock.StockError:
+        shown = None
+    record = {"hash": digest, "at": media_stock.now_stamp(), "task": task_id, "sources": names, "unverified": own, "scan": shown,      # the same set approved again keeps what was approved file by file; a new set starts with none
               "assets": [{k: a[k] for k in ("slot", "sha256", "source", "item", "licence")} for a in document["assets"]]}
     try:
         media_stock.write_doc(data_dir, rid, media_stock.APPROVED, record)
