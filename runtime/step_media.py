@@ -608,6 +608,11 @@ def _align(ctx: steps.Context, state: dict) -> dict:
             beats.pop("punches", None)
     if effects:
         beats["effects"] = effects
+    transitions, adrift = captions.transitions_current(review, edited, live, beats)      # after the drops and the added animations: a beat anchor names an entry that is left
+    if adrift:
+        raise steps.StepFailure("transition_lost", adrift[0], "", "open the caption review again and place the transition again, or remove it")
+    if transitions:
+        beats["transitions"] = transitions
     clips = {s: a["asset"]["seconds"] if isinstance(a["asset"].get("seconds"), (int, float)) and not isinstance(a["asset"]["seconds"], bool) else 0
              for s, a in stock.items() if a["asset"].get("kind") == "clip"}
     trimmed = []
@@ -615,11 +620,13 @@ def _align(ctx: steps.Context, state: dict) -> dict:
         if (_optional_json(store, rid, STOCK_SET) or {}).get("clip_fps") != edl["fps"]:
             raise steps.StepFailure("clip_fps_changed", sorted(clips)[0], "", "fetch the picks again and approve the media set again")
         trimmed = fit_clip_entries(beats, edl, clips)
-    if dropped or placed or changed or effects or trimmed:
+    if dropped or placed or changed or effects or transitions or trimmed:
         _asked(store.write, rid, BEATS, _dump(beats))
     found = {"beats": _num(done.get("beats")), "overlays": len(beats.get("overlays") or []), "layouts": len(beats.get("layouts") or []),
              "unmatched": len([b for b in done.get("unmatched") or [] if b not in dropped]), "anchored": len(anchors), "dropped": len(dropped),
              "animations": len(placed), "punches": len(beats.get("punches") or []), "effects": len(effects)}
+    if transitions:
+        found["transitions"] = len(transitions)      # only a video with a transition adds the key
     if stock:
         found["pictures"] = len(stock)      # the approved pictures; only a video that has some adds the key
     if clips:
