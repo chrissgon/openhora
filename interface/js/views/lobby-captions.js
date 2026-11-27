@@ -438,7 +438,7 @@ export function createCaptionReview(env) {
     const out = [h("p", { class: "wb-cr-line wb-cr-scan-head", text: view.heading })];
     for (const row of view.rows) {
       out.push(h("p", { class: "wb-cr-line wb-cr-scan-row", text: row.sentence }));
-      if (row.quote.length) out.push(h("blockquote", { class: "wb-cr-scan-quote", "aria-label": view.quoteLabel }, h("p", { class: "wb-steps-note wb-cr-note", text: view.quoteLabel }), ...row.quote.map((line) => h("p", { class: "wb-cr-scan-line", text: `\u201c${line}\u201d` }))));
+      if (row.quote.length) out.push(h("div", { class: "wb-cr-scan-quote", role: "group", "aria-label": view.quoteLabel }, h("p", { class: "wb-steps-note wb-cr-note", text: view.quoteLabel }), ...row.quote.map((line) => h("p", { class: "wb-cr-scan-line", text: `\u201c${line}\u201d` }))));
     }
     for (const line of view.cleanLines) out.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-scan-clean", text: line }));
     if (view.scope) out.push(h("p", { class: "wb-steps-note wb-cr-note wb-cr-scan-scope", text: view.scope }));

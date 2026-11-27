@@ -281,7 +281,7 @@ def _scan_rows(slot: str, entry: dict, cfg: dict) -> list:
     return rows
 
 
-def scan_report(ctx: dict, rid: str, assets: list) -> dict:
+def _scan_report(ctx: dict, rid: str, assets: list) -> dict:
     """What the scan found in `assets` (the set's assets, or the one the person is about to approve), for the approval, read from `scan.json`: {"state": "done" when every file has its entry, "failed"
     when the scan could not run (and "reason"), "not_run" when none was made (a set fetched before the scan existed); "heading", "scope" and "quote_label" (the project's language), "rows", "clean": the
     slots with nothing found, "clean_lines"}. Each row's sentence is a phrase of the closed fields; the quoted text is in `quote` and nowhere else. It never raises: an unreadable `scan.json` is "not_run"."""
@@ -769,7 +769,7 @@ def video_media_fetch_picks(project: str, task_id, channel=None) -> dict:
     return {"assets": [{k: a[k] for k in ("slot", "source", "kind", "licence", "width", "height", "seconds")}
                        | {"pick": f"{a['source']}:{a['item']}", "file": None if a["kind"] == "clip" else media_stock.asset_name(a)}
                        for a in assets],
-            "sheet": media_stock.SHEET, "provided": _provided(assets, cfg), "without_picture": without, "message": message, "scan": scan_report(ctx, rid, assets)}
+            "sheet": media_stock.SHEET, "provided": _provided(assets, cfg), "without_picture": without, "message": message, "scan": _scan_report(ctx, rid, assets)}
 
 
 def _source_link(root: str, source: str) -> str:
@@ -909,7 +909,7 @@ def video_media_approve(project: str, task_id, hash=None, channel=None) -> dict:
     needs = [a["slot"] for a in document["assets"] if a["unverified"] and a["slot"] not in own]
     if hash is None:
         return {"approved": current, "set": document, "sha256": digest, "credits": document["credits"], "needs_own_approval": needs, "own_approved": sorted(own),
-                "provided": _provided(found["assets"], cfg), "credit_heading": phrases.text("VID_STOCK_CREDIT", cfg), "scan": scan_report(ctx, rid, found["assets"])}
+                "provided": _provided(found["assets"], cfg), "credit_heading": phrases.text("VID_STOCK_CREDIT", cfg), "scan": _scan_report(ctx, rid, found["assets"])}
     if not (isinstance(hash, str) and media_stock.SHA256.fullmatch(hash)):
         raise core.OpsError("the hash is 64 lowercase hexadecimal characters", 2)
     if hash != digest:

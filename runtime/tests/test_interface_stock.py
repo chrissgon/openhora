@@ -199,7 +199,7 @@ def test_the_scan_rows_are_drawn_as_text_the_quoted_lines_apart_and_the_approval
     assert got["beforeRead"] == 0, "the warnings come with the set to read, before the approve button"
     s = got["scan"]
     assert s["head"] == ["Checked on this computer for text and QR codes:"] and len(s["rows"]) == 2 and s["rows"][0].endswith("Read by the computer, not checked:")
-    assert s["quotes"] == 1 and s["tag"] == ["BLOCKQUOTE"] and s["lines"] == ["\u201cSAMPLE PHOTO\u201d", "\u201c" + '<img src=x onerror="window.pwned=1">' + "\u201d"], "each quoted line is text inside quotation marks"
+    assert s["quotes"] == 1 and s["tag"] == ["DIV"] and s["lines"] == ["\u201cSAMPLE PHOTO\u201d", "\u201c" + '<img src=x onerror="window.pwned=1">' + "\u201d"], "each quoted line is text inside quotation marks"
     assert s["clean"] == ["beat8: no text or QR code found."] and s["scope"] == ["English, Portuguese and Spanish text is read; text in other alphabets is not."]
     assert s["approve"] is True and s["imgs"] == 0 and s["pwned"] is None
     assert got["nothing"] == 0, "a set with nothing found and no clean line draws nothing"
