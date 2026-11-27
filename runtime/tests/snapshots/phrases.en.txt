@@ -326,6 +326,19 @@ CARD_VIDEO_NO_PREVIEW: no preview
 CARD_VIDEO_PLATFORM: Platform: social-x
 CARD_VIDEO_POST: Post: <post>
 CARD_VIDEO_PREVIEW: preview 0123456789abcdef, made from <origin>
+CARD_VIDEO_SCAN_CLEAN: <slot>: no text or QR code found.
+CARD_VIDEO_SCAN_FAILED: These pictures were not checked for text or QR codes (the file is too large). You can still approve them.
+CARD_VIDEO_SCAN_HEADING: Checked on this computer for text and QR codes:
+CARD_VIDEO_SCAN_NOT_RUN: These pictures were not checked for text or QR codes. You can still approve them.
+CARD_VIDEO_SCAN_PARTIAL: <slot>: the scan ran out of time on this clip, so only part of it was checked (QR codes on yes of 4 frames).
+CARD_VIDEO_SCAN_QR_ACTION: <slot>: the picture shows a QR code that starts an action on a phone (<scheme>).
+CARD_VIDEO_SCAN_QR_LINK: <slot>: the picture shows a QR code that opens a link on <host>. Anyone who points a phone at your video can open it.
+CARD_VIDEO_SCAN_QR_LINK_UNKNOWN: <slot>: the picture shows a QR code with a link whose address could not be read as a site name.
+CARD_VIDEO_SCAN_QR_TEXT: <slot>: the picture shows a QR code holding text, not a link:
+CARD_VIDEO_SCAN_QR_UNREADABLE: <slot>: something in the picture looks like a QR code that could not be read.
+CARD_VIDEO_SCAN_QUOTE: As read:
+CARD_VIDEO_SCAN_SCOPE: English, Portuguese and Spanish text is read; text in other alphabets is not.
+CARD_VIDEO_SCAN_TEXT_FOUND: <slot>: the picture shows text (<chars> characters). Read by the computer, not checked:
 CARD_VIDEO_VERIFIED: verified for social-x
 CARD_VIDEO_WEB: Found on the web, licence not checked: <host>
 CHANGED: This decision changed since you saw it.

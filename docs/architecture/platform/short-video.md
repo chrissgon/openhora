@@ -163,6 +163,15 @@ Package P6 (decision VD17): what of a recording may reach a model or a hosted se
   `require` when they land. A hosted transcriber would need a word of its own.
 - **Where code cannot enforce it.** A new sender that never calls `require` is caught by the test of `SENDERS` only when it calls it somewhere, and otherwise by review.
 
+## Scan before approval (P9-a)
+
+Package P9-a (decision `docs/decisions/2026-11-26-p9a-scan-before-approval.md`, draft): the pictures and clips of a media set are read for text and QR codes before the person approves them, and what was found is shown as warnings. It refuses nothing.
+
+- **What is scanned, and when.** `video-media-fetch-picks` calls the renderer's `scan` verb (the common image, a container of its own with no network, on the normalised `asset-<sha12>` files only) once, after the normalisation and the adoption of the files, for every asset of the set, whatever its source tier. QR codes are read on every frame of every clip and on every picture; text on every picture and on the frames of a clip the verb chooses (changed frames plus a grid, at most 100 per clip). Tesseract reads English, Portuguese and Spanish; text in other alphabets is not read, and the page says so once. The bounds are validity bounds of the verb (`providers/renderer/README.md`); a scan that fails or times out is a closed reason, never an undone fetch.
+- **Where the result lives.** `scan.json` in the stock folder, keyed by each file's sha256 (a re-fetch that keeps a file reads only the new ones). It is not in the set document or its hash, so no approval made before P9-a goes stale; `approved.json` gains one additive key, `scan`, the digest of what was shown, which the media step never reads. `scan.json` is not a name the media store lets a step read and is never served (`video-media-sheet-file`).
+- **What is shown.** `video-media-approve` without a hash, and the answer of the fetch, carry `scan`: `state` (`done`, `failed` with a closed `reason`, or `not_run` for a set fetched before P9-a), a heading, the scope line, and one row per finding: `text_found`, `qr_link` (with the host only), `qr_action` (with the scheme word), `qr_text`, `qr_unreadable`, `scan_partial`, `scan_failed`. Each row's sentence is a phrase (`CARD_VIDEO_SCAN_*`, `runtime/phrases_parts/p9a.*.json`) built from a slot id, a host, a scheme word and numbers only. The text a picture holds, and a QR code's text, travel in a `quote` list apart, at most 8 lines and 600 characters, and the page draws it as a quotation (a group of text lines, never HTML) ("As read:", never HTML). One-file boxes of open-web files (`video-media-approve-asset`) carry that file's rows.
+- **What it never does.** Refuses a picture, a clip or an approval; sends anything off the computer; puts the text read into a phrase, task state, a decision body, a run row, a log, a messaging card, an MCP answer or a prompt (limit L82). The explaining skill that would send the text to a model is P9-a3 and waits for the maintainer's answer P9-3.
+
 ## The licensed pictures of a video (V9b-3a)
 
 Package V9b-3a (decisions D5 to D14 of the V9b spec): a cutaway or a screenshot slot can take a picture from a library whose licence allows reuse in a published video. The picture is found by
@@ -282,5 +291,7 @@ Updated on 2026-11-07 by V3a-2.
 2026-11-26: PF-b1, the class default of `renderer:video` is `ffmpeg` and `hyperframes` is a retired name read as `ffmpeg` (`docs/decisions/2026-11-26-pf-b-retire-hyperframes.md`, draft)
 
 2026-11-26: PF-b3, the HyperFrames engine retired: `hyperframes.py`, its image, page, gates and the registry survey tools are deleted; `renderer:video` has one implementation, `ffmpeg` (`docs/decisions/2026-11-26-pf-b-retire-hyperframes.md`)
+
+2026-11-26: P9-a2, pictures and clips are scanned before approval and shown as warnings (`docs/decisions/2026-11-26-p9a-scan-before-approval.md`, draft), limit L82
 
 2026-11-26: P1b, `captions-edit` places and removes transitions (`transition` op, `transitions_current`, `transition_lost`), and the review marks the words that open a shot (`docs/decisions/2026-11-26-p1a-transitions.md`)

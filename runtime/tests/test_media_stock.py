@@ -437,7 +437,7 @@ def test_a_cc0_picture_puts_no_credit_and_the_approval_deletes_every_candidate_f
     ops.video_media_approve(world["path"], found["task"], hash=shown["sha256"])
     names = sorted(os.listdir(folder))
     keep = ["asset-%s.png" % shown["set"]["assets"][0]["sha256"][:12]]
-    assert names == sorted(keep + ["approved.json", "set.json", "sheet.png"])
+    assert names == sorted(keep + ["approved.json", "scan.json", "set.json", "sheet.png"])      # P9-a: scan.json stays with the set until a new find
     assert not (folder / "quarantine").exists()
 
 

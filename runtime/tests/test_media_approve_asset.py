@@ -132,6 +132,8 @@ def test_without_confirm_it_shows_the_warning_the_host_the_page_and_the_claim_an
     w = walk(world, monkeypatch, screen_work=True)
     before = (stock_dir(world) / "approved.json").read_bytes()
     shown = approve_asset(world, w)
+    scan = shown.pop("scan")      # P9-a: the scan's rows of this one file, shown in its box (tests: test_media_scan.py)
+    assert scan["state"] == "done" and scan["clean"] == ["beat7"] and scan["rows"] == []
     assert shown == {"approved": False, "slot": "beat7", "sha256": w["sha"], "file": "asset-%s.png" % w["sha"][:12], "host": "pages.example", "page": PAGE,
                      "licence_claim": "free to use, says the page", "licence_claim_note": "claimed by the page, not checked", "screen_work": True,
                      "warning": WARNING_EN.format(host="pages.example", page=PAGE), "confirm": "--confirm-digits " + w["sha"][:12]}

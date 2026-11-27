@@ -282,3 +282,14 @@ export function approvalSummary(answer) {
   return { approved: Boolean(a.approved), hash: typeof a.sha256 === "string" ? a.sha256 : "", credits: Array.isArray(a.credits) ? a.credits : [],
     own: Array.isArray(a.needs_own_approval) ? a.needs_own_approval : [], assets: a.set && Array.isArray(a.set.assets) ? a.set.assets : [] };
 }
+
+/** The scan of a set's pictures and clips as the page draws it (P9-a), from the `scan` of `video-media-approve` and of the one file's box: the project-language sentences the host wrote, each row's
+ *  quoted lines apart (the text a picture holds is the picture's, "as read by the computer, not checked": it is drawn as a quotation and never joined to a sentence), and the slots with nothing found.
+ *  Only strings are kept; null when the answer has no scan. */
+export function scanView(scan) {
+  if (!scan || typeof scan !== "object") return null;
+  const text = (v) => (typeof v === "string" ? v : "");
+  const lines = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x) : []);
+  const rows = (Array.isArray(scan.rows) ? scan.rows : []).filter((r) => r && typeof r.sentence === "string").map((r) => ({ sentence: r.sentence, quote: lines(r.quote) }));
+  return { state: text(scan.state), heading: text(scan.heading), scope: text(scan.scope), quoteLabel: text(scan.quote_label), rows, cleanLines: lines(scan.clean_lines) };
+}

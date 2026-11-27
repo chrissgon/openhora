@@ -69,6 +69,10 @@ PREVIEW_MAX_SIDE = 8192                               # = limits.asset_max_side 
 PREVIEW_MAX_PIXELS = 40_000_000                       # = limits.asset_max_pixels of providers/renderer/renderer-presets.json (a test compares)
 CLIP_SECONDS_MAX = 10.0                               # = providers/renderer/_media.py CLIP_MAX_SECONDS (a test compares)
 SET, APPROVED, SHEET, SHEET_PREVIEW = "set.json", "approved.json", "sheet.png", "sheet-preview.png"
+SCAN = "scan.json"                                    # P9-a: what the scan of the set's files read (text and QR codes): kept here, never served, never in the set document or its hash
+SCAN_VERSION = 1
+SCAN_LINES_MAX, SCAN_LINE_MAX, SCAN_CHARS_MAX, SCAN_QR_MAX, SCAN_QR_TEXT_MAX = 8, 160, 600, 4, 120      # validity: = providers/renderer/_scan.py TEXT_LINES_MAX, LINE_MAX, TEXT_CHARS_MAX, QR_MAX, QR_TEXT_MAX (a test compares)
+SCAN_FRAMES_MAX = 601                                 # = providers/renderer/_host.py SCAN_FRAMES_MAX
 QUARANTINE = media.STOCK_QUARANTINE
 SET_VERSION = 1
 DOC_LIMIT = 2 * MIB
@@ -84,6 +88,11 @@ CREDITS_DAYS = 365
 CREDITS_NAME = re.compile(r"[0-9]{1,9}\.json")
 DAY = 86400.0
 NOFOLLOW, DIRECTORY = getattr(os, "O_NOFOLLOW", 0), getattr(os, "O_DIRECTORY", 0)
+
+SCAN_CODES = ("text_found", "qr_link", "qr_action", "qr_text", "qr_unreadable", "scan_partial")      # = providers/renderer/_scan.py SCAN_CODES (a test compares)
+SCAN_REASONS = ("timeout", "container_failed", "container_result_invalid", "not_ready", "no_space")      # why a scan did not run: the closed words a row carries
+SCAN_SCHEMES = ("tel", "mailto", "sms", "geo", "WIFI")
+SCAN_HOST = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?){1,8}")      # = runtime/deliver_document.py HOST
 
 CC_NAMES = {"cc0-1.0": ("CC0", "1.0", "https://creativecommons.org/publicdomain/zero/1.0/"),
             "pdm-1.0": ("Public Domain Mark", "1.0", "https://creativecommons.org/publicdomain/mark/1.0/")}
@@ -246,8 +255,8 @@ def _write_in(fd: int, name: str, data: bytes, mode: int) -> None:
 
 
 def write_doc(data_dir: str, rid: str, name: str, doc: dict) -> str:
-    """Write `set.json` or `approved.json` whole (a temporary file, then a rename, mode 0600). Returns the sha256 of the bytes."""
-    if name not in (SET, APPROVED):
+    """Write `set.json`, `approved.json` or `scan.json` whole (a temporary file, then a rename, mode 0600). Returns the sha256 of the bytes."""
+    if name not in (SET, APPROVED, SCAN):
         raise StockError("that is not a document of the stock folder", "usage")
     data = (json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
     if len(data) > DOC_LIMIT:
@@ -257,16 +266,42 @@ def write_doc(data_dir: str, rid: str, name: str, doc: dict) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _read_scan_bytes(data_dir: str, rid: str):
+    """The bytes of `scan.json` (a plain file with one link, at most DOC_LIMIT), or None when it is not there or there is no stock folder."""
+    try:
+        with _open(data_dir, rid) as fd:
+            try:
+                handle = os.open(SCAN, os.O_RDONLY | NOFOLLOW, dir_fd=fd)
+            except FileNotFoundError:
+                return None
+            except OSError:
+                raise StockError("that file cannot be read", "unreadable") from None
+            try:
+                info = os.fstat(handle)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > DOC_LIMIT:
+                    raise StockError("that file cannot be read", "unreadable")
+                with os.fdopen(handle, "rb", closefd=False) as f:
+                    return f.read(DOC_LIMIT + 1)
+            finally:
+                os.close(handle)
+    except StockError as e:
+        if e.code == "not_found":
+            return None
+        raise
+
+
 def read_doc(data_dir: str, rid: str, name: str):
-    """`set.json` or `approved.json` as a dict, or None when it is not there; `unreadable` for a file that is not JSON or not an object."""
-    if name not in (SET, APPROVED):
+    """`set.json`, `approved.json` or `scan.json` as a dict, or None when it is not there; `unreadable` for a file that is not JSON or not an object."""
+    if name not in (SET, APPROVED, SCAN):
         raise StockError("that is not a document of the stock folder", "usage")
     try:
-        data = media.read_work(data_dir, rid, "stock/" + name, DOC_LIMIT)
+        data = _read_scan_bytes(data_dir, rid) if name == SCAN else media.read_work(data_dir, rid, "stock/" + name, DOC_LIMIT)      # scan.json is not a name a step may read (media.STOCK_FILE): only this module opens it
     except media.MediaError as e:
         if e.code == "not_found":
             return None
         raise _stock_error(e) from None
+    if data is None:
+        return None
     try:
         doc = json.loads(data.decode("utf-8"))
     except (ValueError, UnicodeDecodeError, RecursionError):
@@ -274,6 +309,60 @@ def read_doc(data_dir: str, rid: str, name: str):
     if not isinstance(doc, dict):
         raise StockError("that document cannot be read", "unreadable")
     return doc
+
+
+def _scan_text(value, limit: int) -> str:
+    """One line of text the scan read, as the host keeps it: printable characters only (a control, bidi or zero-width character is not), whitespace collapsed, cut."""
+    return " ".join("".join(c if c.isprintable() else " " for c in value).split())[:limit] if isinstance(value, str) else ""
+
+
+def _scan_int(value, high: int) -> int:
+    return value if type(value) is int and 0 <= value <= high else 0
+
+
+def clean_scan_entry(raw) -> "dict | None":
+    """One file's entry of `scan.json` read as untrusted (P9-a): the closed codes, the counts, the QR kinds with a host or a scheme, and the text as at most 8 lines of 160 characters and 600 in all,
+    each cleaned again. None when it is not an object."""
+    if not isinstance(raw, dict):
+        return None
+    codes = [c for c in raw.get("codes") or [] if c in SCAN_CODES] if isinstance(raw.get("codes"), list) else []
+    text = raw.get("text") if isinstance(raw.get("text"), dict) else {}
+    lines, total = [], 0
+    for line in (text.get("lines") if isinstance(text.get("lines"), list) else [])[:SCAN_LINES_MAX]:
+        line = _scan_text(line, SCAN_LINE_MAX)
+        if line and total + len(line) <= SCAN_CHARS_MAX:
+            lines.append(line)
+            total += len(line)
+    qr = []
+    for q in (raw.get("qr") if isinstance(raw.get("qr"), list) else [])[:SCAN_QR_MAX]:
+        if not isinstance(q, dict) or q.get("kind") not in ("link", "action", "text"):
+            continue
+        host = q.get("host") if isinstance(q.get("host"), str) and SCAN_HOST.fullmatch(q["host"]) else None
+        scheme = q.get("scheme") if q.get("scheme") in SCAN_SCHEMES else None
+        qr.append({"kind": q["kind"], "host": host if q["kind"] == "link" else None, "scheme": scheme if q["kind"] == "action" else None,
+                   "text": _scan_text(q.get("text"), SCAN_QR_TEXT_MAX) or None if q["kind"] == "text" else None,
+                   "first_frame": _scan_int(q.get("first_frame"), SCAN_FRAMES_MAX), "frames": _scan_int(q.get("frames"), SCAN_FRAMES_MAX)})
+    return {"kind": "clip" if raw.get("kind") == "clip" else "image", "frames": _scan_int(raw.get("frames"), SCAN_FRAMES_MAX), "frames_qr": _scan_int(raw.get("frames_qr"), SCAN_FRAMES_MAX),
+            "frames_text": _scan_int(raw.get("frames_text"), SCAN_FRAMES_MAX), "frames_changed": _scan_int(raw.get("frames_changed"), SCAN_FRAMES_MAX), "partial": raw.get("partial") is True,
+            "codes": sorted(set(codes)), "text": {"lines": lines, "chars": _scan_int(text.get("chars"), 10 ** 7), "cut": text.get("cut") is True}, "qr": qr}
+
+
+def read_scan(data_dir: str, rid: str) -> dict:
+    """`scan.json` of the stock folder, read as untrusted and cleaned: {"scanner": {...}, "assets": {sha256: entry}, "failed": a closed reason or None, "at"}; empty `assets` when there is none."""
+    doc = read_doc(data_dir, rid, SCAN) or {}
+    scanner = doc.get("scanner") if isinstance(doc.get("scanner"), dict) else {}
+    assets = {}
+    for digest, raw in (doc.get("assets") if isinstance(doc.get("assets"), dict) else {}).items():
+        entry = clean_scan_entry(raw) if isinstance(digest, str) and SHA256.fullmatch(digest) else None
+        if entry is not None:
+            assets[digest] = entry
+    return {"version": SCAN_VERSION, "scanner": {k: _scan_text(scanner.get(k), 80) for k in ("image", "lang", "tesseract", "opencv")}, "assets": assets,
+            "failed": doc.get("failed") if doc.get("failed") in SCAN_REASONS else None, "at": _scan_text(doc.get("at"), 40)}
+
+
+def scan_digest(doc: dict):
+    """The sha256 of a scan document's canonical JSON, or None when it holds no file: what `approved.json` records of what the person was shown."""
+    return hashlib.sha256(canonical(doc)).hexdigest() if doc.get("assets") else None
 
 
 def read_served(data_dir: str, rid: str, name: str, limit: int = 32 * MIB) -> bytes:
@@ -426,13 +515,13 @@ def clear_candidates(data_dir: str, rid: str, keep=()) -> int:
 def clear_licensed(data_dir: str, rid: str) -> int:
     """What a new `video-media-find` removes (V9b-3b): the licensed previews, the full files, the contact sheets, the scratch folders and every `asset-*`. The quarantine stays (the web
     candidates of the set that are carried over)."""
-    return remove_where(data_dir, rid, lambda n: n.startswith(("prev-", "full-", ".work")) or n in SERVED or ASSET_FILE.fullmatch(n) is not None)
+    return remove_where(data_dir, rid, lambda n: n.startswith(("prev-", "full-", ".work")) or n in SERVED or n == SCAN or ASSET_FILE.fullmatch(n) is not None)
 
 
 def clear_web(data_dir: str, rid: str) -> int:
     """What a new `video-media-websearch` removes (V9b-3b): the quarantine, the full files, the contact sheets, the scratch folders and every `asset-*`. The licensed previews stay (the
     licensed candidates of the set that are carried over)."""
-    return remove_where(data_dir, rid, lambda n: n == QUARANTINE or n.startswith(("full-", ".work")) or n in SERVED or ASSET_FILE.fullmatch(n) is not None)
+    return remove_where(data_dir, rid, lambda n: n == QUARANTINE or n.startswith(("full-", ".work")) or n in SERVED or n == SCAN or ASSET_FILE.fullmatch(n) is not None)
 
 
 def prune_quarantine(data_dir: str, rid: str, keep) -> int:
