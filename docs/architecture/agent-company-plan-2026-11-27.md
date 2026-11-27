@@ -468,7 +468,7 @@ The person chooses the mode per agent. The default mode stays milestones (`runti
   |---|---|---|
   | Code | `eng-code-review`, which exists: six perspectives, the project's checks, a verdict (approve, approve with changes, request changes) | It runs tests and reads the diff; it needs `integration:vcs` |
   | Plans, proposals, documents | `core-critique`, which exists: failure modes with trigger, impact and mitigation, a verdict (approved, approved with changes, needs revision) | Its adversarial method fits text that will be acted on |
-  | Designs | `design-review` (planned), built when a real design task needs it (AGENTS.md: never from generic knowledge) | It must see the rendered result at several widths, captured by code (LAYOUT-CHECK, #981) |
+  | Designs | `design-review` (planned), built when a real design task needs it (AGENTS.md: never from generic knowledge) | It must see the rendered result at several widths, captured by code; no backlog item builds that capture yet, and the spec of `design-review` names it |
   | Anything else | **`new`** `core-work-review`, the fallback: the author skill's quality criteria, criterion by criterion | The criteria carry the area's knowledge; the procedure is general |
 
   - A specialist skill is split off because it has requirements of its own (design rule 4). Each review skill needs its own lab tests (principle 12), so a specialist is built where the volume of that kind of work justifies it, and the fallback covers the rest.
@@ -622,7 +622,7 @@ Each package is a backlog item, sized S, M or L. A package's spec is written bef
 |---|---|---|---|
 | AC0 | The dated entries in `contracts/runtime.md`: the L63 decision for page and terminal (AC-D12); the amendment of L49 and L26, with the colleagues' block and the reviewer's context (AC-D10); the autonomous work mode's consent kind (AC-D11); the amended R3 of the contained run, naming the review choice (AC-D11); the decision that the content of chains whose starter holds `agent-chains` may reach the lane's route, with what leaves the host kind by kind (AC-D16) | S | - |
 | AC1 | Agent profiles: the slot row, the path rule, the checks, its read into the lane as a data block, proposals by an agent accepted by the person | M | - |
-| AC2 | A conversation per agent: the store, the operations, the service routes, a message box on each floor; the migration of the existing `project` conversation into the planning agent's thread; on messaging and MCP, how a sender addresses an agent, under the L46 profiles; absorbs AGENT-DIRECT (#977) | M | AC1 |
+| AC2 | A conversation per agent: the store, the operations, the service routes, a message box on each agent, placed where R23 (#884) puts the agent and moved by AC10 or the rebuilt `interface/`; the migration of the existing `project` conversation into the planning agent's thread; on messaging and MCP, how a sender addresses an agent, under the L46 profiles; absorbs AGENT-DIRECT (#977) | M | AC1 |
 | AC3 | The conversation lane: the dispatch before it, the provider's streaming and bounded tool loop, the pinned template, an enable entry with several routes and the page's switch, the inputs, the tools to read an artifact, a task's state and the agent's board, the credential scan of outgoing blocks, the persona's message with attachments, the bounds and costs, work proposed as a route; latency measured | L | AC0, AC2 |
 | AC4 | Events: the core schema, a parser in each eval adapter outside the fingerprint, the reader rule, streaming to the page | M | AC3 |
 | AC5 | Memory: the four layers in the store, memories with their access sets, the summary of old threads, erasure with tombstones and the offered cascade, the store's full-text search for memories and their retrieval into the lane, editing on the page and in the terminal | L | AC3, AC7 |
@@ -647,12 +647,14 @@ Each package is a backlog item, sized S, M or L. A package's spec is written bef
 The AC10 spike and CARD-READ (#987) run whenever there is room; neither needs another package.
 
 **Existing items:**
-- AGENT-DIRECT (#977) is AC2 and AC3. What the planner sees of a direct task is answered by assignment by code (AC8) and by the reception.
-- R23 (#884) is AC10.
+- AGENT-DIRECT (#977) is AC2 and AC3, and was closed into them on 2026-11-27. What the planner sees of a direct task is answered by assignment by code (AC8) and by the reception.
+- R23 (#884) keeps the decision and the scene's model; AC10 is its build, and the runtime side of several agents per area is AC8.
+- AQ4 (#915) and EMB (#914) were closed into AC6 on 2026-11-27: the size limit of `ask` is the case AC6 must beat, and EMB's provider design goes into AC6's spec.
+- T42 (#874) records three rows as staying code: the autonomous work mode's consent kind, widening `agent-chains`, and the agent channel's ceiling.
+- R16 (#882) counts the review mode of AC12 as a path to the review skills; R17 (#883) is cited by AC8's spec.
 - CARD-READ (#987) is the phone form of the cards the lane attaches (AC-D8).
 - VOICE-MODE (#978) builds on AC3.
 - SETUP-GUIDE (#976) adds profiles, delegations, the autonomous work mode and giving `agent-chains` to the person's own messaging profile to the guided setup.
-- LAYOUT-CHECK (#981) gives `design-review` its rendered captures, when that skill is built.
 
 **Documents each package changes:**
 
