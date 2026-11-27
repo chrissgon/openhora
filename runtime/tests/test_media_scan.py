@@ -148,7 +148,7 @@ def test_a_link_with_no_site_name_is_its_own_sentence_and_the_rows_follow_the_pr
     assert row["host"] is None and row["sentence"] == "beat7: the picture shows a QR code with a link whose address could not be read as a site name."
     cfg = ops_core.context(world["path"])["cfg"]
     pt = dict(cfg, language="pt-BR")
-    assert phrases.text("CARD_VIDEO_SCAN_HEADING", pt).startswith("Verificado neste computador")
+    assert phrases.text("CARD_VIDEO_SCAN_HEADING", pt)== "Verificamos neste computador se há texto ou códigos QR:"
     assert "{" not in phrases.text("CARD_VIDEO_SCAN_QR_LINK", pt, slot="beat7", host="shop.example")
 
 
