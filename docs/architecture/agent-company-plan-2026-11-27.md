@@ -1,6 +1,6 @@
 # The agent company: a plan
 
-Version 5, of 2026-11-27. On `origin/main` at `9bacdbf9`. A proposal, written before any of it is built. The maintainer's decisions it rests on are recorded in `docs/decisions/2026-11-27-ac-0-agent-company.md`. Nothing here is built, and no `new` element is written as if it exists.
+Version 6, of 2026-11-27. On `origin/main` at `9bacdbf9`. A proposal, written before any of it is built. The maintainer's decisions it rests on are recorded in `docs/decisions/2026-11-27-ac-0-agent-company.md`. Nothing here is built, and no `new` element is written as if it exists.
 
 History:
 - Version 1 was reviewed by an independent reviewer agent on another model, which read the code and the contracts. Two rounds reached a consensus on every finding (section 10).
@@ -9,6 +9,12 @@ History:
 - The maintainer answered two points of version 4. Version 5 records those answers (section 13):
   - specialist review skills chosen by the kind of work, with a general one as the fallback (AC-D15, section 4.11);
   - OPEN-14 decided as a capability group of the governance: who started a chain decides whether it is autonomous, with a restrictive default the person may change (AC-D16, section 4.13).
+- Version 5 was reviewed a final time by a new reviewer of the same kind. One round of discussion reached a consensus on its 12 findings, and version 6 records it (section 14):
+  - plan release joins the autonomous parts that need `agent-chains`;
+  - the review gets a mode of the contained run of its own;
+  - the group gets one function, a closed list of starters and a row for every channel;
+  - a routine's holding is put to the maintainer (OPEN-15);
+  - the dependencies of the packages are corrected.
 
 The main changes from version 3, made in version 4:
 - The autonomous work mode has a consent kind of its own, with its warning's hash stored and checked. An `auto` agent gets plan release only by proof (sections 4.2, 4.11).
@@ -47,7 +53,7 @@ The maintainer's words, 2026-11-27, translated:
 - What the person and the agent said is kept, as the person's memory and the agent's.
 - It must be simple and look like people working, while being AI agents.
 
-On the same day the maintainer added the points recorded as AC-D1 to AC-D14 (section 3):
+On the same day the maintainer added the points recorded as AC-D1 to AC-D16 (section 3):
 - no managers;
 - a persona per agent;
 - agents that talk with the person and with each other without weakening security or governance;
@@ -168,7 +174,7 @@ The record is `docs/decisions/2026-11-27-ac-0-agent-company.md`. In short:
     - every step outside the pack is a request to the colleague who has it (section 4.3);
     - the route fits the agent's caps and the chain's budget.
   - A route that fails a check is refused and recorded. This is how an agent splits a task in two.
-- **Plan approval.** Every plan waits for the person's approval, as today, except in the autonomous work mode of section 4.11.
+- **Plan approval.** Every plan waits for the person's approval, as today, except in the autonomous work mode of section 4.11, and only in a chain whose starter holds `agent-chains` (section 4.13). In any other chain the plan waits for the person, whatever the agent's consent.
   - **An agent fixed to a model:** plan release comes with the work mode's consent. That consent is a **`new`** consent kind:
     - **The warning:** its sha256 is stored in the consent, and the consent is valid only while that hash equals the current warning's hash. A consent given under an earlier warning, and every consent of today's kind, never gains plan release.
     - **Revocation:** it goes stale when the person changes the model or lowers the mode, as `consent_valid` does today.
@@ -213,7 +219,7 @@ The record is `docs/decisions/2026-11-27-ac-0-agent-company.md`. In short:
   - A colleague's information never enters the `answered` channel (`runtime/ops_task_run.py:154`, `runtime/ops_runs.py:133`–`138`); it has a block of its own (section 4.10).
   - Agent-written text that enters a run passes the credential scan of `scripts/redact.py` in code first.
 - **Brakes, needed from the start:**
-  - every chain between agents starts from a line the person typed, a task the person approved, or a routine the person created;
+  - every chain between agents starts from a starter of the closed list of section 4.13 (terminal, page, a messaging sender, a routine), recorded on the chain;
   - a limit of hops per chain;
   - a budget per chain set where it started (OPEN-3);
   - the same question to the same agent in one chain is answered once;
@@ -267,7 +273,7 @@ The record is `docs/decisions/2026-11-27-ac-0-agent-company.md`. In short:
     - a mail or calendar snapshot, and a memory derived from one, only with `@<id>`, and only from the terminal or the page;
     - a version the person changed by hand only where the person is.
 - **Tools, read-only and run by code.**
-  - Read an artifact, a task's state, or the agent's own board. Reading an artifact by its path follows today's rule for project files: an artifact is project content every agent may read. Restricting artifacts themselves is out of this plan (section 8).
+  - Read an artifact, a task's state, or the agent's own board. The task-state tool returns no run-reply text for a chain whose starter does not hold `agent-chains`, nor on a page that does not hold it (section 4.13). Reading an artifact by its path follows today's rule for project files: an artifact is project content every agent may read. Restricting artifacts themselves is out of this plan (section 8).
   - Search the knowledge base with a query the agent writes (AC-D10). Code runs the search, filters it by the access sets, caps the number of passages and records the query and what came back.
   - Each tool is limited to what that agent may read.
 - **Bounds, with numbers fixed in AC3's spec:**
@@ -372,7 +378,7 @@ The lane is not a skill, so it has no band from skill evidence. Like the interpr
 
 Guard cases always run. `auto` picks the lane's route only among routes with a reliable lane band, and the lane is enabled on no channel before one has it.
 
-The classification of questions and the matching of delegations are measured in AC11 (section 4.10). The review is measured as skills (section 4.11).
+The downgrades of questions and the matching of delegations run on the same pinned route, so their guard cases are cases of this same evidence kind, which AC11 adds (section 4.10). The review is measured as skills (section 4.11).
 
 ### 4.9 The office
 
@@ -426,7 +432,7 @@ A task that stops keeps stopping as today: no skill changes. What changes is whe
   - the cases of the delegation match.
 
   Until a skill's cases pass on a model, its reruns with colleagues' answers are reviewed, by the person or by the review of section 4.11.
-- **The model route.** The downgrade and the delegation match read run replies, which are not a person's line. They run only in chains whose starter holds `agent-chains` (AC-D16, section 4.13). In every other chain, and until the guards have a reliable band, the levels are the ones code sets alone: N1, N3 and N4.
+- **The model route.** The downgrade and the delegation match read run replies, which are not a person's line. They run only in chains whose starter holds `agent-chains` (AC-D16, section 4.13). In every other chain, and until the guards have a reliable band, the levels are the ones code sets alone: N1, N3 and N4. In a chain whose starter does not hold the group, an N1 request becomes a proposed request the person approves.
 - **The person is informed, not flooded.**
   - Only N3 without a delegation, and N4, wait for the person.
   - Answers at N0, N1 and N2, and decisions under a delegation, go to the inbox under a daily cap. Beyond the cap they go to the periodic summary.
@@ -441,16 +447,21 @@ The person chooses the mode per agent. The default mode stays milestones (`runti
   1. **Reviews of internal work** (code, documents, designs).
      - **Runs released by proof:** they keep today's behaviour. The person may opt in to peer review for them too.
      - **Runs that would need the person's review:** the peer review below does it, under the work mode's consent (section 4.2). Such a run is recorded as autonomy by consent, reviewed by peers, never as proven (principle 9).
-  2. **Plan approval.** Released by the same consent for an agent fixed to a model, and by proof for an `auto` agent (section 4.2).
+  2. **Plan approval.** Released by the same consent for an agent fixed to a model, and by proof for an `auto` agent (section 4.2), and only in a chain whose starter holds `agent-chains` (section 4.13).
   3. **External effects.** The exact content approved by the person, or a standing policy accepted once in the terminal (L15, principle 11). No consent removes this. Example: a policy "deploy to staging at any time" lets a site be built and deployed to staging without the person; production needs the person's yes, or a policy of its own.
 - **An agent never approves its own work.**
 - **The review.**
-  1. Checks by code first: the project's tests, the validator, the checks the skill names.
+  1. Checks by code first: the project's tests, the validator, the checks the skill names. **`new`** A step kind of the step engine (`runtime/steps.py`) runs them before the review, with no network. A check that needs the network is a networked project script and waits for the person (L36). Their results enter the reviewer's context.
   2. A **temporary reviewer** runs the review skill chosen for that kind of work (below). It reads the work against the author skill's `## Quality criteria`, criterion by criterion, citing evidence for each, and adds its own specialty's checks. Every one of the 52 skills has that section. Code refuses a verdict that does not address every criterion.
   3. If the reviewer rejects, the author answers. The discussion is bounded by a number of rounds fixed in AC12's spec (OPEN-13).
   4. Without consensus, a **temporary tiebreaker** decides on quality.
   5. A disagreement about a decision (N3) goes to the person, not to the tiebreaker, unless a delegation covers it.
-- **The review skills (AC-D15).** One review skill cannot review code, designs and documents equally well, so code chooses the skill by the kind of work. The author skill's area and its declared `outputs` give the kind.
+- **The review skills (AC-D15).** One review skill cannot review code, designs and documents equally well, so code chooses the skill by the kind of work. The kind comes from the run's returned change set, because code is not declared in a skill's `outputs` (AGENTS.md), by a path classification AC12's spec fixes, for example:
+  - a changed path under `docs/` is a document;
+  - every other changed path is code;
+  - a run with no change set is classified by the declared outputs it wrote;
+  - work of several kinds goes to each matching reviewer, and all of them must approve;
+  - design work goes to the fallback until `design-review` exists.
 
   | Work | Review skill | Why its own |
   |---|---|---|
@@ -462,9 +473,16 @@ The person chooses the mode per agent. The default mode stays milestones (`runti
   - A specialist skill is split off because it has requirements of its own (design rule 4). Each review skill needs its own lab tests (principle 12), so a specialist is built where the volume of that kind of work justifies it, and the fallback covers the rest.
   - Code maps each skill's verdict words to approve or reject. When a skill's output does not address the author's criteria one by one, AC12 makes the smallest change that does: a Y change of that skill, with its tests.
   - Each review skill's lab band per model is the reviewer band for that kind of work, so the review needs no new evidence kind.
+  - A skill's band holds only for the task text it was measured on (`contracts/runtime.md`, "The contained run"). Each review skill therefore gets cases in the shape of the context code assembles, held by a byte-for-byte test of that prompt.
   - `core-work-review` is a new skill. Its cases are work with planted defects. It follows "Adding a skill": it is done when its first full test, or a closed pool, passes on the two lab models. Its name avoids `agents/reviewer.md`, which has another role.
-- **Temporary reviewers.** Each review is a contained run (`contained-run`), started for one review and ended after it (principles 12 and 14).
-  - A temporary reviewer has no memory, no inbox and no tools but reading.
+  - `eng-security-review` has no place here: it triages and dismisses dependency alerts, and the security perspective is one of `eng-code-review`'s six.
+- **Temporary reviewers.** Each review is a contained run, started for one review and ended after it (principles 12 and 14). Today's contained run does not fit a review, so AC12 adds a **`new`** review mode of it:
+  - **Scope check:** a closed list of review skills, checked in code, in place of the check that the skill is in an enabled agent's pack.
+  - **The copy:** the task's tracked files plus the diff as a patch file. Today's copy holds only the artifacts the skill declares, and a task copy has no `.git` (`runtime/workcopy.py`), so `eng-code-review` gets a Y change to review from a patch with no git history and to read the checks already run from the context.
+  - **The model:** the review choice, computed by code from the ranking or read from the person's reviewer-model key. It is never what a caller asks. Restriction R3 of the contained run is amended to name the review choice, by a dated entry in AC0, and its test asserts on both modes that no caller argument sets the model.
+  - **Commands:** the reviewer may run commands in the container, with no network and no credential (R2, R3).
+  - **What comes back:** nothing but the reply (R4). The verdict is read from the reply alone, and the review file a skill such as `eng-code-review` writes is discarded with the copy.
+  - A temporary reviewer has no memory and no inbox.
   - It takes no permanent agent's time, has no history with the author, and also covers an area with a single agent.
   - A permanent colleague may review when the person prefers.
 - **Context for a good review.** Code assembles it, each block nonce-marked, capped and passed through the credential scan:
@@ -490,7 +508,7 @@ The person chooses the mode per agent. The default mode stays milestones (`runti
     - An author model with no evidence on that review skill counts as the lowest score, and the reviewer must then be `reliable` on it.
   - **The tiebreaker** is the best-ranked model, different from both.
   - **When the author already uses the best-ranked model:** the reviewer is another model of an equivalent band. When there is none, the review goes back to the person.
-  - **The person's choice.** The person may fix the reviewer's and the tiebreaker's models per agent or per area, instead of the platform choosing. A model the person names runs whatever its band says, and the record says it was the person's choice.
+  - **The person's choice.** The person may fix the reviewer's and the tiebreaker's models per agent or per area, instead of the platform choosing. The reviewer-model key lives in the accepted configuration and is widened only with `accept-config --widen`. A model the person names runs whatever its band says, and the record says it was the person's choice.
 - **Costs, stated before the consent.**
   - **What a review adds:** a reviewer run; for each round of discussion, a turn of the author and of the reviewer; for a tiebreak, one more run, often on a more expensive model.
   - **The warning:** its text is fixed and hashed. It says that the costs are estimates and that the agent's daily caps are the real bound on spend.
@@ -518,23 +536,39 @@ The person chooses the mode per agent. The default mode stays milestones (`runti
 
 A request from someone other than the person, or a forwarded text with a hidden instruction, could use those automatic steps to gather information inside the agents' access sets and return it in a reply. External effects stay blocked by L15, but the automatic chain is the path such a request would use.
 
-**The mechanism already exists.** The channel policy (`runtime/operations.py`, `GROUPS`) gives groups per channel and, on messaging, per sender profile (L46). Messaging is closed by default (`DEFAULT_POLICY`). A group is widened only with `accept-config --widen`, in the terminal, with the hash of the widening list, and the terminal is never narrowed (`NEVER_NARROWED`). Some groups only add a capability to an operation another group grants (`KIND_ONLY`: `interpret`, `ask-mail`).
+**The mechanism already exists.** The channel policy (`runtime/operations.py`, `GROUPS`) gives groups per channel and, on messaging, per sender profile (L46). Messaging is closed by default (`DEFAULT_POLICY`). A group is widened only with `accept-config --widen`, in the terminal, with the hash of the widening list, and the terminal is never narrowed (`NEVER_NARROWED`). Some groups only add a capability to an operation another group grants (`KIND_ONLY`: `ask-mail`, `interpret`, `send-files`, `confirm-reads-off`, `interpret-fallback`). A group is held only by being listed: `holds()` answers False for a channel with no entry of its own (`runtime/operations.py:1650`).
 
-**The group.** **`new`** `agent-chains`, a capability group of that kind. A chain gets the autonomous parts only when its starter holds it:
+**The group.** **`new`** `agent-chains`, a capability group of that kind. It attaches to the operations that start a chain (`say`, `request`, `route`) with a kind of its own, `chain-autonomy`. A chain gets the autonomous parts only when its starter holds it:
+- plan release, by consent or by proof (section 4.2);
 - the run replies read by the lane's model route;
 - the measured downgrades and the delegation match (section 4.10);
 - the turns between agents (section 4.3).
 
+**The starter.** Starters are a closed list: terminal, page, `messaging:<sender>`, routine.
+- **When it is recorded:** at the creation of the request, as the actor label `ops_actor.label` writes.
+- **What inherits it:** every task, message and rerun of the chain.
+- **What never changes it:** approving or answering.
+- **Other paths:**
+  - a line carried by `chat` is recorded as the channel that carried it;
+  - a handler tick or anything else is not a starter of the list, and its chain never holds the group.
+
+**One function.** `chain_autonomy(starter, cfg)`, with a closed truth table, answers whether a chain holds the group. It is asked again against the current accepted configuration at each autonomous step, so taking the group away works at once.
+
 | Who started the chain | Default | Can the person change it? |
 |---|---|---|
 | The terminal | Holds it | No: the terminal is never narrowed |
-| The page | Holds it | Yes: a cautious person takes it off the page |
+| The page | Holds it when the page has no entry of its own in the configuration; with an entry, only if the entry lists the group. An entry written before the group existed does not list it, so that page loses the group: the safe direction | Yes: a cautious person writes a page entry without it |
+| The MCP mode | Never, in v1: a model client must not start autonomous chains | No |
 | The person's own messaging profile | Does not hold it: the runtime does not know which sender is the person until the person says so | Yes: one `accept-config --widen` for that profile; the guided setup (SETUP-GUIDE, #976) offers it |
 | Another messaging sender, for example a team member | Does not hold it | Yes: the exception, widened for that sender's profile |
-| A routine the person created | Counts as the person's: the person accepted it by its hash; the external content it brings stays marked as data | Through the routine's own rules (L33) |
-| Anything else (a chain started by external content) | Does not hold it | No: it has no profile to widen |
+| A routine | Does not hold it until OPEN-15 is decided | OPEN-15 |
+| A handler tick, or anything else (a chain started by external content) | Never | No: it is not a starter of the list |
 
-A chain whose starter does not hold the group still runs. Its questions go to the person (levels N1, N3 and N4 by code), and agents exchange only requests and deliveries, with the person in between.
+A chain whose starter does not hold the group still runs, with the person in between:
+- its plans wait for the person's approval, whatever the agent's consent;
+- its questions go to the person, and an N1 request to the owning agent becomes a proposed request the person approves;
+- agents exchange only requests and deliveries, and no turn between agents runs;
+- the lane's task-state tool returns no run-reply text for it, and on a page that does not hold the group.
 
 **What the group never changes**, because these are hard limits, not configuration:
 - L15 for external effects;
@@ -556,14 +590,16 @@ A chain whose starter does not hold the group still runs. Its questions go to th
 | Approvals, tasks, runs and pending decisions only grow (L13) | Unchanged; messages between agents, questions and answers between agents, delegated decisions and reviews join it; the person's threads and memories are outside it, with tombstones on erasure |
 | No credential inside a run | Unchanged; the lane's provider gets its key the way the interpreter's does; every outgoing lane block and every agent-written text entering a run passes the credential scan in code |
 | Page and terminal lines reach a model route only by a dated decision (L63) | Decided for the lane (AC-D12); run replies and messages between agents reach it only in chains whose starter holds `agent-chains` (AC-D16); messaging lines in the lane wait for their own decision |
-| A chain gets the autonomous parts only when its starter holds `agent-chains`; the group is widened only with `accept-config --widen` in the terminal, and a chain started by external content never holds it | `new`, in code (L46's mechanism) |
+| A chain gets the autonomous parts (plan release, run replies on the lane's route, downgrades, turns between agents) only when its starter holds `agent-chains`, checked by `chain_autonomy` at each step; otherwise its plans wait for the person whatever the consent | `new`, in code (L46's mechanism) |
+| Starters are a closed list (terminal, page, a messaging sender, a routine), recorded at the request's creation and never changed; the MCP mode and handler ticks never hold the group; the group is widened only with `accept-config --widen` in the terminal | `new`, in code |
 | The inputs of an answer are chosen by code (L49), and sources reach a run only through its plan or an answer (L26) | Amended (AC-D10): code may rank by a pinned embedding model, never by a generative model's choice; L26 also admits the colleagues' block and the reviewer's context, selected by code and recorded as `task_sources`; the lane gets its own limit of inputs, with two agent-chosen tools inside the access set |
 | A memory derived from a mail or calendar snapshot surfaces only with `@<id>` from the terminal or the page (L49) | Unchanged rule, applied to memories |
 | The person's standing instructions are written only by the person (L40) | Unchanged; profiles and the priorities file get the same path rule; delegations and budgets are bounds of the accepted configuration |
 | A consent is valid only while its warning's hash equals the current warning's | `new` for the autonomous work mode's consent kind, in code |
 | An `auto` agent's plans are released only by proof | `new`, in code |
 | The agent channel has a literal allow-list ceiling: a read, a notice, a question, a request, a delivery, a route proposal | `new`, in code; a test walks the table |
-| An agent never approves its own work; a reviewer's verdict is the output of a contained run of a review skill, read by code | `new`, in code |
+| An agent never approves its own work; a reviewer's verdict is the output of a contained run of a review skill, read by code from the reply alone | `new`, in code |
+| A review run's model comes from the review choice (the ranking, or the person's reviewer-model key widened like any bound), never from what a caller asks (R3, amended) | `new`, in code; R3's test asserts it on both modes of the contained run |
 | A colleague's answer is resolved by code as `answered-by-agent`, never as `answered`, and never enters the person's answers in a rerun | `new`, in code |
 | A question routed below N3 and asked again goes to the person | `new`, in code |
 | An answer citing a source or an artifact version the asking agent may not read is refused; a message is filtered by the sender's access set | `new`, in code |
@@ -573,7 +609,7 @@ A chain whose starter does not hold the group still runs. Its questions go to th
 | The lane has no tool with an external effect and no write outside the store's records; its tool list is a literal a test compares | `new`, in code |
 | A task has at most one owner at a time, assigned by code | `new`, in the store |
 | A request an agent wrote is never "the request in the person's words" | `new`, in code |
-| A chain between agents starts from the person's line, task or routine, within a hop limit and a budget | `new`, in code |
+| A chain between agents starts from a starter of the closed list, within a hop limit and a budget | `new`, in code |
 | The sources' index is disjoint from the data folder, the store and the checkout, and follows no link (L22, L23 restated) | `new`, in code, in AC6 |
 | A memory, passage or message from external content is marked and never read as an instruction | `new`; the mark is in code; the reading is a measured guard |
 
@@ -583,28 +619,29 @@ Each package is a backlog item, sized S, M or L. A package's spec is written bef
 
 | Id | Package | Size | Needs |
 |---|---|---|---|
-| AC0 | The dated entries in `contracts/runtime.md`: the L63 decision for page and terminal (AC-D12); the amendment of L49 and L26, with the colleagues' block and the reviewer's context (AC-D10); the autonomous work mode's consent kind (AC-D11); the decision that the content of chains whose starter holds `agent-chains` may reach the lane's route, with what leaves the host kind by kind (AC-D16) | S | - |
+| AC0 | The dated entries in `contracts/runtime.md`: the L63 decision for page and terminal (AC-D12); the amendment of L49 and L26, with the colleagues' block and the reviewer's context (AC-D10); the autonomous work mode's consent kind (AC-D11); the amended R3 of the contained run, naming the review choice (AC-D11); the decision that the content of chains whose starter holds `agent-chains` may reach the lane's route, with what leaves the host kind by kind (AC-D16) | S | - |
 | AC1 | Agent profiles: the slot row, the path rule, the checks, its read into the lane as a data block, proposals by an agent accepted by the person | M | - |
 | AC2 | A conversation per agent: the store, the operations, the service routes, a message box on each floor; the migration of the existing `project` conversation into the planning agent's thread; on messaging and MCP, how a sender addresses an agent, under the L46 profiles; absorbs AGENT-DIRECT (#977) | M | AC1 |
-| AC3 | The conversation lane: the dispatch before it, the provider's streaming and bounded tool loop, the pinned template, an enable entry with several routes and the page's switch, the inputs and the two agent-chosen tools, the credential scan of outgoing blocks, the persona's message with attachments, the bounds and costs, work proposed as a route; latency measured | L | AC0, AC2 |
+| AC3 | The conversation lane: the dispatch before it, the provider's streaming and bounded tool loop, the pinned template, an enable entry with several routes and the page's switch, the inputs, the tools to read an artifact, a task's state and the agent's board, the credential scan of outgoing blocks, the persona's message with attachments, the bounds and costs, work proposed as a route; latency measured | L | AC0, AC2 |
 | AC4 | Events: the core schema, a parser in each eval adapter outside the fingerprint, the reader rule, streaming to the page | M | AC3 |
-| AC5 | Memory: the four layers in the store, the summary of old threads, erasure with tombstones and the offered cascade, the store's full-text search for memories, editing on the page and in the terminal | L | AC2 |
-| AC6 | The knowledge base: passages, hybrid search with local embeddings, the index beside the sources folder with the L22 and L23 limits, the `sources` key and the access sets of memories and artifact versions, agents' writes with provenance, `ask` over it; first real case named in its spec | L | AC0, AC5 |
-| AC7 | Messages between agents: the table under L13, the four kinds, the access set per message, the agent channel's ceiling, the capability group `agent-chains` with its defaults and the starter recorded on each chain, the provenance field of agent-written requests, the credential scan, the brakes, the visibility | L | AC1, AC2 |
+| AC5 | Memory: the four layers in the store, memories with their access sets, the summary of old threads, erasure with tombstones and the offered cascade, the store's full-text search for memories and their retrieval into the lane, editing on the page and in the terminal | L | AC3, AC7 |
+| AC6 | The knowledge base: passages, hybrid search with local embeddings, the index beside the sources folder with the L22 and L23 limits, the access sets of artifact versions, the lane's search tool, agents' writes with provenance, `ask` over it; first real case named in its spec | L | AC0, AC5, AC7 |
+| AC7 | Messages between agents: the table under L13, the four kinds, the `sources` key and the access sets that messages, memories and answers use, the access set per message, the agent channel's ceiling, the capability group `agent-chains` with its defaults, the closed list of starters recorded on each chain and `chain_autonomy`, the provenance field of agent-written requests, the credential scan, the brakes, the visibility | L | AC1, AC2 |
 | AC8 | Self-managing agents: the `area` key, open tasks and assignment by code, the change of `agent_of` and all its callers, the owning agent per artifact, an agent's own plan as a route (`core-orchestrator` limited to one pack, Y change with cases), the reception (`core-orchestrator`, Y change, tested), one responsible agent per request, the priorities file | L | AC7 |
 | AC9 | Proof of the lane: its evidence kind, cases and bands per route, including attachments, injected passages and routes | L | AC3 (starts with it) |
 | AC10 | The office, if R23 chooses a fork: the spike, then its source fed by AC4 | L | spike: none; wiring: AC4 |
-| AC11 | Questions between agents by level: N1, N3 and N4 by code; `answered-by-agent` and the colleagues' block; the no-loop rule; delegations in the accepted configuration; the inbox cap; the cases of reruns with colleagues' answers. For chains whose starter holds `agent-chains`: the measured downgrades to N0 and N2 and the delegation match, with their cases | L | AC6, AC7; the downgrades and the match: AC3, AC9 |
-| AC12 | Peer review and the autonomous work mode: the choice of the review skill by the kind of work; `eng-code-review` and `core-critique` as reviewers, with the smallest change each needs to address the author's criteria (Y changes, tested); the new skill `core-work-review` with its cases and first full test; `design-review` left planned until a real design task; temporary reviewer and tiebreaker runs, the context assembled by code, bounded discussion, the ranking of models and the person's choice, the consent kind with its stored warning hash, the cost estimate recorded with the consent, plan release, the opt-in for proven runs, the inbox summary | L | AC0, AC8, AC11 |
+| AC11 | Questions between agents by level: N1, N3 and N4 by code; `answered-by-agent` and the colleagues' block; the no-loop rule; delegations in the accepted configuration; the inbox cap; the cases of reruns with colleagues' answers. For chains whose starter holds `agent-chains`: the measured downgrades to N0 and N2 and the delegation match, with their cases | L | AC6, AC7, AC8; the downgrades and the match: AC3, AC9 (their cases are cases of the lane's evidence kind) |
+| AC12 | Peer review and the autonomous work mode: the choice of the review skill by the kind of work; `eng-code-review` and `core-critique` as reviewers, with the smallest change each needs to address the author's criteria (Y changes, tested); the new skill `core-work-review` with its cases and first full test; `design-review` left planned until a real design task; the review mode of the contained run (a closed list of review skills checked in code in place of the pack check, the task's tracked files and the diff as a patch file, the model from the review choice); `eng-code-review` changed to review from a patch with no git history and to read the checks already run from the context (Y change, tested); cases of each review skill in the assembled-prompt shape, held by a byte-for-byte test; the step kind that runs the project's checks before the review; temporary reviewer and tiebreaker runs, the context assembled by code, bounded discussion, the ranking of models and the person's choice, the consent kind with its stored warning hash, the cost estimate recorded with the consent, plan release, the opt-in for proven runs, the inbox summary | L | AC0, AC8, AC11 |
 
 **Order:**
 1. AC0 and AC1.
 2. AC2.
 3. AC3, with AC9 beside it.
-4. AC4, AC5 and AC7.
-5. AC6 and AC8.
-6. AC11.
-7. AC12.
+4. AC4 and AC7.
+5. AC5 and AC8.
+6. AC6.
+7. AC11.
+8. AC12.
 
 The AC10 spike and CARD-READ (#987) run whenever there is room; neither needs another package.
 
@@ -646,6 +683,10 @@ Still open:
 - **OPEN-9. Memory written by an agent.** Recommended: allowed without approval inside a task or a turn, always visible and erasable, marked when it came from external content, and kept out of turns that carry an effect proposal.
 - **OPEN-11. Reading memories from MCP or messaging.** Recommended: not in v1.
 - **OPEN-12. How a delegation names a kind of decision.** Recommended: free words written by the person, matched by a model behind a measured guard, with a doubtful match sent to the person.
+- **OPEN-15. Whether a routine holds `agent-chains`.** A routine can be drafted from messaging under `routine-edit` and approved on a page; it is also where external content arrives unattended. Until decided, a routine does not hold the group. Recommended:
+  - a routine holds the group only when it was approved on a channel that holds it, and that holding enters the routine's content hash, as the consent of D34 does;
+  - a routine drafted from messaging holds it only through the channel that approved it;
+  - when a later page entry drops the group, the routines it approved lose it at their next run, because holding is checked again at each step.
 - **OPEN-13. The number of review rounds and the reviewer's budget.** Recommended: two rounds before the tiebreak, fixed in AC12's spec from the first measurements.
 
 ## 8. Not in this plan
@@ -653,7 +694,7 @@ Still open:
 - Choosing the office (R23 decides it).
 - Voice (VOICE-MODE, #978), built on the lane later.
 - Agents of another project talking to this one.
-- Messaging lines reaching the lane (a later decision under L63).
+- Messaging lines reaching the lane as a conversation (a later decision under L63). A chain started from messaging by a sender who holds `agent-chains` does send its run replies, which may quote the line, to the lane's route (AC-D16).
 - Restricting who may read an artifact as a project file. Today any run may read the project's artifacts as inputs; the plan keeps that rule and filters only what it creates (section 4.7). Changing it is its own decision.
 - The v2 item of section 4.3, which needs its own decision.
 
@@ -733,8 +774,8 @@ The same kind of reviewer read version 3 against the code. It raised 21 findings
 | 8. Who acts as "the agent" outside the lane: claims, own routes, N1 requests | 4.2 (assignment by code, deterministic and recorded; routes by `core-orchestrator` limited to one pack, or by the lane) |
 | 9. Priorities and delegations outside the accepted configuration | 4.10 (delegations in `runtime.json` through `accept-config --widen`), 4.12 (the priorities file holds the order only) |
 | 10. The AGENTS.md amendments are missing | Section 6, "Documents each package changes" |
-| 11. The reviewer as an agent body: `agents/reviewer.md` has another role; `contained-run` runs a skill | 4.11 (the skill `core-work-review`, whose lab band is the reviewer band) |
-| 12. Model choice compares different scales; "best" is undefined; proven runs | 4.11 (ranking by `core-work-review` scores, ties by price; the proxy stated; proven runs keep today's behaviour, with an opt-in) |
+| 11. The reviewer as an agent body: `agents/reviewer.md` has another role; `contained-run` runs a skill | 4.11 (version 4: the skill `core-work-review`; version 5 made it the fallback beside specialist review skills, AC-D15; whose lab band is the reviewer band) |
+| 12. Model choice compares different scales; "best" is undefined; proven runs | 4.11 (ranking by the scores on the chosen review skill, since version 5; ties by price; the proxy stated; proven runs keep today's behaviour, with an opt-in) |
 | 13. "Supervised stays the default" is false; two autonomous modes | 4.11 |
 | 14. The list of `agent_of` callers is incomplete; open tasks in routines | Section 2, 4.2 |
 | 15. An enable entry pins one route; "has a band" is ambiguous; the switch | 4.4 |
@@ -753,3 +794,22 @@ The same kind of reviewer read version 3 against the code. It raised 21 findings
 |---|---|---|
 | One review skill, `core-work-review`, for every kind of work | Too general: code, a design and a document need different reviews. Approved: code chooses the review skill by the kind of work (`eng-code-review`, `core-critique`, a planned `design-review`), with `core-work-review` as the fallback | AC-D15, 4.11, AC12 |
 | OPEN-14, recommended by the channel where a chain began | Asked for the pros and cons of deciding by the channel and of deciding by the declared governance limits alone; agreed that the risk lies in who started the chain, not in the channel; asked whether it fits the current governance as a default the person may change. Approved: the capability group `agent-chains`, in the terminal and on the page by default, given to a messaging sender's profile with `accept-config --widen` | AC-D16, 4.13, AC0, AC7 |
+
+## 14. Final review of version 5 (2026-11-27)
+
+A new reviewer of the same kind read version 5 against the code. It raised 12 findings: 9 major and 3 minor. Every piece of evidence was checked in the code. One round of discussion reached a consensus: the plan's author accepted 7 findings as proposed and 5 with changes the reviewer agreed to.
+
+| Finding | Where it is resolved |
+|---|---|
+| 1. Plan release by consent was not limited by who started the chain, so any sender with `talk` could launch work that runs end to end | 4.2, 4.11, 4.13 (plan release is an autonomous part; otherwise the plan waits for the person whatever the consent), section 5 |
+| 2. "Each review is a contained run" is false as built: the model, the pack check, the copy without the source or `.git`, the commands a run may use, bands bound to the measured task text | 4.11 (a review mode of the contained run; R3 amended in AC0; `eng-code-review` changed; cases in the assembled-prompt shape; the verdict from the reply alone), AC0, AC12 |
+| 3. A capability group cannot produce the stated defaults: `holds()` is False for a channel with no entry; no operation named | 4.13 (attached to `say`, `request` and `route` with the kind `chain-autonomy`; `chain_autonomy` with a closed truth table; a page entry written before the group loses it) |
+| 4. No row for MCP, `chat` or handler ticks | 4.13 (a closed list of starters; MCP never in v1; `chat` recorded as the carrying channel; handler ticks never) |
+| 5. When the group is checked, and who the starter is, were undefined | 4.13 (the actor label at the request's creation, inherited, never changed by approving or answering; checked again at each autonomous step) |
+| 6. The routine row was not in the decision record | OPEN-15 (until decided, a routine does not hold the group) |
+| 7. Chains without the group contradicted 4.10 and the brakes | 4.10, 4.13 (N1 becomes a proposed request the person approves), 4.3 and section 5 (starters of the closed list) |
+| 8. Package dependencies did not match the text | Section 6 (the `sources` key and the access sets in AC7; AC3's tools limited to reading; AC5 adds memory retrieval and needs AC3 and AC7; AC6 adds the search tool and needs AC7; AC11 needs AC8; a new order) |
+| 9. The guards of the downgrades and the delegation match had no evidence kind | 4.8 (cases of the lane's evidence kind, added by AC11), section 6 |
+| 10. The kind of work cannot come from declared outputs | 4.11 (the run's change set, a path classification, all reviewers approve mixed work, design to the fallback; `eng-security-review` has no place) |
+| 11. Stale or inexact text | Header, section 1, 4.13 (the five capability groups), section 8, section 12 |
+| 12. A page without the group could still send run replies through the lane's task-state tool | 4.4, 4.13 |
