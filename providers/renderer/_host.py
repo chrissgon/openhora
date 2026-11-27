@@ -273,7 +273,7 @@ def verb_base(args) -> dict:
         inner += opt("--push-in", args.push_in) + opt("--zoom-anchor-y", args.zoom_anchor_y)
         inner += opt("--fps", args.fps) + opt("--gap", args.gap) + opt("--pad-head", args.pad_head) + opt("--pad-tail", args.pad_tail) + opt("--face-box", args.face_box)
         inner += opt("--long-cut", args.long_cut) + opt("--wordless-max", args.wordless_max)
-        inner += opt("--zoom", args.zoom) + opt("--zoom-factor", args.zoom_factor)
+        inner += opt("--zoom", args.zoom) + opt("--zoom-factor", args.zoom_factor) + opt("--caption-block", args.caption_block)
         inner += ["--retakes", args.retakes]
         for flag, values in (("--confirm", args.confirm), ("--keep", args.keep), ("--color", args.color), ("--font", args.font)):
             for v in values or []:
@@ -606,6 +606,7 @@ def add_common_parsers(sub) -> None:
     sp.add_argument("--long-cut", type=float, help="a cut this long (seconds) also takes the wordless sound at its edges (default 2)")
     sp.add_argument("--wordless-max", type=float, help="seconds of sound with no word that a long cut does not leave at an edge (default 0.3)")
     sp.add_argument("--caption-position", default="bottom")
+    sp.add_argument("--caption-block", help="the caption block to draw, <ns>:<name> (default: the engine's own)")
     sp.add_argument("--face-box", help="X,Y,W,H in frame pixels (1080x1920): where the speaker's face is; given once per recording")
     sp.add_argument("--zoom", choices=("alternate", "none"))
     sp.add_argument("--zoom-factor", type=float)

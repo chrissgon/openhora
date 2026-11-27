@@ -133,6 +133,35 @@ def font_ids(root: str) -> dict:
     return {(row["family"], row["weight"]): row["id"] for row in _load(root, ALLOWLIST)["fonts"]}
 
 
+def font_weights(root: str) -> dict:
+    """{id: weight} of the renderer's font allow-list: what a per-video `font` choice may name, and the weight it takes when it gives none."""
+    return {row["id"]: row["weight"] for row in _load(root, ALLOWLIST)["fonts"]}
+
+
+def with_fonts(flags: list, record: dict, fonts: dict, root: str = None):
+    """(flags, record) with the fonts a video chose for itself (the review's `fonts`: {role: {"id", "weight"}}, P2a): each chosen role's `--font ROLE=...` pair is dropped from
+    `flags` (the renderer refuses a role given twice) and `--font ROLE=ID:WEIGHT` is added; the record's `fonts` holds the effective pairs, its `chosen_fonts` the roles the review
+    chose, and its hash is made again, so that the approval sees the change. With no choice both come back as they were. The id is passed as asked: the renderer falls back
+    to the role's default for one that is not on its allow-list and reports it (`font_fallbacks`)."""
+    if not fonts:
+        return flags, record
+    chosen = {role: "%s:%d" % (spec["id"], spec["weight"]) for role, spec in fonts.items()}
+    kept, k = [], 0
+    while k < len(flags):
+        if flags[k] == "--font" and flags[k + 1].partition("=")[0] in chosen:
+            k += 2
+            continue
+        kept.append(flags[k])
+        k += 1
+    for role in sorted(chosen):
+        kept += ["--font", "%s=%s" % (role, chosen[role])]
+    body = {key: record[key] for key in ("source", "reason", "colors", "notes")}
+    body["notes"] = [n for n in record["notes"] if n.get("role") not in chosen]      # a note about a role the video chose its own font for no longer holds
+    body["fonts"] = dict(record["fonts"], **chosen)
+    body["chosen_fonts"] = sorted(chosen)
+    return kept, dict(body, hash=hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest())
+
+
 # --- contrast --------------------------------------------------------------------------------------------------------------------
 
 

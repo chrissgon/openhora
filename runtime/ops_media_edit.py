@@ -43,6 +43,7 @@ import ops_step_seams  # noqa: E402
 import ops_waits  # noqa: E402
 import step_media  # noqa: E402
 import steps  # noqa: E402
+import theme  # noqa: E402
 import workcopy  # noqa: E402
 
 KIND = step_media.KIND.name
@@ -72,6 +73,24 @@ def _limits(root: str) -> dict:
         return {"word_chars_max": int(found["word_chars_max"]), "words_max": int(found["words_max"])}
     except (OSError, ValueError, KeyError, TypeError):
         return {}
+
+
+def _zoom_defaults(root: str) -> dict:
+    """The renderer's own zoom factor and slow push-in, so that the review checks the pair as `base` will; {} (the defaults of runtime/captions.py) when the file cannot be read."""
+    try:
+        with open(os.path.join(root, *PRESETS), encoding="utf-8") as f:
+            found = json.load(f)["zoom"]
+        return {"factor": float(found["factor"]), "push_in": float(found["push_in"])}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
+def _font_ids(root: str):
+    """{id: weight} of the renderer's font allow-list, or None when it cannot be read (every font choice is then refused)."""
+    try:
+        return theme.font_weights(root)
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def _candidates(data_dir: str, rid: str) -> dict:
@@ -161,7 +180,8 @@ def edit(ctx: dict, task_id: int, revision: int, edits: list, *, actor=None) -> 
                 read_edited, read_review, edits, revision=revision, proposals=captions.retake_ranges(proposal_edl),
                 beats={r["beat"] for r in proposal_beats.get("report") or [] if r.get("preset")},
                 slots={s["slot"] for s in proposal_beats.get("slots") or []}, limits=_limits(media_store.root()),
-                animate=media_animation.checker(ctx), stock=_candidates(cfg["data_dir"], rid))
+                animate=media_animation.checker(ctx), stock=_candidates(cfg["data_dir"], rid),
+                caption_blocks=media_animation.caption_blocks(ctx), zoom_defaults=_zoom_defaults(media_store.root()), font_ids=_font_ids(media_store.root()))
         except captions.CaptionError as e:
             raise core.OpsError(f"refused: {e.code} {e.field}".strip(), 1) from None
         if _content(edited, review) == _content(read_edited, read_review):

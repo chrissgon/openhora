@@ -9,7 +9,7 @@ Gated by the variable of the image, as the other live files are (the parameter o
 
 with no `-n`. The build comes first, into the same folder (the `build` verb of the host).
 
-Two kinds of leg. The functional legs (F1-F12, short inputs) run in CI's docker jobs and on the Mac. The machine legs (M1, M2, M4, M5, `test_mac_*`) need
+Two kinds of leg. The functional legs (F1-F13, short inputs) run in CI's docker jobs and on the Mac. The machine legs (M1, M2, M4, M5, `test_mac_*`) need
 8 cores, a long run or the real size, so they run only with `WB_ENGINE_MAC_LEGS=1` (the maintainer's machine), one after another, and write the
 committed report when `WB_ENGINE_REPORT=<a new file>` is set (a file that exists is refused):
 
@@ -447,6 +447,32 @@ def test_f12_the_transitions_are_drawn_twice_identically_and_the_speaker_changes
         assert run.rc == 0, (run.out, run.err[-2000:])
         assert [t["kind"] for t in run.out["transitions_drawn"]] == ["glitch"]
     assert cruns[0].out["sha256"] == cruns[1].out["sha256"], [r.out["sha256"] for r in cruns]
+
+
+# ---------------------------------------------------------------- F13 the caption block a video chooses (P2a)
+
+@legs("F13", ("ffmpeg",))
+def test_f13_a_caption_block_named_in_the_edit_list_is_drawn_and_the_karaoke_pill_is_one_sha256_at_four_and_at_two_cpus(engine, lab):
+    """P2a. The F1 inputs with `base --caption-block hf:caption-pill-karaoke` (the edit list's `captions.block`, drawn by the second contract's page per caption chunk),
+    rendered at 4 and at 2 cpus: one sha256; the answer's `blocks` names the block and not the engine's default. The same inputs with `oh:caption` (a page of the first
+    contract): drawn, and `blocks` names it. The sha256 of the default post against main's image is the supervisor's leg (L1), not this test's."""
+    lab.need(engine)
+    transcript = C.short_transcript()
+    rec = lab.recording("short", transcript)
+    kara_edl, kara_beats, kara_doc = lab.documents("f13-karaoke", rec, transcript, K.HF_POST, ("--caption-block", "hf:caption-pill-karaoke"))
+    assert kara_doc["captions"]["block"] == "hf:caption-pill-karaoke"
+    runs = [lab.render(engine, "f13-a-" + engine, rec, kara_edl, kara_beats, 4, "0-3"), lab.render(engine, "f13-b-" + engine, rec, kara_edl, kara_beats, 2, "0-1")]
+    for run in runs:
+        assert run.rc == 0, (run.out, run.err[-2000:])
+        assert "hf:caption-pill-karaoke" in run.out["blocks"] and "hf:caption-highlight" not in run.out["blocks"], run.out["blocks"]
+    if runs[0].out["sha256"] != runs[1].out["sha256"]:
+        listed = [("cpus %s" % s, r.out_dir, Path(r.out["path"]).name, r.out["sha256"]) for s, r in zip(("4", "2"), runs)]
+        pytest.fail("a chosen caption block is not independent of the cpu count: %s" % json.dumps(C.mismatch_report(lab.runner(), listed), indent=1))
+    own_edl, own_beats, own_doc = lab.documents("f13-own", rec, transcript, K.HF_POST, ("--caption-block", "oh:caption"))
+    assert own_doc["captions"]["block"] == "oh:caption"
+    own = lab.render(engine, "f13-c-" + engine, rec, own_edl, own_beats, 4, "0-3")
+    assert own.rc == 0, (own.out, own.err[-2000:])
+    assert "oh:caption" in own.out["blocks"] and "hf:caption-highlight" not in own.out["blocks"] and own.out["sha256"] != runs[0].out["sha256"], own.out["blocks"]
 
 
 # ---------------------------------------------------------------- F5, F6 planted blocks

@@ -42,6 +42,12 @@ script beat n (or of the added animation `a<k>`, as beat 1000 + k), and only the
 `{"op": "transition", "id": "t1", "remove": true}` removes one. Their frames are the renderer's; the person gives a place and a kind. The step kind writes
 them into beats.json after alignment.
 
+`caption`, `zoom` and `font` are the video's own choices (P2a), kept in the review and passed to the renderer's `base` as flags (runtime/step_media.py): `{"op": "caption",
+"block": "hf:caption-pill-karaoke", "position": "center"}` names the caption block the engine draws (a catalogue block of kind caption) and where it sits; `{"op": "zoom",
+"mode": "none", "factor": 1.2, "push_in": 0}` sets any of the camera's three numbers for this video (the check is the filter's range: factor 1 to 10, push in 0 or more, the
+two together at most 10); `{"op": "font", "role": "display", "id": "<allow-list id>", "weight": 700}` sets one allow-listed font for one role (display, text or mono) for this
+video only, the identity is not changed. Each is cleared with `"clear": true` (a font with its `role`) and a video that chooses nothing is drawn as before.
+
 Captions are written AS SPOKEN (a speaker's contractions and slang stay as said): nothing here normalises a spelling. The one change a text goes
 through is the renderer's own hardening (NFC, none of the characters of the categories Cc, Cf, Zl, Zp, Cs, Co, Cn, at most
 40 characters, no space inside a word).
@@ -90,6 +96,9 @@ OPS = {
     "animation": {"id", "block", "params", "word_from", "word_to", "remove", "show", "search", "want"},
     "effect": {"id", "kind", "word_from", "word_to", "remove"},
     "transition": {"id", "kind", "word", "beat", "remove"},
+    "caption": {"block", "position", "clear"},
+    "zoom": {"mode", "factor", "push_in", "clear"},
+    "font": {"role", "id", "weight", "clear"},
 }
 WORD_OPS = ("edit", "delete", "merge", "split")
 SLOT_CHOICES = ("keyword", "none", "stock")      # `stock` (V9b-3a): the picture comes from the media set the person approves (runtime/media_stock.py); with no approved pick it reads as `none`
@@ -102,6 +111,14 @@ PICK = re.compile(r"[a-z][a-z0-9]{1,30}:(?:[A-Za-z0-9_-]{1,64}|q-[0-9a-f]{12})")
 STOCK_SLOTS_MAX = 6            # the slots of one video that take a picture or a clip from the media set
 THEME_CHOICES = ("identity", "default")   # the colours and fonts of the project's identity (runtime/theme.py), or the renderer's own default
 LAYOUT_KEYS = {"asset_param", "pic_kind", "show", "search", "want"}      # the keys an added layout (a picture block) carries beyond an overlay's
+CAPTION_POSITIONS = ("bottom", "center")      # = providers/renderer/renderer-presets.json caption.positions (a test compares)
+ZOOM_MODES = ("alternate", "none")            # = renderer-presets.json zoom.modes (a test compares)
+ZOOM_MAX = 10.0                               # validity: ffmpeg zoompan's range, = providers/renderer/_edl.py ZOOM_MAX (a test compares)
+ZOOM_DEFAULTS = {"factor": 1.1, "push_in": 0.02}      # = renderer-presets.json zoom.factor and zoom.push_in, for a caller that gives none (a test compares)
+FONT_ROLES = ("display", "text", "mono")      # = renderer-presets.json theme.font_roles (a test compares)
+FONT_ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,47}")      # = providers/renderer/_assets.py FONT_ID (a test compares)
+FONT_WEIGHTS = tuple(range(100, 1000, 100))   # = what _edl.build_base accepts
+FONT_WEIGHT_DEFAULT = 500
 ANIMATIONS_MAX = 99            # validity ceiling: the animations one review may add, ids a1 to a99 (the usual count is BEATS_MAX: a video past it is drawn and the render reports advice)
 BEATS_MAX = 12                 # = shared/references/video-presets.json limits.beats_max: the usual number of overlays and layouts in one beats.json, a default (a test compares)
 BEATS_CEILING = 99             # validity ceiling: overlays and layouts in one beats.json, and the script punches p1 to p99 (= providers/renderer/_edl.py BEATS_CEILING; a test compares)
@@ -145,7 +162,7 @@ def new_review() -> dict:
     return {"version": REVIEW_VERSION, "revision": 0, "confirmed_retakes": [], "kept_retakes": [], "anchors": {}, "dropped_beats": [],
             "empty_slots": {}, "face_box": None, "cover_offset_ms": 0,
             "theme": "identity", "animations": [], "effects": [], "dropped_punches": [],
-            "transitions": [], "slot_searches": {}, "slot_assets": {}}
+            "transitions": [], "slot_searches": {}, "slot_assets": {}, "caption": {}, "zoom": {}, "fonts": {}}
 
 
 def check_review(value) -> dict:
@@ -183,7 +200,29 @@ def check_review(value) -> dict:
     _check_animations(out["animations"])
     _check_effects(out["effects"], out["dropped_punches"])
     _check_transitions(out["transitions"])
+    _check_choices(out["caption"], out["zoom"], out["fonts"])
     return out
+
+
+def _number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _check_choices(caption, zoom, fonts) -> None:
+    """The stored caption, zoom and font choices, closed, or CaptionError("review_unreadable", <the key>)."""
+    if not isinstance(caption, dict) or set(caption) - {"block", "position"} \
+            or ("block" in caption and not (isinstance(caption["block"], str) and BLOCK_NAME.fullmatch(caption["block"]))) \
+            or ("position" in caption and caption["position"] not in CAPTION_POSITIONS):
+        raise CaptionError("review_unreadable", "caption")
+    if not isinstance(zoom, dict) or set(zoom) - {"mode", "factor", "push_in"} \
+            or ("mode" in zoom and zoom["mode"] not in ZOOM_MODES) \
+            or ("factor" in zoom and not (_number(zoom["factor"]) and 1 <= zoom["factor"] <= ZOOM_MAX)) \
+            or ("push_in" in zoom and not (_number(zoom["push_in"]) and zoom["push_in"] >= 0)):
+        raise CaptionError("review_unreadable", "zoom")
+    if not isinstance(fonts, dict) or not all(
+            role in FONT_ROLES and isinstance(spec, dict) and set(spec) == {"id", "weight"} and isinstance(spec["id"], str) and FONT_ID.fullmatch(spec["id"])
+            and _is_int(spec["weight"]) and spec["weight"] in FONT_WEIGHTS for role, spec in fonts.items()):
+        raise CaptionError("review_unreadable", "fonts")
 
 
 def check_search(value, where: str) -> str:
@@ -414,7 +453,8 @@ def _index(value, n: int, where: str, field: str = "index") -> int:
     return value
 
 
-def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict, beats, slots, limits=None, animate=None, punches=None, stock=None) -> tuple:
+def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict, beats, slots, limits=None, animate=None, punches=None, stock=None,
+                caption_blocks=None, zoom_defaults=None, font_ids=None) -> tuple:
     """(edited transcript, review, counts) after `edits`, or a CaptionError with nothing changed (both inputs are copied).
 
     edited      the current transcript.edited.json
@@ -432,6 +472,9 @@ def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict,
                 number from 1 to BEATS_CEILING (the step ignores a drop that names no punch)
     stock       {slot id: the picks (`<source>:<item>`) of the media set's candidates for that slot} (V9b-3a): a `slot_asset` edit names one of them; None means no
                 set was found, so every pick is refused (`asset_not_found`)
+    caption_blocks  the names of the catalogue's caption blocks the engine draws (P2a): a `caption` edit names one of them; None refuses every block (`caption_unavailable`)
+    zoom_defaults   {"factor", "push_in"} the renderer's own defaults (ZOOM_DEFAULTS when None): the combined bound of a `zoom` edit is checked on the merged values
+    font_ids        {allow-list font id: its weight} (a set of ids is read as weight 500 each): a `font` edit names one of them; None refuses every id (`unknown_font`)
     counts      {"edited", "split", "merged", "deleted"}: how many words each kind of edit touched; never a text."""
     limits = dict({"word_chars_max": WORD_CHARS_MAX, "words_max": WORDS_MAX}, **(limits or {}))
     review = check_review(review)
@@ -452,7 +495,7 @@ def apply_edits(edited: dict, review: dict, edits, *, revision, proposals: dict,
             decisions.append((op, edit, where))
     out_review = copy.deepcopy(review)
     for op, edit, where in decisions:
-        _decide(op, edit, where, words, out_review, proposals, beats, slots, animate, punches, stock)
+        _decide(op, edit, where, words, out_review, proposals, beats, slots, animate, punches, stock, (caption_blocks, zoom_defaults, font_ids))
     out, counts = _rebuild(edited, actions, limits)
     _check_grades_apart(out["words"], out_review)
     _check_transitions_apart(out["words"], out_review)
@@ -507,7 +550,7 @@ def _stock_slot(value, where: str, slots, review: dict) -> str:
     return value
 
 
-def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposals: dict, beats, slots, animate=None, punches=None, stock=None) -> None:
+def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposals: dict, beats, slots, animate=None, punches=None, stock=None, choices=(None, None, None)) -> None:
     if op == "retake":
         rid = edit.get("id")
         if not isinstance(rid, str) or rid not in proposals or type(edit.get("confirmed")) is not bool:
@@ -599,6 +642,62 @@ def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposal
         _decide_effect(edit, where, words, review, punches)
     elif op == "transition":
         _decide_transition(edit, where, words, review, beats)
+    elif op in ("caption", "zoom", "font"):
+        _decide_choice(op, edit, where, review, *choices)
+
+
+def _decide_choice(op: str, edit: dict, where: str, review: dict, caption_blocks, zoom_defaults, font_ids) -> None:
+    """The video's own choices (P2a). `clear` is alone (a font's with its role) and empties the choice; any other edit sets the keys it names and keeps the rest."""
+    if op == "font":
+        role = edit.get("role")
+        if role not in FONT_ROLES:
+            raise CaptionError("bad_choice", f"{where}.role")
+        if "clear" in edit:
+            if edit["clear"] is not True or set(edit) != {"op", "role", "clear"}:
+                raise CaptionError("unknown_field", where)
+            review["fonts"].pop(role, None)
+            return
+        known = font_ids if font_ids is not None else {}
+        ident = edit.get("id")
+        if not isinstance(ident, str) or not FONT_ID.fullmatch(ident) or ident not in known:
+            raise CaptionError("unknown_font", f"{where}.id")
+        weight = edit.get("weight", known.get(ident, FONT_WEIGHT_DEFAULT) if isinstance(known, dict) else FONT_WEIGHT_DEFAULT)
+        if not _is_int(weight) or weight not in FONT_WEIGHTS:
+            raise CaptionError("bad_font_weight", f"{where}.weight")
+        review["fonts"][role] = {"id": ident, "weight": weight}
+        return
+    if "clear" in edit:
+        if edit["clear"] is not True or set(edit) != {"op", "clear"}:
+            raise CaptionError("unknown_field", where)
+        review[op] = {}
+        return
+    given = {k: v for k, v in edit.items() if k != "op"}
+    if not given:
+        raise CaptionError("bad_choice", where)
+    merged = dict(review[op])
+    if op == "caption":
+        if "block" in given:
+            if not isinstance(given["block"], str) or not BLOCK_NAME.fullmatch(given["block"]):
+                raise CaptionError("bad_choice", f"{where}.block")
+            if caption_blocks is None:
+                raise CaptionError("caption_unavailable", f"{where}.block")
+            if given["block"] not in caption_blocks:
+                raise CaptionError("unknown_caption_block", f"{where}.block")
+        if "position" in given and given["position"] not in CAPTION_POSITIONS:
+            raise CaptionError("bad_choice", f"{where}.position")
+        merged.update(given)
+    else:
+        if "mode" in given and given["mode"] not in ZOOM_MODES:
+            raise CaptionError("bad_zoom", f"{where}.mode")
+        if "factor" in given and not (_number(given["factor"]) and 1 <= given["factor"] <= ZOOM_MAX):
+            raise CaptionError("bad_zoom", f"{where}.factor")
+        if "push_in" in given and not (_number(given["push_in"]) and given["push_in"] >= 0):
+            raise CaptionError("bad_zoom", f"{where}.push_in")
+        merged.update(given)
+        effective = {**ZOOM_DEFAULTS, **(zoom_defaults or {}), **merged}      # the renderer checks the pair again (`_edl.check_zoom`)
+        if effective["factor"] * (1 + effective["push_in"]) > ZOOM_MAX:
+            raise CaptionError("bad_zoom", f"{where}.push_in")
+    review[op] = merged
 
 
 def _check_grades_apart(words: list, review: dict) -> None:
@@ -981,7 +1080,8 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
                       "end": u["end"]} for u in unplaced.values()]
     return {"revision": review["revision"], "words": shown, "chunks": chunks, "segments": segments, "retakes": retakes,
             "beats": beats, "slots": slot_rows, "unplaced": unplaced_rows, "threshold": threshold, "face_box": review["face_box"],
-            "cover_offset_ms": review["cover_offset_ms"], "theme": review["theme"], "animations": animations,
+            "cover_offset_ms": review["cover_offset_ms"], "theme": review["theme"], "caption": review["caption"], "zoom": review["zoom"],
+            "fonts": review["fonts"], "animations": animations,
             "effects": effects, "punches": punches, "transitions": transitions,
             "counts": {"words": len(words), "edited": sum(1 for w in shown if w["edited"]), "estimated": sum(1 for w in shown if w["estimated"]),
                        "timing_adjusted": sum(1 for w in shown if w["timing_adjusted"]), "unplaced": len(unplaced_rows),

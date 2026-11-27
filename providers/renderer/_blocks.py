@@ -472,11 +472,12 @@ def check_params(block: dict, params, vocab: dict, field: str = "params", advice
     return out
 
 
-def templates_for(catalogue: dict, engine: str, timeline: dict, vocab: dict, with_caption: bool, advice=None) -> tuple:
+def templates_for(catalogue: dict, engine: str, timeline: dict, vocab: dict, with_caption: bool, advice=None, caption_block=None) -> tuple:
     """For a timeline: ({key: page path}, [page paths to load]). The key of the caption is "caption", the key of a beat's page is its
     block's name. Sets each beat's `block`. Every beat's parameters are checked on the block that draws it. A block of the second contract (the
-    caption included) has the path None: a page is built for each of its entries (`_hf_host.prepare`), never a pinned file."""
-    caption = resolve(catalogue, engine, "caption", None, "edl.captions")
+    caption included) has the path None: a page is built for each of its entries (`_hf_host.prepare`), never a pinned file.
+    `caption_block` is the caption block the edit list names (`edl.captions.block`, P2a); None draws the engine's default."""
+    caption = resolve(catalogue, engine, "caption", caption_block, "edl.captions")
     names = []
     if second_contract_runtime(catalogue, caption, engine):
         templates = {"caption": None}

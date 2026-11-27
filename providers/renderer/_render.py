@@ -260,7 +260,8 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
 
     catalogue = _blocks.load_catalogue(blocks_dir or _blocks.BLOCKS_DIR, blocks_sha256)
     block_advice = []
-    templates, names = _blocks.templates_for(catalogue, ENGINE, timeline, vocab, with_caption=bool(timeline["captions"]), advice=block_advice)
+    templates, names = _blocks.templates_for(catalogue, ENGINE, timeline, vocab, with_caption=bool(timeline["captions"]), advice=block_advice,
+                                          caption_block=edl["captions"].get("block"))
     settle_clips(vocab, data, timeline, assets)
     tpl_serve, tpl_hashes = _frames.load_templates(names, catalogue["dir"]) if names else ({}, {})
     font_serve, fonts_used = _frames.load_fonts(edl["theme"]["fonts"], allow, limits["font_max_bytes"], fonts_directory)

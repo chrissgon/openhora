@@ -148,6 +148,11 @@
                 "maxItems": 2
               },
               "description": "[word_from, word_to] word indices."
+            },
+            "block": {
+              "type": "string",
+              "pattern": "^(oh|hf):[a-z][a-z0-9-]{0,39}$",
+              "description": "The caption block the person chose; absent means the engine's default (P2a)."
             }
           }
         },

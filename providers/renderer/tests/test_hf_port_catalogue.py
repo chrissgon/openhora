@@ -109,9 +109,10 @@ def test_the_caption_port_is_resolved_like_the_beats_and_is_never_loaded_as_a_pa
     assert refused(_blocks.templates_for, cat, "ffmpeg", {"beats": [{"id": "b1", "preset": "keyword", "params": {"text": "a\u200bb"}}]}, vocab, False).code == "forbidden_character"
 
 
-def prepare(world, kinds=("card", "caption"), record=True, runtime_hash=None, beats=True, captions=True):
+def prepare(world, kinds=("card", "caption"), record=True, runtime_hash=None, beats=True, captions=True, engine_presets=True, block=None):
     rt = world["rt"]
-    folder = P.blocks_folder(world["tmp"], kinds, (runtime_hash or world["sha"]) if record else "b" * 64, name="p%d" % len(list(world["tmp"].iterdir())))
+    folder = P.blocks_folder(world["tmp"], kinds, (runtime_hash or world["sha"]) if record else "b" * 64, name="p%d" % len(list(world["tmp"].iterdir())),
+                             engine_presets=engine_presets)
     cat = _blocks.load_catalogue(folder)
     timeline = {"beats": [], "captions": []}
     if beats and P.CARD in cat["blocks"]:
@@ -119,7 +120,8 @@ def prepare(world, kinds=("card", "caption"), record=True, runtime_hash=None, be
     if captions:
         timeline["captions"] += [{"start_frame": 0, "end_frame": 12, "word_from": 0, "word_to": 0, "face": dict(FACE)},
                                  {"start_frame": 12, "end_frame": 30, "word_from": 1, "word_to": 1, "face": dict(FACE)}]
-    return _hf_host.prepare(catalogue=cat, engine="ffmpeg", timeline=timeline, data=DATA, edl=EDL, font_serve={}, vendor=rt["vendor"], registry="/nonexistent",
+    edl = EDL if block is None else dict(EDL, captions={"position": "bottom", "block": block})      # P2a: the caption block the edit list names
+    return _hf_host.prepare(catalogue=cat, engine="ffmpeg", timeline=timeline, data=DATA, edl=edl, font_serve={}, vendor=rt["vendor"], registry="/nonexistent",
                             shims=rt["runtime_dir"] + "/shims", browser_version="Chrome/1.0"), cat
 
 
@@ -142,6 +144,17 @@ def test_a_port_with_a_record_at_other_hashes_is_block_not_proven_and_a_card_por
     assert list(out["pages"]) == [P.CARD] and out["blocks"] == [P.CARD]
     out, _ = prepare(world, kinds=("caption",), beats=False)
     assert list(out["pages"]) == ["caption"]
+
+
+def test_the_caption_block_the_edit_list_names_is_the_one_prepare_draws_and_none_means_the_engines_default(world):
+    out, _ = prepare(world, kinds=("caption",), beats=False, engine_presets=False, block=P.CAPTION)      # the engine's default is the oh: page; the port is named
+    assert list(out["pages"]) == ["caption"] and out["blocks"] == [P.CAPTION] and sorted(out["pages"]["caption"]) == [0, 1]
+    out, _ = prepare(world, kinds=("caption",), beats=False, engine_presets=False)
+    assert out["pages"] == {} and out["blocks"] == [] and out["serve"] == {}      # no choice: the default, a page of the first contract, so nothing is built here
+    out, _ = prepare(world, kinds=("caption",), beats=False, block="oh:caption")      # the port is the default; the oh: page is named
+    assert out["pages"] == {} and out["blocks"] == []
+    assert refused(prepare, world, kinds=("caption",), beats=False, block="oh:keyword").code == "block_preset_mismatch"
+    assert refused(prepare, world, kinds=("caption",), beats=False, block="hf:not-there").code == "block_unknown"
 
 
 def test_a_timeline_with_no_second_contract_entry_prepares_nothing(world):

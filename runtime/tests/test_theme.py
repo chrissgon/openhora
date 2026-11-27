@@ -448,3 +448,53 @@ def test_theme_from_text_refuses_what_theme_args_refuses(tmp_path):
     with pytest.raises(theme.ThemeError) as e:
         theme.theme_from_text(draft)
     assert e.value.code == refused(tmp_path, draft).code == "theme_draft"
+
+
+# --- with_fonts: the fonts one video chose for itself (P2a) ----------------------------------------------------------------------
+
+
+def pairs_of(flags):
+    return [flags[i + 1] for i, a in enumerate(flags) if a == "--font"]
+
+
+def test_with_fonts_replaces_the_pair_of_a_chosen_role_and_leaves_one_font_flag_per_role_and_the_hash_follows(tmp_path):
+    flags, record = theme.theme_args(project(tmp_path, identity()))
+    assert pairs_of(flags) == ["display=inter-800:800", "mono=jetbrains-mono-500:500", "text=inter-500:500"]
+    out, changed = theme.with_fonts(flags, record, {"display": {"id": "jetbrains-mono-500", "weight": 700}})
+    assert pairs_of(out) == ["mono=jetbrains-mono-500:500", "text=inter-500:500", "display=jetbrains-mono-500:700"]
+    assert [a for a in out if a == "--color"] == [a for a in flags if a == "--color"]      # the colours are untouched
+    assert sorted(p.partition("=")[0] for p in pairs_of(out)) == ["display", "mono", "text"]
+    assert changed["fonts"]["display"] == "jetbrains-mono-500:700" and changed["chosen_fonts"] == ["display"]
+    assert changed["colors"] == record["colors"] and changed["source"] == record["source"]
+    assert changed["hash"] != record["hash"] and re.fullmatch(r"[0-9a-f]{64}", changed["hash"])
+    body = {k: v for k, v in changed.items() if k != "hash"}
+    assert changed["hash"] == __import__("hashlib").sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    assert json.loads(json.dumps(changed)) == changed
+    _, same = theme.with_fonts(flags, record, {"display": {"id": "jetbrains-mono-500", "weight": 700}})
+    assert same["hash"] == changed["hash"]
+
+
+def test_with_fonts_adds_a_pair_for_a_role_the_theme_did_not_set_and_drops_the_note_about_it(tmp_path):
+    odd = block_with(font__display={"family": "Papyrus", "weight": 400})
+    flags, record = theme.theme_args(project(tmp_path, identity(odd)))
+    assert record["notes"] and record["notes"][0]["role"] == "display" and "display" not in record["fonts"]
+    out, changed = theme.with_fonts(flags, record, {"display": {"id": "inter-800", "weight": 800}})
+    assert "display=inter-800:800" in pairs_of(out) and changed["notes"] == []
+
+
+def test_with_fonts_on_the_default_theme_gives_only_the_chosen_pairs(tmp_path):
+    flags, record = theme.theme_from_text(None)
+    assert flags == [] and record["source"] == "default"
+    out, changed = theme.with_fonts(flags, record, {"text": {"id": "inter-800", "weight": 800}, "mono": {"id": "inter-500", "weight": 500}})
+    assert out == ["--font", "mono=inter-500:500", "--font", "text=inter-800:800"] and changed["chosen_fonts"] == ["mono", "text"]
+
+
+def test_with_fonts_with_no_choice_returns_the_same_flags_and_record(tmp_path):
+    flags, record = theme.theme_args(project(tmp_path, identity()))
+    assert theme.with_fonts(flags, record, {}) == (flags, record)
+    assert theme.with_fonts(flags, record, None) == (flags, record)
+    assert "chosen_fonts" not in record
+
+
+def test_the_ids_a_font_choice_may_name_are_the_allow_lists_with_their_weights():
+    assert theme.font_weights(str(REPO)) == {row["id"]: row["weight"] for row in ALLOWLIST}

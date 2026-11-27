@@ -153,7 +153,8 @@ def parse_face_box(text: str) -> dict:
 
 def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None, gap=None, pad_head=None, pad_tail=None,
                caption_position="bottom", colors=None, font_flags=None, face_box=None, zoom_mode=None, zoom_factor=None,
-               push_in=None, confirm=(), long_cut=None, wordless_max=None, anchor_y=None, keep=(), retake_mode="auto", advice=None) -> tuple:
+               push_in=None, confirm=(), long_cut=None, wordless_max=None, anchor_y=None, keep=(), retake_mode="auto", advice=None,
+               caption_block=None) -> tuple:
     """The code-generated base edit list from a transcript and an analysis. No model.
 
     Silence is the cut signal (`analysis["silences"]`; `None` when the recording has no audio, then the word gaps
@@ -167,7 +168,8 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
 
     `fonts` maps an allow-listed font id to its row. `colors` is {token: #RRGGBB}; `font_flags` is {role: (id, weight)};
     a font id that is not allow-listed falls back to `default`, and the fallback is returned in the second value
-    (the notes the caller prints: they are the approval card's "font used")."""
+    (the notes the caller prints: they are the approval card's "font used"). `caption_block` is the caption block the person chose (`<ns>:<name>`, P2a);
+    None writes no key, so the engine's default draws."""
     frame, limits, cuts, zoom_cfg = data["frame"], data["limits"], data["cuts"], data["zoom"]
     fps = fps or frame["fps"]
     if not _int(fps) or not frame["fps_min"] <= fps <= frame["fps_max"]:
@@ -263,6 +265,8 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
     cap = data["caption"]
     if caption_position not in cap["positions"]:
         raise Refusal("bad_choice", "caption_position")
+    if caption_block is not None and not (isinstance(caption_block, str) and _blocks.NAME.fullmatch(caption_block)):
+        raise Refusal("bad_caption_block", "caption_block")
     theme = theme_defaults(data)
     palette = set(data["theme"]["colors"])
     for token, value in (colors or {}).items():
@@ -294,6 +298,8 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
            "kept": kept, "out_frames": out_frames_of(kept), "words": out_words,
            "captions": {"position": caption_position, "chunks": caption_chunks(out_words, cap["max_words"], cap["max_chars"], cap["pause"])},
            "theme": theme, "normalisation": report, "face_box": face, "zoom": zoom, "proposals": proposals}
+    if caption_block is not None:
+        edl["captions"]["block"] = caption_block
     return edl, notes
 
 
@@ -387,7 +393,9 @@ def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
         texts.append(("edl.words[%d]" % k, w["text"]))
     index_set = {w["index"] for w in words}
     caps = edl["captions"]
-    closed(caps, {"position", "chunks"}, "edl.captions")
+    closed(caps, {"position", "chunks", "block"}, "edl.captions", required={"position", "chunks"})
+    if "block" in caps and not (isinstance(caps["block"], str) and _blocks.NAME.fullmatch(caps["block"])):
+        raise Refusal("bad_caption_block", "edl.captions.block")
     if caps["position"] not in data["caption"]["positions"]:
         raise Refusal("bad_choice", "edl.captions.position")
     last_to = -1
