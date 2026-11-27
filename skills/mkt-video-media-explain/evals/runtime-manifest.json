@@ -1,0 +1,10 @@
+{
+  "skill": "mkt-video-media-explain",
+  "documents": [],
+  "machine_files": [
+    ".workbench-local/video/scan-explained.json"
+  ],
+  "mandatory_milestone": false,
+  "asking_openings": [],
+  "gate": null
+}

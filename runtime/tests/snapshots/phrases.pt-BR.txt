@@ -1169,6 +1169,23 @@ VID_PREVIEW: O vídeo para aprovar (3.5 KiB). O cartão de aprovação vem em se
 VID_RECEIVED: Gravação recebida (3.5 KiB).
 VID_RENDERING: Renderizando o vídeo. O cartão de aprovação chega quando estiver pronto.
 VID_REVIEW_WORDS: Estas são as legendas. Para corrigir, responda ao cartão das legendas com uma linha por correção: errado -> certo. Quando estiverem certas, responda continuar.\n\nmove, review
+VID_SCAN_CONCERN_BRAND: Nome de outra pessoa ou empresa
+VID_SCAN_CONCERN_CLAIM: Promessa ou chamada para agir
+VID_SCAN_CONCERN_CONTACT: Contato
+VID_SCAN_CONCERN_LANGUAGE: Outro idioma
+VID_SCAN_CONCERN_LICENCE_MARK: Marca de banco de imagens ou de licença
+VID_SCAN_CONCERN_LINK: Link
+VID_SCAN_CONCERN_NONE: Nada a notar
+VID_SCAN_CONCERN_SENSITIVE: Palavras sensíveis
+VID_SCAN_CONCERN_UNCLEAR: Pouco claro
+VID_SCAN_EXPLAIN_BUTTON: Explicar o texto encontrado
+VID_SCAN_EXPLAIN_BY: Explicado por model-x, não conferido:
+VID_SCAN_EXPLAIN_CONFIRM: Enviar este texto e explicar
+VID_SCAN_EXPLAIN_FAILED: A explicação não terminou; nada foi guardado.
+VID_SCAN_EXPLAIN_LEFT_OUT: <slot>: o texto não foi enviado, porque a imagem não veio de uma biblioteca de imagens nem da internet.
+VID_SCAN_EXPLAIN_NOTHING: Não há texto ou código QR encontrado que possa ser explicado.
+VID_SCAN_EXPLAIN_PREVIEW: O texto encontrado nas imagens listadas aqui será enviado para model-x, o modelo que o explica, e para a empresa desse modelo. Nada mais é enviado: nenhuma imagem, nenhum quadro, nenhuma palavra de busca e nada da sua gravação.
+VID_SCAN_EXPLAIN_SUPERVISED: Esta explicação vem de uma habilidade que ainda não tem resultado comprovado. Leia com cuidado.
 VID_STOCK_ASSET_SMALL: Esta imagem é pequena demais para aparecer bem; escolha outra.
 VID_STOCK_ASSET_UNUSABLE: Este arquivo não pode ser usado; escolha outro.
 VID_STOCK_CLIP_BLOCK: Só um corte para imagem pode mostrar um vídeo, e outro bloco desenha este espaço. Escolha uma imagem para este espaço.

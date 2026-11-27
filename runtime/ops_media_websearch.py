@@ -128,16 +128,17 @@ def _gates(ctx: dict, task_id):
 # --- the read-back ----------------------------------------------------------------------------------------------------------------------------
 
 
-def _read_file(cwd: str):
-    """The bytes of the candidates file of a run, or None: every step opened without following a link, a regular file, at most CANDIDATES_LIMIT bytes, read once."""
+def _read_file(cwd: str, path=CANDIDATES, limit: int = CANDIDATES_LIMIT):
+    """The bytes of the file a run wrote at `path` (the candidates file; P9-a3's explanation file reads its own the same way), or None: every step opened without following a link, a regular file,
+    at most `limit` bytes, read once."""
     fd = None
     try:
         fd = os.open(cwd, os.O_RDONLY | DIRECTORY)
-        for part in CANDIDATES[:-1]:
+        for part in path[:-1]:
             nxt = os.open(part, os.O_RDONLY | DIRECTORY | NOFOLLOW, dir_fd=fd)
             os.close(fd)
             fd = nxt
-        handle = os.open(CANDIDATES[-1], os.O_RDONLY | NOFOLLOW, dir_fd=fd)
+        handle = os.open(path[-1], os.O_RDONLY | NOFOLLOW, dir_fd=fd)
     except (OSError, TypeError):
         if fd is not None:
             os.close(fd)
@@ -145,11 +146,11 @@ def _read_file(cwd: str):
     os.close(fd)
     try:
         info = os.fstat(handle)
-        if not stat.S_ISREG(info.st_mode) or info.st_size > CANDIDATES_LIMIT:
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
             return None
         with os.fdopen(handle, "rb", closefd=False) as f:
-            data = f.read(CANDIDATES_LIMIT + 1)
-        return data if len(data) <= CANDIDATES_LIMIT else None
+            data = f.read(limit + 1)
+        return data if len(data) <= limit else None
     except OSError:
         return None
     finally:

@@ -1,7 +1,7 @@
 """The interfaces the interpreter experiment shares (package IX-C0): the classification of the gated operations (runtime/gated_ops.json), the catalog
 snapshot the interpreter is served (runtime/interpreter_catalog.py and its file), the protocol file, the frame schema, the taxonomy and the thresholds.
 
-Every invariant is checked against the test's OWN literal lists (the 43 gated operations, the 16 widening, the 10 internal, the 17 operational, the 5 decisions),
+Every invariant is checked against the test's OWN literal lists (the 44 gated operations, the 16 widening, the 10 internal, the 17 operational, the 5 decisions),
 read from the raw JSON files, never from the code under test; the groups are the one thing read from the module that owns them (`operations.GROUPS`), by the
 rule "the first group whose operations hold the op". Each checker has a vacuity case: the same checker, run on a copy with one planted fault, must report it.
 
@@ -36,7 +36,7 @@ GATED = [
     "media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "video-watch",
     "video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run", "video-phone-fetch", "media-remove",
     "reference-add", "reference-video", "reference-list", "reference-read", "reference-remove", "video-storyboard", "video-storyboard-file",
-    "video-media-find", "video-media-fetch-picks", "video-media-sheet-file", "video-media-approve", "video-credits", "video-media-websearch", "video-media-approve-asset"]
+    "video-media-find", "video-media-fetch-picks", "video-media-sheet-file", "video-media-approve", "video-credits", "video-media-websearch", "video-media-approve-asset", "video-media-scan-explain"]
 OPERATIONAL = ["routine-resume", "instructions-set", "instructions-add", "source-refresh", "source-describe", "flow-save", "stage-file", "sync", "hand-over",
                "dispatch", "verdict", "run-next", "run-task", "run-step", "proof", "revoke-policy", "stop-runs"]
 WIDENING = ["give-consent", "set-mode", "set-model", "config", "accept-config", "routine-approve", "source-add", "source-import", "source-drive",
@@ -45,7 +45,7 @@ INTERNAL = ["contained-run", "poll", "handler", "pin", "service-check", "route-q
             "media-in", "media-list", "video-new", "video-run", "captions-read", "captions-edit", "video-download", "video-still", "video-catalogue", "video-watch",
             "video-phone-in", "video-phone-start", "video-phone-reply", "video-phone-run", "video-phone-fetch", "media-remove",
     "reference-add", "reference-video", "reference-list", "reference-read", "reference-remove", "video-storyboard", "video-storyboard-file",
-    "video-media-find", "video-media-fetch-picks", "video-media-sheet-file", "video-media-approve", "video-credits", "video-media-websearch", "video-media-approve-asset"]
+    "video-media-find", "video-media-fetch-picks", "video-media-sheet-file", "video-media-approve", "video-credits", "video-media-websearch", "video-media-approve-asset", "video-media-scan-explain"]
 DECISIONS = ["approve", "reject", "release", "answer", "go-ahead"]
 NOT_SERVED = ["say", "request", "route"]
 READS = ["status", "progress", "pending", "task", "agents", "skills", "costs", "artifacts", "artifact", "instructions", "routines", "sources", "attachments",
@@ -77,7 +77,7 @@ def gated_problems(doc: dict) -> list:
         out.append("keys")
     rows = doc.get("rows", [])
     if [r.get("op") for r in rows] != GATED:
-        out.append("ops are not the literal list of 43, in order")
+        out.append("ops are not the literal list of 44, in order")
     for r in rows:
         if set(r) != {"op", "kind", "group", "why"}:
             out.append("%s: keys" % r.get("op"))
@@ -130,13 +130,13 @@ def snapshot_problems(snap: dict) -> list:
 # --- runtime/gated_ops.json ----------------------------------------------------------------------------------------------------------------------
 
 def test_the_literal_lists_are_what_the_test_says_they_are():
-    assert len(GATED) == 73 and len(set(GATED)) == 73
-    assert len(OPERATIONAL) == 17 and len(WIDENING) == 16 and len(INTERNAL) == 40
+    assert len(GATED) == 74 and len(set(GATED)) == 74
+    assert len(OPERATIONAL) == 17 and len(WIDENING) == 16 and len(INTERNAL) == 41
     assert sorted(OPERATIONAL + WIDENING + INTERNAL) == sorted(GATED)
     assert len(DECISIONS) == 5
 
 
-def test_the_gated_rows_are_exactly_the_43_ops_of_class_g():
+def test_the_gated_rows_are_exactly_the_44_ops_of_class_g():
     doc = load(RUNTIME / "gated_ops.json")
     assert gated_problems(doc) == []
     # the oracle's own list is the class G of the table, both ways

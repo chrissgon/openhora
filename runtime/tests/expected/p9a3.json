@@ -1,0 +1,23 @@
+{
+  "package": "p9a3",
+  "add": {
+    "operations_table.PUBLIC_MODULES": [
+      "ops_media_scan_explain"
+    ],
+    "mcp.CHANNEL_ARG": [
+      "video-media-scan-explain"
+    ],
+    "interpreter_coverage.INTERNAL": [
+      "video-media-scan-explain"
+    ],
+    "run_limits.NUMBERS": [
+      83
+    ],
+    "registry_rows.OFF_HOST": [
+      "video-media-scan-explain"
+    ],
+    "registry_rows.MODEL_ROWS": [
+      "video-media-scan-explain"
+    ]
+  }
+}
