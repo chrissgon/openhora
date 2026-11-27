@@ -15,6 +15,7 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - S11: Skill `ops-repo-baseline`: a real run on a project (#859, `backlog: security`)
 - S14: `eng-security-review` beyond dependency alerts (#860, `backlog: security`)
 - S17: `ops-repo-baseline` applies the host settings itself, when the user wants it (#861, `backlog: security`)
+- LAN-PAIRING: A phone pairs with the service by a one-time code and gets its own session (#986, `backlog: security`)
 
 ## Tooling
 
