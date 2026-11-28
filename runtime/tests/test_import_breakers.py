@@ -82,9 +82,12 @@ RUNTIME = REPO / "runtime"
 # operation of the layer): +1 call, +1 edge. The file's own AST count on the head: 62 lazy calls, 50 edges, 0 debt.
 # P5b (the slot `service` of `items`): one more lazy call on an edge that exists (ops_natural -> ops_mail_read, in the items branch of `run`: it reads the account word as `mail-read` reads it): +1 call,
 # +0 edges. The file's own AST count on the head: 63 lazy calls, 50 edges, 0 debt.
+# P4a (the review adds a layout of a review-only preset): one cycle edge is new (ops_step_seams -> media_animation, the one call in `MediaStore.catalogue`, which gives the media step the block catalogue
+# as data: media_animation imports ops_step_seams, so ops_step_seams cannot import it at the top, and the step module may not import media_animation itself, limit L30): +1 call, +1 edge.
+# The file's own AST count on the head: 64 lazy calls, 51 edges, 0 debt.
 # Nothing raises a number without a reason written beside it; 44-B and 44-C lower them.
-LAZY_CALLS_BUDGET = 63
-LAZY_EDGES_BUDGET = 50
+LAZY_CALLS_BUDGET = 64
+LAZY_EDGES_BUDGET = 51
 PLAIN_DEBT_BUDGET = 0
 
 CYCLE = ("cycle: the target reaches this module through top-level imports, so a top-level import here would close an import cycle")
@@ -124,7 +127,7 @@ ROWS = (
     ("ops_natural_writes", CYCLE, "event_lookup"),
     ("ops_runs", CYCLE, "ops_ask ops_file_ask ops_round ops_routines ops_steps ops_task_run"),
     ("ops_say", CYCLE, "ops_ask ops_requests ops_turn"),
-    ("ops_step_seams", CYCLE, "ops_file_read"),
+    ("ops_step_seams", CYCLE, "media_animation ops_file_read"),
     ("phrases", CYCLE, "phone_questions"),
     ("plan_confirm", CYCLE, "ops_natural"),
     ("policy_widening", CYCLE, "interpreter_enable"),
