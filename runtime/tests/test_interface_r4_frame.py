@@ -538,14 +538,15 @@ def test_no_phone_rule_of_the_stylesheet_is_beaten_by_a_later_rule_of_the_same_s
 
 # --- no colour literal in a module of the page but the brand's own drawings --------------------------------------------------------------------
 
-PALETTE_MODULES = {"token-owl.js", "owl.js", "placeholder.js"}      # the owl's fixed palette is the brand's (R-15, R-41): the prompt's owl, and the scene's (R4-B1); the office's placeholder figure (office1, decision 10c: art chosen later)
+PALETTE_MODULES = {"token-owl.js", "owl.js"}      # the owl's fixed palette is the brand's (R-15, R-41): the prompt's owl, and the scene's (R4-B1)
+PALETTE_PATHS = {"office/placeholder.js"}         # the office's placeholder figure (office1, decision 10c: art chosen later), by its path under js/, so no other file of that name escapes
 
 
 def test_no_module_of_the_page_names_a_colour_but_the_owls_palette_modules():
     literal = re.compile(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(")
     found = {}
     for path in sorted(JS.rglob("*.js")):
-        if path.name in PALETTE_MODULES:
+        if path.name in PALETTE_MODULES or path.relative_to(JS).as_posix() in PALETTE_PATHS:
             continue
         text = re.sub(r"//[^\n]*", "", path.read_text(encoding="utf-8"))
         hits = literal.findall(text)

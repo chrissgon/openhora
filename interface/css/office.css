@@ -3,7 +3,8 @@
    scene's probe, and the figures' own hsl strings are written by js/office/placeholder.js (placeholder art until the maintainer chooses).
    Linked by index.html after control.css and before scene.css. */
 
-.wb-office-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; image-rendering: pixelated; cursor: pointer; }
+.wb-office-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+.wb-office-canvas.is-pointer { cursor: pointer; }   /* only while the pointer is over a figure */
 .wb-office-labels { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .wb-office-label {
   position: absolute;

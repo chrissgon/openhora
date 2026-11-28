@@ -5,6 +5,7 @@
 export const SPEED = 4;               // tiles a second
 export const WANDER_MS = 8000;        // an idle figure at rest this long gets up
 export const STEP_FRAME_MS = 150;     // the walking figure changes its frame this often
+export const WANDER_TICK_MS = 1000;   // how often the view lets time pass for figures at rest (each rests its own time, between half and one and a half WANDER_MS)
 
 /** The tile an agent belongs on: its seat (index = the seat's number), or the board for one that waits (waitingIndex = its turn among them). */
 export function placeOf(agent, index, room, waitingIndex) {
@@ -44,6 +45,9 @@ export function createWalkers(room, finder) {
     walker.frame = 0;
   }
 
+  /** How long this figure rests before it wanders: its own, from the random it was given (one WANDER_MS when it was given none). */
+  const restFor = (random) => (random ? WANDER_MS * (0.5 + random()) : WANDER_MS);
+
   function goTo(walker, target) {
     const same = walker.target && walker.target.x === target.x && walker.target.y === target.y;
     if (same) return;
@@ -61,6 +65,7 @@ export function createWalkers(room, finder) {
     /** Give each drawn agent its place for its state; a figure that already stands where it should is left alone (an idle one may be wandering). */
     retarget(agents, options = {}) {
       reduced = Boolean(options.reduced);
+      const random = options.random || null;
       const names = new Set(agents.map((a) => a.name));
       for (const name of [...walkers.keys()]) if (!names.has(name)) walkers.delete(name);
       let waitingIndex = 0;
@@ -69,7 +74,7 @@ export function createWalkers(room, finder) {
         if (agent.state === "waiting") waitingIndex += 1;
         let walker = walkers.get(agent.name);
         if (!walker) {
-          walker = { name: agent.name, x: 0, y: 0, path: [], target: null, dir: "down", frame: 0, walkedMs: 0, restMs: 0, state: agent.state, home: room.seats[index].seat };
+          walker = { name: agent.name, x: 0, y: 0, path: [], target: null, dir: "down", frame: 0, walkedMs: 0, restMs: 0, state: agent.state, home: room.seats[index].seat, wanderAfter: restFor(random) };
           walkers.set(agent.name, walker);
           place(walker, target);
           return;
@@ -119,13 +124,19 @@ export function createWalkers(room, finder) {
           continue;
         }
         walker.restMs += dtMs;
-        if (walker.state !== "idle" || reduced || walker.restMs < WANDER_MS || !room.wander.length) continue;
+        if (walker.state !== "idle" || reduced || walker.restMs < walker.wanderAfter || !room.wander.length) continue;
         const away = walker.x !== walker.home.x || walker.y !== walker.home.y;
         const target = away ? walker.home : room.wander[Math.floor(random() * room.wander.length)];
         walker.target = null;
         goTo(walker, target);
         walker.restMs = 0;
+        walker.wanderAfter = restFor(random);
       }
+    },
+
+    /** Put every figure on its place at once (reduced motion was turned on while some were walking). */
+    settle() {
+      for (const walker of walkers.values()) if (walker.path.length) place(walker, walker.target);
     },
 
     /** Every figure: [{name, x, y, dir, pose, frame}] (x and y in tiles, fractional while walking). */

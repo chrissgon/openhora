@@ -10,11 +10,13 @@ import { TILE } from "./room.js";
 const BOARD_ROWS = 8;          // art pixels the board is tall, on the wall
 
 /**
- * The zoom that fits the room in the host: `device` device pixels for each art pixel (a whole number, at least 1), `css` the same in CSS pixels,
+ * The zoom that fits the room in the host: `device` device pixels for each art pixel (a whole number when the room fits at 1 or more, else the fraction
+ * that makes the whole room fit), `css` the same in CSS pixels,
  * and the room's top left corner in CSS pixels (the room is centred). A little room is left under the room for the figures' feet.
  */
 export function fitScale({ cssW, cssH, dpr, roomW, roomH }) {
-  const k = Math.max(1, Math.floor(Math.min((cssW * dpr) / (roomW * TILE), (cssH * dpr) / (roomH * TILE + 8))));
+  const fit = Math.min((cssW * dpr) / (roomW * TILE), (cssH * dpr) / (roomH * TILE + 8));
+  const k = fit >= 1 ? Math.floor(fit) : fit;     // below one device pixel for each art pixel the whole room still shows, at the fractional fit (smoothing stays off)
   const css = k / dpr;
   return { device: k, css, left: (cssW - roomW * TILE * css) / 2, top: (cssH - roomH * TILE * css) / 2 };
 }
@@ -167,6 +169,16 @@ export function createOfficeScene(host, { context, raf, caf, hidden, reduced, on
     if (onPick) onPick(scene.pick(event.clientX - box.left, event.clientY - box.top));
   }
   canvas.addEventListener("click", onClick);
+  // the pointer cursor is for a figure: a class on the canvas while the pointer is over one
+  function onMove(event) {
+    const box = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : { left: 0, top: 0 };
+    canvas.classList.toggle("is-pointer", scene.pick(event.clientX - box.left, event.clientY - box.top) !== null);
+  }
+  function onLeave() {
+    canvas.classList.remove("is-pointer");
+  }
+  canvas.addEventListener("pointermove", onMove);
+  canvas.addEventListener("pointerleave", onLeave);
 
   const scene = {
     /** Give the scene what to draw: the room, the drawn agents ([{name, look, decisions, ...}]), and the figures. A frame is asked for only when something changed. */
@@ -213,6 +225,8 @@ export function createOfficeScene(host, { context, raf, caf, hidden, reduced, on
     dispose() {
       loop.dispose();
       canvas.removeEventListener("click", onClick);
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerleave", onLeave);
       if (query && query.removeEventListener) query.removeEventListener("change", onScheme);
       if (observer) observer.disconnect();
       if (sizer) sizer.disconnect();

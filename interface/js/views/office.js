@@ -9,7 +9,7 @@ import { officeOf, fnv1a32 } from "../office/office-model.js";
 import { PathFinder } from "../office/astar.js";
 import { buildRoom, MAX_SEATS } from "../office/room.js";
 import { createOfficeScene } from "../office/scene.js";
-import { createWalkers, seeded, WANDER_MS } from "../office/walk.js";
+import { createWalkers, seeded, WANDER_TICK_MS } from "../office/walk.js";
 import { word } from "../office/words.js";
 
 const LABEL_H = 30;       // CSS pixels a label is tall, for the overlap test
@@ -28,6 +28,12 @@ export function createOfficeView(frame, {
   setTimer = (fn, ms) => setTimeout(fn, ms),
   clearTimer = (id) => clearTimeout(id),
   clock = () => Date.now(),
+  watchReduced = (onChange) => {
+    const query = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
+    if (!query || !query.addEventListener) return () => {};
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  },
 } = {}) {
   const title = h("h2", { id: "wb-office-title", text: word("office.title") });
   const count = h("p", { class: "wb-office-count", "aria-live": "polite", text: word("office.loading") });
@@ -50,6 +56,7 @@ export function createOfficeView(frame, {
   let seed = null;
   let lastStamp = null;
   let timer = null;
+  let shown = false;
   const labels = new Map();
 
   function open(name) {
@@ -78,17 +85,32 @@ export function createOfficeView(frame, {
     else armTimer();
   };
   document.addEventListener("visibilitychange", onVisibility);
+  // Reduced motion turned on: nobody is left walking and no timer wakes an idle figure; turned off: the timer runs again.
+  const stopWatching = watchReduced(() => {
+    if (disposed || !walkers) return;
+    if (reduced()) {
+      stopTimer();
+      walkers.settle();
+      if (scene) {
+        scene.stopWalk();
+        scene.requestRender();
+      }
+    } else {
+      armTimer();
+    }
+  });
 
-  // An idle figure gets up from its seat now and then. The loop is stopped while nothing moves, so a timer wakes it; there is none under reduced motion.
+  // An idle figure gets up from its seat now and then, each after its own rest. The loop is stopped while nothing moves, so a timer ticks (no frame is drawn
+  // by it) and wakes the loop when a figure sets off; there is none under reduced motion.
   function armTimer() {
     if (timer !== null || disposed || !scene || reduced() || hidden() || !drawn.some((a) => a.state === "idle")) return;
     timer = setTimer(() => {
       timer = null;
       if (disposed || !walkers) return;
-      if (!walkers.moving()) walkers.advance(WANDER_MS, clock(), random);
+      if (!walkers.moving()) walkers.advance(WANDER_TICK_MS, clock(), random);
       if (walkers.moving()) wake();
       armTimer();
-    }, WANDER_MS);
+    }, WANDER_TICK_MS);
   }
 
   function stopTimer() {
@@ -162,9 +184,10 @@ export function createOfficeView(frame, {
       if (disposed) return;
       const found = officeOf(data.snapshot, data.route.project, data.now);
       if (!found.ready) {
-        count.textContent = word("office.loading");
+        if (!shown) count.textContent = word("office.loading");     // once shown, the last state stays: a snapshot that is not ready leaves the count, the list and the figures alone
         return;
       }
+      shown = true;
       count.textContent = word("office.waiting", { n: found.count });
       agents = found.agents;
       drawList(found);
@@ -184,7 +207,7 @@ export function createOfficeView(frame, {
         labels.clear();
       }
       drawn = agents.slice(0, room.seats.length);
-      walkers.retarget(drawn, { reduced: reduced() });
+      walkers.retarget(drawn, { reduced: reduced(), random });
       scene.setModel(room, drawn, walkers);
       placeLabels();
       if (walkers.moving()) wake();
@@ -194,6 +217,7 @@ export function createOfficeView(frame, {
       disposed = true;
       stopTimer();
       document.removeEventListener("visibilitychange", onVisibility);
+      stopWatching();
       if (scene) scene.dispose();
       overlay.remove();
       panel.remove();

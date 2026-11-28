@@ -196,6 +196,28 @@ await section("walk", () => {
   res.homes = room.seats.map((s) => [s.seat.x, s.seat.y]);
   const rnd = seeded(7), again = seeded(7);
   res.seeded = [rnd(), rnd(), again(), again()];
+  // the wander is staggered: each idle figure rests its own time, from the random it was given, so they do not stand up on the same tick
+  const roomS = buildRoom(["planning", "engineering", "design", "marketing", "a", "b", "c", "d"]);
+  const stag = createWalkers(roomS, new PathFinder(roomS.grid));
+  const many = roomS.seats.map((s) => ({ name: s.name, state: "idle" }));
+  stag.retarget(many, { reduced: false, random: seeded(11) });
+  const first = new Map();
+  const pickRandom = seeded(5);
+  for (let t = 1; t <= 40; t++) {
+    stag.advance(500, 0, pickRandom);
+    stag.positions().forEach((p) => { if (p.pose === "walk" && !first.has(p.name)) first.set(p.name, t); });
+  }
+  res.staggerTimes = [...new Set(first.values())].length;
+  res.staggerFirst = Math.min(...first.values());
+  // settle: every figure on its place at once
+  const sit = createWalkers(room, finder);
+  const want = agents.map((a) => ({ ...a, state: "idle" }));
+  sit.retarget(want, { reduced: false });
+  want[1].state = "waiting";
+  sit.retarget(want, { reduced: false });
+  const was = sit.moving();
+  sit.settle();
+  res.settle = [was, sit.moving(), sit.positions()[1].x === room.board[0].x && sit.positions()[1].y === room.board[0].y];
   return res;
 });
 
@@ -233,7 +255,9 @@ await section("sprites", () => {
 });
 
 // ---- 9. the zoom
-await section("zoom", () => [fitScale({ cssW: 800, cssH: 600, dpr: 2, roomW: 19, roomH: 7 }), fitScale({ cssW: 300, cssH: 200, dpr: 1, roomW: 19, roomH: 7 })]);
+await section("zoom", () => [fitScale({ cssW: 800, cssH: 600, dpr: 2, roomW: 19, roomH: 7 }), fitScale({ cssW: 300, cssH: 200, dpr: 1, roomW: 19, roomH: 7 }),
+  fitScale({ cssW: 200, cssH: 150, dpr: 1, roomW: 19, roomH: 7 }), fitScale({ cssW: 568, cssH: 130, dpr: 1, roomW: 19, roomH: 10 })]);
+await section("zoomWhole", () => fitScale({ cssW: 400, cssH: 300, dpr: 1, roomW: 19, roomH: 7 }));
 
 // ---- 10, 11, 7b. the view
 function recordingContext(log) {
@@ -250,17 +274,19 @@ const all = (root) => [...root.walk()];
 const byClass = (root, cls) => all(root).filter((n) => (n.attrs.class || "").split(/\s+/).includes(cls));
 function driver(options = {}) {
   const frame = stubFrame();
+  const reducedWatch = { listeners: [], removed: 0, flag: Boolean(options.reduced), cleared: 0 };
   const queue = [];
   const logs = [];
   const timers = [];
   let tick = 0;
   const view = createOfficeView(frame, {
     context: options.context || ((canvas) => { const log = []; logs.push(log); return recordingContext(log); }),
-    raf: (fn) => { queue.push(fn); return queue.length; }, caf: () => {}, hidden: () => Boolean(options.hidden), reduced: () => Boolean(options.reduced),
-    setTimer: (fn, ms) => { timers.push([fn, ms]); return timers.length; }, clearTimer: () => {}, clock: () => 0,
+    raf: (fn) => { queue.push(fn); return queue.length; }, caf: () => {}, hidden: () => Boolean(options.hidden), reduced: () => reducedWatch.flag,
+    watchReduced: (fn) => { reducedWatch.listeners.push(fn); return () => { reducedWatch.removed += 1; }; },
+    setTimer: (fn, ms) => { timers.push([fn, ms]); return timers.length; }, clearTimer: () => { reducedWatch.cleared += 1; }, clock: () => 0,
   });
   const frameRun = () => { const fn = queue.shift(); if (fn) { tick += 16; fn(tick); return true; } return false; };
-  return { frame, view, queue, logs, timers, frameRun };
+  return { frame, view, queue, logs, timers, frameRun, reducedWatch };
 }
 const draws = (log, name) => log.filter((e) => e[0] === name).length;
 const route = router.parse(`#/p/${P}/office`);
@@ -360,6 +386,45 @@ await section("overflow", () => {
   d.frameRun();
   const note = byClass(d.frame.main, "wb-office-note")[0];
   return { note: [note.textContent, note.hidden], rows: byClass(d.frame.main, "wb-office-row").length, figures: draws(d.logs[0], "drawImage"), labels: byClass(d.frame.sceneHost, "wb-office-label").filter((l) => !l.hidden).length };
+});
+
+await section("reducedChange", () => {
+  const d = driver();
+  d.view.update({ snapshot: snapshotOf(), route, now: NOW, reload: 1 });
+  d.frameRun();
+  const armed = d.timers.length;
+  // the person turns reduced motion on: the timer stops, nobody is left walking
+  d.timers[0][0]();
+  const ticked = d.timers.length;
+  d.reducedWatch.flag = true;
+  d.reducedWatch.listeners.forEach((fn) => fn());
+  const after = { cleared: d.reducedWatch.cleared };
+  let frames = 0;
+  while (d.frameRun()) frames += 1;
+  d.view.dispose();
+  return { armed, ticked, after, frames, listeners: d.reducedWatch.listeners.length, removed: d.reducedWatch.removed };
+});
+
+await section("staleView", () => {
+  const d = driver();
+  d.view.update({ snapshot: snapshotOf(), route, now: NOW, reload: 1 });
+  d.frameRun();
+  const list = byClass(d.frame.main, "wb-office-list")[0];
+  d.view.update({ snapshot: { loaded: false, projects: [], details: {} }, route, now: NOW, reload: 2 });
+  return { count: byClass(d.frame.main, "wb-office-count")[0].textContent, rows: byClass(d.frame.main, "wb-office-row").length, figures: byClass(d.frame.sceneHost, "wb-office-label").length, queued: d.queue.length };
+});
+
+await section("pointer", () => {
+  const d = driver();
+  d.view.update({ snapshot: snapshotOf(), route, now: NOW, reload: 1 });
+  d.frameRun();
+  const canvas = all(d.frame.sceneHost).find((n) => n.tagName === "CANVAS");
+  const move = (x, y) => { (canvas.listeners.pointermove || []).forEach((fn) => fn({ clientX: x, clientY: y })); return canvas.classList.contains("is-pointer"); };
+  const over = move(88, 160);
+  const off = move(5, 5);
+  const again = move(88, 160);
+  (canvas.listeners.pointerleave || []).forEach((fn) => fn({}));
+  return { over, off, again, left: canvas.classList.contains("is-pointer") };
 });
 
 await section("loading", () => {
@@ -480,6 +545,9 @@ def test_each_state_has_its_place_and_an_unreachable_place_is_reached_at_once(go
     assert w["beforeWander"] is False and w["wandering"] is True, "an idle figure at rest for WANDER_MS gets up"
     assert w["noRepeatOnRetarget"] is False, "a reload that changes nothing does not send a figure back"
     assert w["wandered"] != w["homes"] and w["backHome"] == w["homes"], "it goes back to its seat the next time"
+    assert w["staggerTimes"] >= 3, "idle figures do not all stand up on the same tick"
+    assert w["staggerFirst"] >= 2, "and none before its own rest is over"
+    assert w["settle"] == [True, False, True], "settle puts every figure on its place at once"
     assert w["seeded"][0] == w["seeded"][2] and w["seeded"][1] == w["seeded"][3] and 0 <= w["seeded"][0] < 1 and w["seeded"][0] != w["seeded"][1]
 
 
@@ -507,9 +575,36 @@ def test_the_sprite_cache_paints_each_pose_once_and_mirrors_left(got):
 
 @needs_node
 def test_the_zoom_is_an_integer_number_of_device_pixels(got):
-    big, small = got["zoom"]
+    big, small, tiny, wide = got["zoom"]
     assert big["device"] == 5 and big["css"] == 2.5 and big["left"] == (800 - 19 * 16 * 2.5) / 2 and big["top"] == (600 - 7 * 16 * 2.5) / 2
-    assert small["device"] == 1 and small["css"] == 1, "a small host gets the smallest whole zoom, never a fraction"
+    assert abs(small["device"] - 300 / 304) < 1e-9 and small["css"] == small["device"], "a host a little under the room's width shows the whole room at the fraction"
+    assert got["zoomWhole"]["device"] == 1, "a host that fits the room at 1 to under 2 gets exactly 1, never a fraction above it"
+    assert 0 < tiny["device"] < 1 and abs(19 * 16 * tiny["device"] - 200) < 1e-6, "a host under 304 device px shows the whole room at a fraction"
+    assert tiny["left"] == 0 and tiny["css"] == tiny["device"]
+    assert 0 < wide["device"] < 1 and 10 * 16 * wide["device"] + 8 * wide["device"] <= 130 + 1e-6, "a landscape phone with two rows shows the whole room too"
+
+
+@needs_node
+def test_turning_reduced_motion_on_stops_the_wander_and_settles_the_figures_and_dispose_removes_the_listener(got):
+    r = got["reducedChange"]
+    assert r["armed"] == 1 and r["ticked"] == 2, "an idle figure is woken by a timer, which arms the next one"
+    assert r["after"]["cleared"] >= 1, "the change stops the timer"
+    assert r["frames"] <= 1 and r["listeners"] == 1 and r["removed"] == 1, "no walking frames after it, and dispose removes the listener"
+
+
+@needs_node
+def test_a_snapshot_that_stops_being_ready_leaves_what_was_shown_and_the_count_alone(got):
+    s = got["staleView"]
+    assert s["count"] == "4 decisions waiting for you" and s["rows"] == 4 and s["figures"] == 4 and s["queued"] == 0
+
+
+@needs_node
+def test_the_pointer_cursor_shows_only_while_the_pointer_is_over_a_figure(got):
+    p = got["pointer"]
+    assert p == {"over": True, "off": False, "again": True, "left": False}
+    css = (INTERFACE / "css" / "office.css").read_text(encoding="utf-8")
+    base = re.search(r"\.wb-office-canvas \{([^}]*)\}", css).group(1)
+    assert "cursor" not in base and re.search(r"\.wb-office-canvas\.is-pointer \{[^}]*cursor: pointer", css)
 
 
 @needs_node
