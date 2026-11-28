@@ -158,7 +158,10 @@ def _route_imported(ctx: dict, skill: str, meta: dict, keys, task, requested) ->
     model is a refusal (core.OpsError, code 2)."""
     cfg = ctx["cfg"]
     word, named_by = resolve(ctx, task, requested)
-    tested = lab.imported_facts(imported.skill_dir(cfg, skill))["tested"]
+    try:   # a folder that moved, was deleted or cannot be read holds this task alone: the caller reads an OpsError, never anything else
+        tested = lab.imported_facts(imported.skill_dir(cfg, skill))["tested"]
+    except (skill_meta.SkillError, lab.LabError, OSError, ValueError) as e:
+        raise core.OpsError(f"the imported skill {skill} cannot be read now: {getattr(e, 'reason', e)}", 1) from None
     order = lab.models()
     if word not in (None, AUTO):
         try:

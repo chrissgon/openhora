@@ -302,14 +302,14 @@ def _imported_skills(value, workbench: str) -> dict:
     core = os.path.join(workbench, "skills")
     out = {}
     for name, entry in skills.items():
-        if not isinstance(name, str) or not IMPORTED_NAME.match(name) or len(name) > 64:
+        if not isinstance(name, str) or not IMPORTED_NAME.fullmatch(name) or len(name) > 64:
             raise ConfigError(f"{where}: {name!r} is not a skill name (lowercase letters, digits and hyphens, at most 64)")
         if os.path.isdir(os.path.join(core, name)):
             raise ConfigError(f"{where}: {name} is a skill of the workbench: only a skill from outside is listed here")
         if not isinstance(entry, dict) or set(entry) - {"without_external_line"}:
             raise ConfigError(f"{where}.{name} must be an object, empty or with the key without_external_line")
         accepted = entry.get("without_external_line")
-        if accepted is not None and (not isinstance(accepted, str) or not IMPORTED_HASH.match(accepted)):
+        if accepted is not None and (not isinstance(accepted, str) or not IMPORTED_HASH.fullmatch(accepted)):
             raise ConfigError(f"{where}.{name}.without_external_line must be a content hash of 64 lowercase hex characters")
         out[name] = {"folder": os.path.join(real, name), "without_external_line": accepted}
     return {"home": real, "skills": out}

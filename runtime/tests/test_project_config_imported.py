@@ -86,7 +86,7 @@ def test_skills_must_be_an_object(tree):
     refused(tree, {"home": str(tree["home"]), "skills": ["ops-tidy-notes"]})
 
 
-@pytest.mark.parametrize("name", ["Ops-Tidy", "ops tidy", "ops--tidy", "-ops", "a" * 65, ""])
+@pytest.mark.parametrize("name", ["Ops-Tidy", "ops tidy", "ops--tidy", "-ops", "a" * 65, "", "ops-tidy\n"])
 def test_a_name_must_be_a_skill_name(tree, name):
     refused(tree, {"home": str(tree["home"]), "skills": {name: {}}})
 

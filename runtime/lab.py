@@ -445,10 +445,22 @@ def skill_identity(skill: str) -> dict:
     return {"version": status.skill_version(skill_dir), "content_sha256": status.content_hash(skill_dir)}
 
 
+def _manifest_sha256(folder: str):
+    """The sha256 of the folder's runtime manifest, or None when it has none. The manifest is outside the content hash, so the runtime
+    reads its own hash once with the facts and checks the copy against it."""
+    try:
+        with open(os.path.join(folder, "evals", "runtime-manifest.json"), "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return None
+
+
 def folder_identity(folder: str) -> dict:
-    """{"version", "content_sha256"} of a skill folder anywhere (an imported skill's), as skill_identity gives a skill's."""
+    """{"version", "content_sha256", "manifest_sha256"} of a skill folder anywhere (an imported skill's): the first two as
+    skill_identity gives a skill's, the third the hash of the runtime manifest, which the content hash leaves out."""
     status = _lab_call(LAB.load_status)
-    return {"version": status.skill_version(folder), "content_sha256": status.content_hash(folder)}
+    return {"version": status.skill_version(folder), "content_sha256": status.content_hash(folder),
+            "manifest_sha256": _manifest_sha256(folder)}
 
 
 _IMPORT_TOOL = None
@@ -492,8 +504,13 @@ def imported_facts(folder: str) -> dict:
     its current content}. It lists, reads and hashes; no file of the folder is run or imported."""
     tool = _import_tool()
     status = _lab_call(LAB.load_status)
+    if not os.path.isfile(os.path.join(folder, "SKILL.md")):
+        raise LabError("config", f"{folder} holds no SKILL.md: the imported skill's folder is gone or moved")
     identity = folder_identity(folder)
     name = os.path.basename(os.path.normpath(folder))
+    problems = list(tool.folder_problems(folder))
+    if os.path.islink(folder):
+        problems.insert(0, f"{folder} is a symbolic link: an imported skill's folder is the folder itself")
     ready = tool.ready_problems(folder)
     audit = tool.audit_state(folder) or {}
     try:
@@ -507,15 +524,21 @@ def imported_facts(folder: str) -> dict:
         events = status.local_skill_evidence(status.imported_evidence_name(name), local_evidence_base())
     except (OSError, ValueError):
         events = []
-    for event, _runs in events:
+    for event, runs in events:
         if not isinstance(event, dict) or event.get("imported") is not True or event.get("content_sha256") != identity["content_sha256"]:
             continue
         for model, _adapter in status.event_model_pairs(event):
-            if model in listed and str(event.get("test")) >= str(tested.get(model, "")):
+            # a test that left no scored run with the skill (an event line alone, an abandoned test) is no test
+            scored = any(isinstance(r, dict) and r.get("variant") == "with" and r.get("model") == model
+                         and r.get("content_sha256") == identity["content_sha256"] and isinstance(r.get("score"), (int, float))
+                         and not isinstance(r.get("score"), bool) for r in runs)
+            if scored and model in listed and str(event.get("test")) >= str(tested.get(model, "")):
                 tested[model] = str(event.get("test"))
     assumed = _record_json(folder).get("assumed")
+    if folder_identity(folder) != identity:   # one reading of the folder: a change while it was read is a problem, not a new hash
+        problems.append("the folder changed while its facts were read")
     return {**identity, "home_problem": tool.home_problem(os.path.dirname(os.path.normpath(folder))),
-            "folder_problems": tool.folder_problems(folder),
+            "folder_problems": problems,
             "ready": {"key": ready[0], "why": ready[1], "fix": ready[2]} if ready else None,
             "verdict": audit.get("verdict"), "assumed": [str(k) for k in assumed] if isinstance(assumed, list) else [],
             "conventions": bool(tool.convention_findings(folder)), "external_line": line, "tested": tested}
@@ -526,6 +549,8 @@ def copy_imported(folder: str, dest: str) -> str:
     its evals/, made by descriptor: no link is followed, and a link, a device, a pipe or a hard-linked file stops the copy
     (LabError "copy"). This copy is what runs and what its hash is read from."""
     tool = _import_tool()
+    if os.path.islink(folder):
+        raise LabError("copy", f"the imported skill's folder {folder} is a symbolic link: nothing ran")
     files, refused, _ = tool.scan_tree(folder, "home")
     if refused:
         path, why = refused[0]

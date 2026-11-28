@@ -108,11 +108,18 @@ def _prepare_run(ctx: dict, task: dict, requested, keys) -> dict:
     if routing["key_missing"]:
         raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
     if listed:   # every condition that fails is said, before the manifest is read as the run's own (a manifest that is not whole is one of them)
-        refused = imported.refused(cfg, skill, routing["model"], folder, _owner_of(core.ROOT))
+        refused, facts = imported.check(cfg, skill, routing["model"], folder, owner_of=_owner_of(core.ROOT))
         if refused:
             raise core.OpsError(imported.PREFIX.format(name=skill) + "; ".join(refused), 1)
+        # One hash decides: the one the checks were computed on. The folder is read again, and a difference is a refusal, never a new
+        # hash to run under; the copy made at the start is compared with this identity (the content, and the manifest the hash leaves out).
+        now = lab.folder_identity(folder)
+        if (now["content_sha256"], now["manifest_sha256"]) != (facts["content_sha256"], facts["manifest_sha256"]):
+            raise core.OpsError(imported.PREFIX.format(name=skill) + "the folder changed while its checks were made: nothing ran", 1)
         known = manifest.load_dir(folder)
-    identity = lab.folder_identity(folder) if listed else lab.skill_identity(skill)
+        identity = {"version": facts["version"], "content_sha256": facts["content_sha256"], "manifest_sha256": facts["manifest_sha256"]}
+    else:
+        identity = lab.skill_identity(skill)
     return {"meta": meta, "known": known, "keys": keys, "routing": routing, "identity": identity,
             "imported": folder if listed else None,
             "instructions": ops_instructions.guard(ctx, task)}   # the person's standing instructions, read once; a file that fails a check stops the run
@@ -157,7 +164,8 @@ def _run_body(ctx: dict, started: dict) -> dict:
         if started.get("imported"):   # the copy is what runs, and its hash must be the hash the checks saw (limits of package I2)
             skill_copy = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"{run_id}-skill")
             copy = lab.copy_imported(started["imported"], os.path.join(skill_copy, skill))
-            if lab.folder_identity(copy)["content_sha256"] != started["identity"]["content_sha256"]:
+            made = lab.folder_identity(copy)
+            if (made["content_sha256"], made["manifest_sha256"]) != (started["identity"]["content_sha256"], started["identity"]["manifest_sha256"]):
                 return fail("internal", "the imported skill changed after its checks: nothing ran")
         handed = drop.files(cfg["project"], task["id"])
         refused = []

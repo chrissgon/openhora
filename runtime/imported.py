@@ -23,7 +23,8 @@ document's checker is a script of the skill that runs on this machine.
   names_in(project)           the listed names, read from runtime.json with json only (flow_files cannot import project_config)
   refusals(name, model, facts, entry)   pure: every failing condition as a sentence; [] when the skill may run
   facts_of(cfg, name, folder, owner_of)   the facts refusals reads, gathered (runtime/lab.py imported_facts and the manifest)
-  refused(cfg, name, model, folder, owner_of)   refusals(name, model, facts_of(...), entry(cfg, name))
+  check(cfg, name, model, folder, *, owner_of)   (refusals, the facts they were computed from)
+  refused(cfg, name, model, folder, *, owner_of) the refusals alone
 
 `owner_of(path)` is given by the caller (runtime/ops_task_run.py: the workbench skill whose declared outputs are that artifact, by
 runtime/plan.py's reading of the contract, or None): this module cannot import plan, which imports flow_files, which imports this file.
@@ -148,13 +149,20 @@ def facts_of(cfg: dict, name: str, folder: str, owner_of) -> dict:
     return facts
 
 
-def refused(cfg: dict, name: str, model: str, folder: str, owner_of) -> list:
-    """The refusals of one imported skill on one model: refusals(name, model, facts_of(...), entry(cfg, name)). An unlisted name
-    is refused at once."""
+def check(cfg: dict, name: str, model: str, folder: str, *, owner_of) -> tuple:
+    """(refusals, facts) of one imported skill on one model: refusals(name, model, facts_of(...), entry(cfg, name)) and the facts they
+    were computed from, so that the caller runs the content the facts describe and no other (facts["content_sha256"],
+    facts["manifest_sha256"]). An unlisted name is refused at once, with no facts."""
     found = entry(cfg, name)
     if found is None:
-        return [f"{name} is not listed in the key imported_skills of runtime.json"]
-    return refusals(name, model, facts_of(cfg, name, folder, owner_of), found)
+        return [f"{name} is not listed in the key imported_skills of runtime.json"], None
+    facts = facts_of(cfg, name, folder, owner_of)
+    return refusals(name, model, facts, found), facts
+
+
+def refused(cfg: dict, name: str, model: str, folder: str, *, owner_of) -> list:
+    """The refusals of check(), alone."""
+    return check(cfg, name, model, folder, owner_of=owner_of)[0]
 
 
 if __name__ == "__main__":

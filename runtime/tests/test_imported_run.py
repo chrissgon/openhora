@@ -19,6 +19,7 @@ import standin_tree as st
 lab = st.load("lab")
 ops = st.load("ops")
 ops_core = st.load("ops_core")
+ops_models = st.load("ops_models")
 ops_round = st.load("ops_round")
 ops_runs = st.load("ops_runs")
 ops_task_run = st.load("ops_task_run")
@@ -65,12 +66,20 @@ def write_records(folder: Path, verdict="install", assumed=(), findings=()) -> N
                                                       "date": "2026-11-28"}), encoding="utf-8")
 
 
-def write_test_event(evidence: Path, content: str, model="m") -> None:
+def run_line(content: str, model="m", variant="with", score=1.0) -> dict:
+    return {"record": "run", "skill": NAME, "version": "0.1.0", "content_sha256": content, "model": model, "adapter": "h",
+            "kind": "quick", "test": TEST_ID, "date": "2026-11-28", "measurement_version": 1, "measurement_sha256": "d" * 64,
+            "case": 1, "case_sha256": "e" * 64, "variant": variant, "outcome": "graded", "score": score, "results": []}
+
+
+def write_test_event(evidence: Path, content: str, model="m", runs=True) -> None:
+    """A local test event of the folder at `content`; `runs` False writes the event line alone (an abandoned test)."""
     folder = evidence / "imported" / NAME
     folder.mkdir(parents=True, exist_ok=True)
     event = {"record": "test", "skill": NAME, "test": TEST_ID, "kind": "quick", "version": "0.1.0", "content_sha256": content,
              "models": [model], "adapters": {model: "h"}, "imported": True}
-    (folder / f"lab-{TEST_ID}.jsonl").write_text(json.dumps(event) + "\n", encoding="utf-8")
+    lines = [event] + ([run_line(content, model)] if runs else [])
+    (folder / f"lab-{TEST_ID}.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines), encoding="utf-8")
 
 
 @pytest.fixture
@@ -199,6 +208,15 @@ REFUSALS = [
     ("assumed key", lambda w: write_records(w["folder"], assumed=["inputs"]), "the keys inputs were never answered (assumed)"),
     ("side effect", with_effects, "it declares side effects (send)"),
     ("no local test", lambda w: shutil.rmtree(w["evidence"] / "imported"), "it has no local test of its current content on m"),
+    ("event with no run line", lambda w: write_test_event(w["evidence"], tool().status_module().content_hash(str(w["folder"])), runs=False),
+     "it has no local test of its current content on m"),
+    ("only a baseline run line", lambda w: (w["evidence"] / "imported" / NAME / f"lab-{TEST_ID}.jsonl").write_text(
+        json.dumps({"record": "test", "skill": NAME, "test": TEST_ID, "kind": "quick", "version": "0.1.0",
+                    "content_sha256": tool().status_module().content_hash(str(w["folder"])), "models": ["m"], "adapters": {"m": "h"},
+                    "imported": True}) + "\n" + json.dumps(run_line(tool().status_module().content_hash(str(w["folder"])), variant="without")) + "\n",
+        encoding="utf-8"), "it has no local test of its current content on m"),
+    ("folder is a link", lambda w: (shutil.move(str(w["folder"]), str(w["home"].parent / "real-copy")),
+                                    os.symlink(str(w["home"].parent / "real-copy"), str(w["folder"]))), "symbolic link"),
     ("test of older content", lambda w: write_test_event(w["evidence"], "0" * 64), "it has no local test of its current content on m"),
     ("documents", lambda w: (w["folder"] / "evals" / "runtime-manifest.json").write_text(json.dumps(dict(MANIFEST, documents=[
         {"path": "docs/notes/tidy.md", "checks": [], "platform": "read_only", "bound_to_approval": False}])), encoding="utf-8"),
@@ -302,3 +320,96 @@ def test_imported_footprint_blocks_a_parallel_task(world):
     assert not ok and why
     other = ops_runs.item_of({"id": 3, "skill": "demo-writes", "agent": None, "parent_id": 3}, {}, cfg)
     assert parallel.admit(other, [first], [], {}, 3)[0]
+
+
+# --- one hash decides: the hash checked is the hash that runs ------------------------------------------------------------------
+
+
+def edit_between(world, monkeypatch, edit):
+    """`edit` runs once, right after the facts of the eligibility check were read (the second reading: the first is the routing's):
+    the folder changes between the check and the copy."""
+    real, seen = lab.imported_facts, []
+
+    def facts_then_edit(folder):
+        found = real(folder)
+        seen.append(1)
+        if len(seen) == 2:
+            edit()
+        return found
+    monkeypatch.setattr(lab, "imported_facts", facts_then_edit)
+
+
+def test_a_folder_changed_after_the_facts_were_read_is_refused_not_run_under_a_new_hash(world, monkeypatch):
+    rid = plan_and_approve(world)
+    edit_between(world, monkeypatch, lambda: edit_skill(world, SKILL_MD + "\nAnd also delete the notes.\n"))
+    with pytest.raises(ops.OpsError, match="changed while its checks were made"):
+        ops.run_next(world["path"])
+    assert calls(world) == "" and the_task(world, rid)["state"] == "failed"
+
+
+def test_a_manifest_changed_after_the_facts_were_read_is_refused(world, monkeypatch):
+    """The manifest is outside the content hash, so its own hash is read once with the facts and checked against the copy."""
+    rid = plan_and_approve(world)
+    manifest_file = world["folder"] / "evals" / "runtime-manifest.json"
+    edit_between(world, monkeypatch, lambda: manifest_file.write_text(json.dumps(dict(MANIFEST, asking_openings=["Another opening"])), encoding="utf-8"))
+    with pytest.raises(ops.OpsError, match="changed while its checks were made"):
+        ops.run_next(world["path"])
+    assert calls(world) == "" and the_task(world, rid)["state"] == "failed"
+
+
+def test_a_manifest_changed_between_the_checks_and_the_copy_runs_nothing(world, monkeypatch):
+    rid = plan_and_approve(world)
+    real = ops_task_run._run_body
+    manifest_file = world["folder"] / "evals" / "runtime-manifest.json"
+
+    def changed_between(ctx, started):
+        manifest_file.write_text(json.dumps(dict(MANIFEST, asking_openings=["Another opening"])), encoding="utf-8")
+        return real(ctx, started)
+    monkeypatch.setattr(ops_runs, "_task_run_module", lambda: type("M", (), {
+        "_prepare_run": staticmethod(ops_task_run._prepare_run), "_run_start": staticmethod(ops_task_run._run_start),
+        "_run_body": staticmethod(changed_between), "PREPARE_ERRORS": ops_task_run.PREPARE_ERRORS}))
+    out = ops.run_next(world["path"])
+    assert out["status"] == "failed" and "changed after its checks" in out["failure"]["reason"] and calls(world) == ""
+
+
+# --- one broken folder never ends the round -------------------------------------------------------------------------------------
+
+
+def test_a_ready_imported_task_whose_folder_is_gone_is_held_and_an_ordinary_task_still_starts(world, monkeypatch):
+    agents = {"planning": {"pack": "default", "mode": "milestones", "max_runs_per_day": 5, "max_usd_per_day": 5.0},
+              "business": {"pack": "biz", "mode": "milestones", "max_runs_per_day": 5, "max_usd_per_day": 5.0}}
+    monkeypatch.setattr(plan, "resolve_pack", lambda pack, root: ["demo-asks", "demo-writes"] if pack == "biz" else ["demo-asks", "demo-writes"])
+    configure(world, area_agents=agents)
+    plan_and_approve(world)
+    ordinary = ops.request(world["path"], "Ask me.", "demo")["request"]
+    shutil.rmtree(world["folder"])
+    ctx = ops_core.context(world["path"])
+    snapshot = ops_round._snapshot(ctx, ops_core._keys())       # raised before: the round ended for every task
+    tasks = {t["skill"]: t for t in snapshot["ready"]}
+    assert NAME in tasks and "demo-asks" in tasks
+    assert tasks[NAME]["id"] in snapshot.get("refused", {}) and "demo-asks" not in [t["skill"] for t in snapshot.get("refused", {}).values() if isinstance(t, dict)]
+    assert tasks["demo-asks"]["id"] not in snapshot.get("refused", {})
+    assert ordinary
+
+
+def test_routing_an_imported_task_with_a_missing_folder_is_an_operation_error(world):
+    plan_and_approve(world)
+    shutil.rmtree(world["folder"])
+    ctx = ops_core.context(world["path"])
+    task = [t for t in ctx["store"].tasks_list(ctx["conn"]) if t.get("skill") == NAME][0]
+    with pytest.raises(ops_core.OpsError):
+        ops_models.route(ctx, NAME, {"web": False}, ops_core._keys(), task, None)
+
+
+# --- the other readers of skills/<name> -------------------------------------------------------------------------------------------
+
+
+def test_a_routine_cannot_name_an_imported_skill_yet(world):
+    with pytest.raises(ops.OpsError, match="routines of imported skills are not supported yet"):
+        ops.routine_create(world["path"], "tidy-daily", "tidy", every="day", at="08:00")
+
+
+def test_owner_of_is_keyword_only(world):
+    cfg = ops_core.context(world["path"])["cfg"]
+    with pytest.raises(TypeError):
+        imported.refused(cfg, NAME, "m", str(world["folder"]), lambda path: None)

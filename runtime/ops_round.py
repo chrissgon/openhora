@@ -272,7 +272,11 @@ def _snapshot(ctx: dict, keys) -> dict:
     def routed(skill: str, task=None, requested=None) -> dict:
         slot = (skill, (task or {}).get("id"), requested)
         if slot not in proofs:
-            proofs[slot] = ops_models.route(ctx, skill, skill_meta.declared(imported.skill_dir(cfg, skill)), keys, task, requested)
+            try:
+                meta = skill_meta.declared(imported.skill_dir(cfg, skill))
+            except (skill_meta.SkillError, OSError, ValueError) as e:   # a moved or deleted imported folder holds its task, not the round
+                raise core.OpsError(f"the skill {skill} cannot be read now: {e}", 1) from None
+            proofs[slot] = ops_models.route(ctx, skill, meta, keys, task, requested)
         return proofs[slot]
 
     cache = {}
