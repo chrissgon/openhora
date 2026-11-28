@@ -468,7 +468,8 @@ def test_f14_the_card_over_the_blurred_shot_is_one_sha256_at_four_and_at_two_cpu
     lab.need(engine)
     transcript = K.build_transcript(CUTAWAY_SENTENCES)
     rec = lab.recording("cutaway", transcript)
-    edl_file, beats_file, doc = lab.documents("cutaway", rec, transcript, CUTAWAY_POST)
+    edl_file, beats_file, doc = lab.documents("cutaway-nozoom", rec, transcript, CUTAWAY_POST, ("--zoom", "none", "--push-in", "0"))      # no zoom: a zoomed range scales the band, so frames outside the span could not be read exactly
+    assert C.unzoomed_ranges(doc) == list(range(len(doc["kept"])))
     beats = with_focus_card(lab, beats_file, "beats-f14.json")
     picture = cutaway_picture(lab.folder)
     runs = [lab.render(engine, "f14-a-" + engine, rec, edl_file, beats, 4, "0-3", assets={"beat2": picture}),
