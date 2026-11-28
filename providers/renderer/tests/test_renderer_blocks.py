@@ -88,13 +88,13 @@ def test_the_ffmpeg_engine_maps_caption_and_every_vocabulary_preset_to_a_block_i
     presets = cat["engines"]["ffmpeg"]["presets"]
     assert set(presets) == set(VOCAB["presets"]) | {"caption"} and set(presets) == set(DATA["presets"]) | {"caption"}
     for preset, name in presets.items():
-        assert (name == "oh:" + preset or name in PORT_DEFAULTS.values()) and "ffmpeg" in _blocks.engines_of(cat, cat["blocks"][name]), preset
+        assert (name == "oh:" + preset.replace("_", "-") or name in PORT_DEFAULTS.values()) and "ffmpeg" in _blocks.engines_of(cat, cat["blocks"][name]), preset
 
 
 def test_an_oh_block_declares_its_presets_kind_and_parameters_and_the_page_reads_no_other():
     cat = _blocks.load_catalogue()
     for preset, cfg in DATA["presets"].items():
-        block = cat["blocks"]["oh:" + preset]
+        block = cat["blocks"]["oh:" + preset.replace("_", "-")]
         assert block["params"] == VOCAB["presets"][preset]["params"] and block["kind"] == VOCAB["presets"][preset]["kind"], preset
         html = open(os.path.join(BLOCKS, K.template_of(preset)), encoding="utf-8").read()
         names = set(filter(None, re.search(r'<meta name="pv-params" content="([^"]*)">', html).group(1).split(",")))

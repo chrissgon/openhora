@@ -601,3 +601,18 @@ def test_the_ffmpeg_engines_render_neither_reads_nor_stages_the_picture_of_a_bea
     assert out["assets_dropped"] == ["s1"] and not any(word.startswith("s1=") for word in out["command"]) and any(word.startswith("s0=") for word in out["command"])
     rc, out, err = world.host(*base, "--asset", "s0=%s" % kept)                      # only the kept picture handed over: nothing is dropped, nothing is reported
     assert rc == 0 and "assets_dropped" not in out
+
+
+def test_the_renders_answer_keeps_blurs_drawn_through_sanitise_and_refuses_a_malformed_one():
+    """P4b: `blurs_drawn` (id and first and last frame of each blurred span) is in the render result's schema, optional, at most 100 rows, closed."""
+    base = {"ok": True, "dry_run": True, "out_seconds": 4.0, "out_frames": 120, "frame_jobs": 3, "jobs": 3, "time_limit_seconds": 60, "layers": ["beat"],
+            "beats_drawn": [], "beats_dropped": [], "effects_dropped": [], "unmatched_beats": [], "mentions": [], "fonts": {}, "blocks": {}, "blocks_sha256": "0" * 64,
+            "estimated_bytes": 1000}
+    assert "blurs_drawn" not in D.sanitise(base, D.RESULT_SCHEMAS["render"])
+    row = {"id": "a1", "start_frame": 30, "end_frame": 120}
+    assert D.sanitise(dict(base, blurs_drawn=[row]), D.RESULT_SCHEMAS["render"])["blurs_drawn"] == [row]
+    assert D.sanitise(dict(base, blurs_drawn=[dict(row, extra="x")]), D.RESULT_SCHEMAS["render"])["blurs_drawn"] == [row]      # only the listed keys survive
+    for bad in ([dict(row, start_frame="30")], [dict(row, id=7)], "a1", [row] * 101):
+        with pytest.raises(Refusal) as caught:
+            D.sanitise(dict(base, blurs_drawn=bad), D.RESULT_SCHEMAS["render"])
+        assert caught.value.code == "container_result_invalid"

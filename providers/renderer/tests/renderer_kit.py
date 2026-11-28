@@ -54,7 +54,7 @@ def oh_defaults_in(folder) -> None:
     """Make the ffmpeg engine of a copy of the blocks draw every preset with its `oh:` page, then pin the copy again."""
     folder = Path(folder)
     engine = json.loads((folder / "engines" / "ffmpeg.json").read_text())
-    engine["presets"] = {preset: "oh:" + preset for preset in engine["presets"]}
+    engine["presets"] = {preset: "oh:" + preset.replace("_", "-") for preset in engine["presets"]}
     (folder / "engines" / "ffmpeg.json").write_text(json.dumps(engine, indent=1))
     _blocks.write_pins(str(folder))
 
