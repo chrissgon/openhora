@@ -1088,6 +1088,8 @@ TODO_NO_LISTS: Nenhuma lista de tarefas está configurada ainda. Indique uma na 
 TODO_NO_LIST_SHOWN: Não tenho uma lista de tarefas para apontar. Peça suas tarefas primeiro e depois diga o número.
 TODO_SEVERAL: Qual tarefa? 3 tarefas abertas combinam:
 TODO_UNAVAILABLE: Não consegui ler suas tarefas do Example Calendar agora. Tente de novo daqui a pouco.
+TOO_LARGE_MANY: 3 mensagens enviadas a este canal eram grandes demais para serem lidas (mais de 1 MB com os anexos) e foram deixadas de lado: nada foi feito com elas. Se alguma era sua, envie arquivos menores, de até cerca de 700 KB no total.
+TOO_LARGE_ONE: Uma mensagem enviada a este canal era grande demais para ser lida (mais de 1 MB com os anexos) e foi deixada de lado: nada foi feito com ela. Se era sua, envie arquivos menores, de até cerca de 700 KB no total.
 TOO_LONG: Longo demais para aprovar aqui. Aprove on the platform's page
 TOO_LONG_LINE: Longo demais para aprovar aqui: aprove na página da plataforma.
 TOO_MANY: Uma pergunta lê no máximo 10 fontes, e você indicou 3.
