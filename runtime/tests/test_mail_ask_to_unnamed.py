@@ -27,10 +27,9 @@ def test_an_unnamed_recipient_is_asked_with_the_default_name(monkeypatch, tag):
     desk = Desk(monkeypatch, accounts=("google",))
     desk.cfg["language"] = tag
     ask = unnamed(desk)["ask"]
-    assert (ask["need"], ask["sentence_key"]) == ("to", "NW_MAIL_ASK_TO")
-    assert ask["fields"] == {"name": phrases.text("NW_MAIL_ASK_TO_UNNAMED", desk.cfg)}
-    asked = phrases.text("NW_MAIL_ASK_TO", desk.cfg, **ask["fields"])
-    assert " ?" not in asked and "de ?" not in asked and "of ?" not in asked
+    assert ask["need"] == "to"
+    assert (ask["sentence_key"], ask["fields"]) == ("NW_MAIL_ASK_TO_UNNAMED", {})
+    asked = phrases.text(ask["sentence_key"], desk.cfg, **ask["fields"])
     assert asked == {"en": "What is the e-mail address of the recipient?", "pt-BR": "Qual o e-mail de quem vai receber?"}[tag]
 
 
@@ -39,9 +38,12 @@ def test_a_named_recipient_is_asked_as_before(monkeypatch):
     assert resolve(desk, LINE_NAMED)["ask"]["fields"] == {"name": "Bia"}
 
 
-def test_the_default_follows_the_scope_of_the_person_asked(monkeypatch):
+def test_the_question_is_said_in_the_language_it_is_shown_in(monkeypatch):
+    """No translated text is stored in a field: the same pending question reads whole in each language scope."""
     desk = Desk(monkeypatch, accounts=("google",))
     desk.cfg["language"] = "en"
+    ask = unnamed(desk)["ask"]
+    assert ask["fields"] == {}
     with phrases.scope("pt-BR"):
-        ask = unnamed(desk)["ask"]
-    assert ask["fields"] == {"name": phrases.text("NW_MAIL_ASK_TO_UNNAMED", {"language": "pt-BR"})} and ask["fields"]["name"] == "quem vai receber"
+        assert phrases.text(ask["sentence_key"], desk.cfg, **ask["fields"]) == "Qual o e-mail de quem vai receber?"
+    assert phrases.text(ask["sentence_key"], desk.cfg, **ask["fields"]) == "What is the e-mail address of the recipient?"

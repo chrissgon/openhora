@@ -467,11 +467,11 @@ def first_time(doc: dict, known) -> list:
     return out
 
 
-def card_lines(doc: dict, digest: str, first_time=()) -> list:
+def card_lines(doc: dict, digest: str, new_addresses=()) -> list:
     """The card of an e-mail from the person's own account, line by line: [[phrase key, {field: text}], ...], every key of the family CARD_ (runtime/phrases.py).
     The sender (the account) and every recipient come first, so that nothing a long text can do hides one; the Bcc is listed; then the subject, the message answered
     (and the other address it asked replies to go to, which is not used), the text exactly as it will be sent behind a mark on every line, each attachment by
-    name, size and hash, and the hash with the command that approves it. `first_time` (EM6) is the list of recipients the person has never written to or heard from (`first_time`
+    name, size and hash, and the hash with the command that approves it. `new_addresses` (EM6) is the list of recipients the person has never written to or heard from (`first_time`
     below, worked out by code beside the document and never part of it): one line after the Cc and Bcc says so; with none, the lines are the ones there always were.
     The values are the person's or a service's words and are never translated."""
     own = [["CARD_MAIL_REPLY" if doc["reply"] else "CARD_MAIL_SEND", {}], ["CARD_MAIL_FROM_ACCOUNT", {"address": doc["from"], "account": doc["account"]}]]
@@ -490,8 +490,8 @@ def card_lines(doc: dict, digest: str, first_time=()) -> list:
     for key, name in (("CARD_MAIL_CC", "cc"), ("CARD_MAIL_BCC", "bcc")):
         if doc[name]:
             own.append([key, {"addresses": ", ".join(doc[name])}])
-    if first_time:
-        own.append(["CARD_MAIL_FIRST_TIME", {"addresses": ", ".join(first_time)}])
+    if new_addresses:
+        own.append(["CARD_MAIL_FIRST_TIME", {"addresses": ", ".join(new_addresses)}])
     own += [["CARD_MAIL_SUBJECT_REPLY" if reply else "CARD_MAIL_SUBJECT", {"subject": doc["subject"]}], ["CARD_MAIL_COUNT", {"count": str(len(recipients(doc)))}],
             ["CARD_MAIL_MESSAGE", {"body": guttered(doc["body"])}]]
     if doc["attachments"]:
@@ -504,12 +504,12 @@ def card_lines(doc: dict, digest: str, first_time=()) -> list:
     return own
 
 
-def body(doc: dict, digest: str, first_time=()) -> str:
+def body(doc: dict, digest: str, new_addresses=()) -> str:
     """What the person reads before approving, the whole e-mail: the sender and every recipient first (so that nothing a long text can do
     hides one), the Bcc included, then the subject, the reply, the text exactly as it will be sent, each attachment by name, size and hash, and
-    the hash of the effect with the command that approves it. For an e-mail from the person's own account, the lines of its card in English (with the first-time line when `first_time` is given: the outbox's e-mail has none)."""
+    the hash of the effect with the command that approves it. For an e-mail from the person's own account, the lines of its card in English (with the first-time line when `new_addresses` is given: the outbox's e-mail has none)."""
     if is_own(doc):
-        return phrases.card_text(card_lines(doc, digest, first_time))
+        return phrases.card_text(card_lines(doc, digest, new_addresses))
 
     def line(label, items):
         return f"{label}: " + (", ".join(items) if items else "(none)")

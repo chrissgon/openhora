@@ -276,7 +276,7 @@ class AccountMailReader:
     def first_time(self, doc: dict) -> list:
         """The recipients of an own-account e-mail the person has neither received from nor sent to (EM6), in the document's order; [] when the record is incomplete.
         Received from: every sender and Reply-To of the newest snapshot of every registered mail source (the operations' own reading, `channel=None`). Sent to: the
-        recipients of the e-mails this runtime sent (the newest SENT_READ_MAX approved send-email decisions that landed, whose effect file still hashes to the
+        recipients of the e-mails this runtime sent (of the newest SENT_READ_MAX approved effect decisions, read with a bounded query, the send-email ones that landed, whose effect file still hashes to the
         approved hash). A snapshot that cannot be read (stale, no index, changed outside the runtime) or no mail source makes the record incomplete, and an incomplete
         record flags no one: a partial one would flag people the person does write to. Nothing is written, logged or kept."""
         if not send_document.is_own(doc) or doc.get("reply"):
@@ -303,14 +303,14 @@ class AccountMailReader:
         """The recipients of the newest e-mails the platform sent, from their effect files (checked against the hash the person approved)."""
         store, conn, cfg = self._ctx["store"], self._ctx["conn"], self._cfg
         landed = []
-        for row in store.pending_list(conn, "resolved"):
+        for row in store.pending_effects_resolved(conn, SENT_READ_MAX):
             payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
             step, result = payload.get("step"), payload.get("result")
             if row.get("kind") == "effect" and row.get("resolution") == "approved" and isinstance(step, dict) and step.get("kind") == SEND_STEP_KIND \
                     and isinstance(result, dict) and result.get("sent") is True and row.get("payload_sha256"):
                 landed.append(row)
         found = set()
-        for row in sorted(landed, key=lambda r: r["id"])[-SENT_READ_MAX:]:
+        for row in landed:
             folder = os.path.join(cfg["data_dir"], ops_step_effects.EFFECTS_DIR, str(row["task_id"]))
             try:
                 cycles = sorted(int(name) for name in os.listdir(folder) if name.isdigit())

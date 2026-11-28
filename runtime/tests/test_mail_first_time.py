@@ -125,3 +125,23 @@ def test_the_first_time_of_a_document_is_pure():
     assert send_document.first_time(doc, {"b@x.example"}) == ["a@x.example", "c@x.example"]
     assert send_document.first_time(doc, set()) == ["a@x.example", "b@x.example", "c@x.example"]
     assert send_document.first_time(dict(doc, reply={"address": "a@x.example"}), set()) == []
+
+
+def test_the_sent_record_reads_at_most_sent_read_max_rows_newest_first(world, monkeypatch):
+    far, farther = "ola@far.example", "pia@far.example"
+    approve(world, send(world, to=far))
+    approve(world, send(world, to=farther, subject="Second"))
+    ctx = ops_core.context(world["path"])
+    rows = ctx["store"].pending_effects_resolved(ctx["conn"], 1)
+    assert len(rows) == 1 and rows[0]["id"] == max(r["id"] for r in ctx["store"].pending_list(ctx["conn"], "resolved"))
+    monkeypatch.setattr(ops_step_seams, "SENT_READ_MAX", 1)      # only the newest send is read: the older recipient is a first time again
+    assert first_time_lines(item_of(world, send(world, to=f"{far}, {farther}", subject="Third"))) == [["CARD_MAIL_FIRST_TIME", {"addresses": far}]]
+
+
+def test_a_failing_record_is_one_diagnostic_line_with_the_exception_type_only(world, monkeypatch, capsys):
+    def broken(self, doc):
+        raise RuntimeError("secret@leak.example")
+    monkeypatch.setattr(ops_step_seams.AccountMailReader, "first_time", broken)
+    item_of(world, send(world, to=NEW))
+    err = capsys.readouterr().err
+    assert "RuntimeError" in err and "leak.example" not in err and NEW not in err

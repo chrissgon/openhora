@@ -762,7 +762,7 @@ NW_MAIL_ASK_SOURCE: De qual caixa?
 NW_MAIL_ASK_STATE: Marcar como lido ou como não lido?
 NW_MAIL_ASK_SUBJECT: Qual o assunto do e-mail para ana@mail.example?
 NW_MAIL_ASK_TO: Qual o e-mail de Ana Lima?
-NW_MAIL_ASK_TO_UNNAMED: quem vai receber
+NW_MAIL_ASK_TO_UNNAMED: Qual o e-mail de quem vai receber?
 NW_MAIL_BY_DATE: Ainda não sei escolher e-mails por data: diga os números (peça a lista dos seus e-mails para vê-los).
 NW_MAIL_LIST_CHANGED: Sua caixa de e-mail mudou desde que listei essas mensagens, então não fiz nada. Peça de novo que eu listo outra vez.
 NW_MAIL_NONE: Nenhuma mensagem do snapshot mais novo de notes.example tem todas estas palavras: move, review.

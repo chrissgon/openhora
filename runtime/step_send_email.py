@@ -345,7 +345,8 @@ def _first_time(ctx: steps.Context, doc: dict) -> list:
         return []
     try:
         return list(ctx.services["account_mail"].first_time(doc))
-    except Exception:      # noqa: BLE001  (the record is advisory: a card is never stopped by it)
+    except Exception as e:      # noqa: BLE001  (the record is advisory: a card is never stopped by it)
+        print(f"first-time recipients not worked out ({type(e).__name__})", file=sys.stderr)      # the type only: no address, no subject
         return []
 
 
