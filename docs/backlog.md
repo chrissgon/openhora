@@ -24,7 +24,6 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - T22: Move the dated fixtures forward before 2027-10-02 (#864, `backlog: tooling`)
 - T47: Remove the compatibility stages of the rename to openhora (formerly the rename items of T23) (#865, `backlog: tooling`)
 - T48: The runtime workarounds marked `T23:` (formerly workarounds 4 to 8 of T23) (#866, `backlog: tooling`)
-- T49: An opencode runner pair on the OpenCode 2 line is not planned (#867, `backlog: tooling`)
 - T31: The installers carry what a skill needs of `providers/` and print the workbench root (#870, `backlog: tooling`)
 - T34: The providers say "no token" when the credentials directory is unsafe (#872, `backlog: tooling`)
 - T41: A step kind reaches the script provider through a `ctx.services` seam (#873, `backlog: tooling`)

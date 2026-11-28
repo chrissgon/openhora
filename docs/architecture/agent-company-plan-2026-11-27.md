@@ -386,15 +386,15 @@ The downgrades of questions and the matching of delegations run on the same pinn
 
 ### 4.9 The office
 
-If R23 chooses a fork of Habblaud, it is fed by openhora:
-- rooms per area;
+R23 is decided (2026-11-28, `docs/decisions/2026-11-28-w0-decisions-backlog-wave-0.md`): the office is our own, built in `interface/` as static files from parts of permissive open projects, with their notices kept. It is not a fork of Habblaud, whose repository is kept as a reference only. The art is chosen later with the maintainer. It is fed by openhora:
+- one room per area;
 - characters with their appearance from the profile;
 - the message box wired to the lane;
-- the events of section 4.5 as bubbles.
+- the events of section 4.5 as bubbles, showing the kind of step only (L50).
 
-If R23 does not choose a fork, the same data feeds `interface/`.
+The page polls `/versions` each second and reads the events when the number moved; there is no server-sent stream unless AC4 changes the rule by its own decision. The language is the project's language setting.
 
-A fork's approvals are a new client of the service. They come under L44, or are served from the service's own origin so that its origin check holds. In either case the service checks the hash.
+The office is part of the same page and origin, so its approvals are the page's: it shows the item and links to the existing card, and holds no approval path of its own. The service checks the hash.
 
 ### 4.10 Questions between agents, by level (AC-D9)
 
@@ -673,24 +673,22 @@ The AC10 spike and CARD-READ (#987) run whenever there is room; neither needs an
 
 ## 7. Open questions
 
-Decided by the maintainer on 2026-11-27 (section 11):
+Decided by the maintainer on 2026-11-27 (section 11) and 2026-11-28 (`docs/decisions/2026-11-28-w0-decisions-backlog-wave-0.md`):
 - **OPEN-1. Embeddings.** Decided: in v1, local by default, behind a provider class (AC-D10).
 - **OPEN-6. How long threads and memories are kept.** Decided: until the person erases them, with tombstones and an export; records between agents are kept like the other governance records (AC-D13).
 - **OPEN-7. The consent of plan release.** Decided: part of the autonomous work mode's consent (AC-D11); section 4.2 makes it a consent kind of its own, and `auto` agents get plan release by proof only.
 - **OPEN-10. The dated L63 decision for the lane.** Decided: page and terminal lines; messaging later (AC-D12).
 - **OPEN-15. Whether a routine holds `agent-chains`.** Decided: only when it was approved on a channel that holds it, with the holding in the routine's content hash (AC-D17).
-- **OPEN-14. Run replies and messages between agents on the lane's route.** Decided (section 13): by who started the chain, through the capability group `agent-chains`, with the defaults of section 4.13 (AC-D16).
-
-Still open:
-- **OPEN-2. Who writes the profile.** Recommended: the person only; an agent proposes, the person accepts.
-- **OPEN-3. Who pays a chain of requests.** Recommended: each task counts on its owner's caps, and the chain carries a budget set where it started; the chain stops at either.
-- **OPEN-4. What the planning agent becomes.** Recommended: the reception, with no manager role.
-- **OPEN-5. Targets of speed.** Recommended: set from AC3's first measurements, per model.
-- **OPEN-8. Where the sources' index lives.** Recommended: beside the sources folder, outside git, under the limits restated in section 4.7.
-- **OPEN-9. Memory written by an agent.** Recommended: allowed without approval inside a task or a turn, always visible and erasable, marked when it came from external content, and kept out of turns that carry an effect proposal.
-- **OPEN-11. Reading memories from MCP or messaging.** Recommended: not in v1.
-- **OPEN-12. How a delegation names a kind of decision.** Recommended: free words written by the person, matched by a model behind a measured guard, with a doubtful match sent to the person.
-- **OPEN-13. The number of review rounds and the reviewer's budget.** Recommended: two rounds before the tiebreak, fixed in AC12's spec from the first measurements.
+- **OPEN-14. Run replies and messages between agents on the lane's route.** Decided (section 13): by who started the chain, through the ca
+- **OPEN-2. Who writes the profile.** Decided: the person only; an agent proposes, the person accepts (AC-D18, `docs/decisions/2026-11-28-w0-decisions-backlog-wave-0.md`).
+- **OPEN-3. Who pays a chain of requests.** Decided: each task counts on its owner's caps, and the chain carries a budget set where it started; it stops at either (AC-D19).
+- **OPEN-4. What the planning agent becomes.** Decided: the reception, with no manager role (AC-D20).
+- **OPEN-5. Targets of speed.** Decided: set from AC3's first measurements, per model (AC-D21).
+- **OPEN-8. Where the sources' index lives.** Decided: beside the sources folder, outside git, under the limits restated in section 4.7 (AC-D22).
+- **OPEN-9. Memory written by an agent.** Decided: allowed without approval inside a task or a turn, visible and erasable, marked when it came from external content, and kept out of turns that carry an effect proposal (AC-D23).
+- **OPEN-11. Reading memories from MCP or messaging.** Decided: not in v1 (AC-D24).
+- **OPEN-12. How a delegation names a kind of decision.** Decided: the person's own words, matched by a model behind a measured guard, with a doubtful match sent to the person (AC-D25).
+- **OPEN-13. The number of review rounds and the reviewer's budget.** Decided: two rounds before the tiebreak, the budget fixed in AC12's spec from the first measurements (AC-D26).ounds before the tiebreak, fixed in AC12's spec from the first measurements.
 
 ## 8. Not in this plan
 
