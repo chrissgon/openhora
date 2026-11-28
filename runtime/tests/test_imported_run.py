@@ -413,3 +413,22 @@ def test_owner_of_is_keyword_only(world):
     cfg = ops_core.context(world["path"])["cfg"]
     with pytest.raises(TypeError):
         imported.refused(cfg, NAME, "m", str(world["folder"]), lambda path: None)
+
+
+def test_limit_84_an_imported_skill_runs_only_after_a_passed_check_and_an_audit_at_the_hash_the_checks_saw(world):
+    records = world["folder"] / "evals" / "import"
+    audit, check = (records / "audit.json").read_text(encoding="utf-8"), (records / "check.json").read_text(encoding="utf-8")
+    plan_and_approve(world)
+    for name, text in (("audit.json", json.dumps({"verdict": "install", "record": "v.md", "content_sha256": "0" * 64, "date": "2026-11-28"})),
+                       ("check.json", json.dumps({"ok": True, "content_sha256": "0" * 64}))):
+        (records / name).write_text(text, encoding="utf-8")                      # a record made at another content
+        with pytest.raises(ops.OpsError, match="does not run"):
+            ops.run_next(world["path"])
+        assert calls(world) == ""
+        write_records(world["folder"])
+        rid = plan_and_approve(world)                                            # the failed task is final: plan another
+    (records / "audit.json").write_text(audit, encoding="utf-8")
+    (records / "check.json").write_text(check, encoding="utf-8")
+    out = ops.run_next(world["path"])
+    assert out["task_state"] == "waiting" and out["routing"]["imported"] is True and calls(world).startswith(f"{NAME} 1")
+    assert rid
