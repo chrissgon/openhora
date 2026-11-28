@@ -31,6 +31,7 @@ import os
 import sys
 
 import autonomy
+import imported
 import lab
 import ops_core as core
 import prices
@@ -106,6 +107,8 @@ def route(ctx: dict, skill: str, meta: dict, keys, task: dict | None = None, req
     proven: the condition it runs in is not the one the evidence measured (the consent of D38, which covers an unproven pair, still can).
     An unknown model is a refusal (core.OpsError, code 2)."""
     cfg = ctx["cfg"]
+    if imported.entry(cfg, skill):   # a skill from outside never goes through the proof: its evidence is the person's own cases
+        return _route_imported(ctx, skill, meta, keys, task, requested)
     word, named_by = resolve(ctx, task, requested)
     table, _ = price_table(ctx)
     off = bool(task and task.get("web_off") and meta.get("web"))   # the flow runs a skill that requires the web without it (P6a, migration 13)
@@ -143,6 +146,46 @@ def route(ctx: dict, skill: str, meta: dict, keys, task: dict | None = None, req
         routing["reasons"].append(f"{routing['model']} is unproven for this skill; the person consented to it for this agent: "
                                   "its reviews are released by the mode, and the run is recorded as autonomy by consent")
     return routing
+
+
+def _route_imported(ctx: dict, skill: str, meta: dict, keys, task, requested) -> dict:
+    """The routing of a task of an imported skill (package I2): every key proof.route gives, with these fixed: `proven` False,
+    `autonomy` "supervised", `consent` False, `web` False, the bands empty and the checks None, because nothing here is proof.
+    The model is the one named (`named`), else, for `auto`, the model with a key whose local test of the skill's current content
+    is the newest (`auto`), else the project's default model or the first lab model (`fallback`): the eligibility check
+    (runtime/imported.py refusals) then says there is no test on it. No routine consent (D34), no agent consent (D38) and no
+    autonomous work mode (AC12) ever applies: the review of an imported run is held by autonomy.review_action. An unknown
+    model is a refusal (core.OpsError, code 2)."""
+    cfg = ctx["cfg"]
+    word, named_by = resolve(ctx, task, requested)
+    tested = lab.imported_facts(imported.skill_dir(cfg, skill))["tested"]
+    order = lab.models()
+    if word not in (None, AUTO):
+        try:
+            model, mode = lab.resolve_model(word), "named"
+        except lab.LabError as e:
+            raise core.OpsError(e.reason, 2) from None
+    else:
+        have = [m for m in order if m in tested and (keys is None or keys.found(m))]
+        if have:
+            model, mode = max(have, key=lambda m: (tested[m], -order.index(m))), AUTO
+        else:
+            fixed = cfg.get("default_model")
+            try:
+                model = lab.resolve_model(fixed) if fixed and fixed != AUTO else lab.default_model()
+            except lab.LabError as e:
+                raise core.OpsError(e.reason, 2) from None
+            mode = "fallback"
+    adapter = lab.reference(model)["adapter"]
+    found = keys[model] if keys is not None else {"source": None, "reason": None}
+    reasons = [imported.SUPERVISED, imported.NO_WEB] if meta.get("web") else [imported.SUPERVISED]
+    if found["reason"] and found["source"] is None:
+        reasons.append(found["reason"])
+    return {"model": model, "adapter": adapter, "web": False, "proven": False, "autonomy": "supervised", "mode": mode,
+            "named_by": named_by, "source": "local", "bands": {}, "checks": {"measurement": None, "image": None},
+            "reasons": reasons, "candidates": [], "outside_provider": [], "expected_cost": None,
+            "key_missing": keys is not None and not keys.found(model), "key": found["source"],
+            "billing": core._model_billing(model, adapter), "consent": False, "imported": True}
 
 
 def _routines():

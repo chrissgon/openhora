@@ -71,7 +71,11 @@ import os
 import re
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import imported  # noqa: E402  (the same folder: the names a project lists as imported skills; it imports nothing of this file)
+
+ROOT = os.path.dirname(HERE)
 NAME = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 TOP_KEYS = {"flow", "title", "params", "tasks"}
 SKILL_TASK_KEYS = {"key", "skill", "title", "text", "depends_on", "milestone", "sources", "web"}
@@ -200,8 +204,9 @@ def placeholders(flow: dict) -> set:
     return found
 
 
-def problems(data, name: str, root: str = ROOT) -> list:
-    """Why a loaded flow file is not well formed; [] when it is."""
+def problems(data, name: str, root: str = ROOT, imported=()) -> list:
+    """Why a loaded flow file is not well formed; [] when it is. `imported` is the names of the skills from outside that
+    the project lists (runtime/imported.py names_in): a skill task may name one of them though it is not under skills/."""
     if not isinstance(data, dict):
         return ["the file must hold a JSON object"]
     out = [f"unknown key {k!r}" for k in sorted(set(data) - TOP_KEYS)]
@@ -240,7 +245,7 @@ def problems(data, name: str, root: str = ROOT) -> list:
             skill = task.get("skill")
             if not isinstance(skill, str) or not NAME.fullmatch(skill):
                 out.append(f"{where}: \"skill\" must be a skill name")
-            elif not os.path.isfile(os.path.join(root, "skills", skill, "SKILL.md")):
+            elif skill not in imported and not os.path.isfile(os.path.join(root, "skills", skill, "SKILL.md")):
                 out.append(f"{where}: the skill {skill!r} is not under skills/")
             if "web" in task and task["web"] is not False:
                 out.append(f"{where}: \"web\" is only ever false (run a skill that requires the web without it)")
@@ -381,11 +386,11 @@ def dependency_problems(flow: dict, skills: dict) -> list:
     return out
 
 
-def normalise(data: dict, name: str, root: str = ROOT, where=None) -> dict:
+def normalise(data: dict, name: str, root: str = ROOT, where=None, imported=()) -> dict:
     """A flow file that passed problems(), in the loaded form: every task with its defaults. Skill task: {"key", "skill",
     "title", "text", "depends_on", "milestone"} and, only when the file has them, "sources" and "web" (false). Step task:
     {"key", "step", "args", "title", "text", "depends_on", "milestone"}. Top level: {"flow", "title", "params", "tasks"}."""
-    found = problems(data, name, root)
+    found = problems(data, name, root, imported)
     if found:
         raise FlowError(f"{where or name}: " + "; ".join(found))
     tasks = []
@@ -430,6 +435,10 @@ def _read_project(name: str, project: str) -> dict:
         raise FlowError(f"{where} is not valid JSON: {e}") from None
 
 
+def _imported_names(project) -> list:
+    return imported.names_in(project)
+
+
 def load(name: str, root: str = ROOT, project=None) -> dict:
     """The flow of that name, checked, in the loaded form of normalise(), with "origin": `workbench` (flows/<name>.json of the
     checkout) or, when a project is given and the workbench has no such flow, `project` (docs/workbench/flows/<name>.json of
@@ -456,7 +465,8 @@ def load(name: str, root: str = ROOT, project=None) -> dict:
             raise FlowError(f"{e} (flows there: {', '.join(n for n, _ in all_names(root, project)) or 'none'})") from None
     else:
         raise FlowError(f"no flow file flows/{name}.json (flows there: {', '.join(names(root)) or 'none'})")
-    return {**normalise(data, name, root, where), "origin": origin}
+    listed = _imported_names(project) if origin == "project" else ()   # a workbench flow never accepts a skill from outside
+    return {**normalise(data, name, root, where, listed), "origin": origin}
 
 
 def to_file(flow: dict) -> dict:

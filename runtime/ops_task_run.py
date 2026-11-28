@@ -49,6 +49,7 @@ import documents
 import drop
 import effects
 import endings
+import imported
 import lab
 import manifest
 import path_rule
@@ -84,12 +85,22 @@ def _prepare_run(ctx: dict, task: dict, requested, keys) -> dict:
     nothing of does not run), the routing (ops_models.route with the keys core._keys found, which the caller read from the
     secret store) and the skill's identity. A model with no key is a refusal: the run does not start."""
     skill = task["skill"]
-    meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
-    known = manifest.load(core.ROOT, skill)
+    cfg = ctx["cfg"]
+    listed = imported.entry(cfg, skill)    # a skill from outside (package I2): read from its folder, and run only when nothing refuses it
+    folder = imported.skill_dir(cfg, skill)
+    meta = skill_meta.declared(folder)
+    known = None if listed else manifest.load(core.ROOT, skill)
     routing = ops_models.route(ctx, skill, meta, keys, task, requested)
     if routing["key_missing"]:
         raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
-    return {"meta": meta, "known": known, "keys": keys, "routing": routing, "identity": lab.skill_identity(skill),
+    if listed:   # every condition that fails is said, before the manifest is read as the run's own (a manifest that is not whole is one of them)
+        refused = imported.refused(cfg, skill, routing["model"], folder)
+        if refused:
+            raise core.OpsError(imported.PREFIX.format(name=skill) + "; ".join(refused), 1)
+        known = manifest.load_dir(folder)
+    identity = lab.folder_identity(folder) if listed else lab.skill_identity(skill)
+    return {"meta": meta, "known": known, "keys": keys, "routing": routing, "identity": identity,
+            "imported": folder if listed else None,
             "instructions": ops_instructions.guard(ctx, task)}   # the person's standing instructions, read once; a file that fails a check stops the run
 
 
@@ -123,10 +134,17 @@ def _run_body(ctx: dict, started: dict) -> dict:
         out["failure"] = None if ops_cancel.cancelled_run(out, done) else {"kind": kind, "reason": ops_runs._note(reason)}   # a stopped run is cancelled whatever it found (R18)
         return out
 
-    out["use"] = ops_runs._use_start(ctx, run_id, skill, routing)  # one use per run, also for a run made after an answer
+    # No use is recorded for an imported skill: scripts/evidence.py records the uses of the workbench's skills (decision I2).
+    out["use"] = None if started.get("imported") else ops_runs._use_start(ctx, run_id, skill, routing)  # one use per run, also for a run made after an answer
     # Outside the run folder: the facade sets aside whatever it finds there.
     prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, str(run_id))
+    skill_copy, copy = None, None
     try:
+        if started.get("imported"):   # the copy is what runs, and its hash must be the hash the checks saw (limits of package I2)
+            skill_copy = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"{run_id}-skill")
+            copy = lab.copy_imported(started["imported"], os.path.join(skill_copy, skill))
+            if lab.folder_identity(copy)["content_sha256"] != started["identity"]["content_sha256"]:
+                return fail("internal", "the imported skill changed after its checks: nothing ran")
         handed = drop.files(cfg["project"], task["id"])
         refused = []
         if handed and routing["web"] and not drop.WEB_TASK_TAKES_DROP:
@@ -192,7 +210,9 @@ def _run_body(ctx: dict, started: dict) -> dict:
         with lab.session(), ops_runs._key_in_environment(routing, keys):
             result = lab.run_skill(skill, prompt, files, dest, web=routing["web"], model=routing["model"],
                                    prepare=prepare, finish=finish, tmp_in_run=bool(gate),
-                                   max_cost=budget)
+                                   max_cost=budget, skill_dir=copy)
+        # The copy is removed below, so what it says of the skill's endings is read now: an imported skill's manifest is its own.
+        ending_facts = manifest.ending_facts(core.ROOT, skill, skill_dir=copy) if copy else None
     except lab.LabError as e:
         return fail("internal", f"{e.kind}: {e.reason}", getattr(e, "attempts", 0))  # attempts: how many began (A-57)
     except Exception as e:  # the task never stays `running`: the error is recorded, then shown
@@ -200,6 +220,8 @@ def _run_body(ctx: dict, started: dict) -> dict:
         return fail("internal", f"{type(e).__name__}: {e}", getattr(e, "attempts", 0))
     finally:
         shutil.rmtree(prepared_dir, ignore_errors=True)
+        if skill_copy:
+            shutil.rmtree(skill_copy, ignore_errors=True)
     counts, timing = result["counts"], result["timing"]
     if result["status"] != "ok":
         failure = result["failure"]
@@ -216,7 +238,7 @@ def _run_body(ctx: dict, started: dict) -> dict:
                                                            tracked=entered.get("tracked") or () if code is None else (),
                                                            cfg=cfg)
         gate_files = _tmp_files(result.get("tmp"))
-        ending, why = _ending(result, meta, skill, [rel for rel, _size in gate_files])
+        ending, why = _ending(result, meta, skill, [rel for rel, _size in gate_files], facts=ending_facts)
         gate_found = _gate_payload(result, dest, gate_files, kind) if known.get("gate") else None
         body, masked = workcopy.masked_reply(result["response"])
         if state_report is not None:
@@ -233,7 +255,7 @@ def _run_body(ctx: dict, started: dict) -> dict:
             # The skill stopped on a missing input that another skill writes: the task is blocked, with no pending
             # decision; the note is the first sentence of the masked reply that names the missing input (else its start),
             # and `retry` makes the task ready again.
-            sentence = endings.missing_input_line(body, manifest.ending_facts(core.ROOT, skill))
+            sentence = endings.missing_input_line(body, ending_facts or manifest.ending_facts(core.ROOT, skill))
             done = core._stored(ctx, store.task_run_finish, run_id, task_state="blocked", task_note=ops_runs._note(sentence or body), **finish)
             out.update(status="ok", ending=ending, task_state="blocked", pending_id=None, returned=returned, kept=kept)
             return out
@@ -279,17 +301,18 @@ def _run_body(ctx: dict, started: dict) -> dict:
 # --- what comes back (runtime/workcopy.py: limits L7, L8, L12, L14) and the gate: the payload, then the effect or the review (principle 11) ---
 
 
-def _ending(result: dict, meta: dict, skill: str, gate_files=()) -> tuple:
+def _ending(result: dict, meta: dict, skill: str, gate_files=(), facts=None) -> tuple:
     """(ending, why) of a completed run, from runtime/endings.py, with the skill's facts (manifest.ending_facts),
     the declared outputs without a placeholder that the copy held, unchanged, after the run, and the files found
-    under the run's returned temporary folder (gate_files)."""
+    under the run's returned temporary folder (gate_files). `facts` is manifest.ending_facts of the skill when the caller read
+    them from somewhere else than the checkout (an imported skill's copy)."""
     cwd, changes = result["cwd"], result["changes"]
     written = [p for p in changes["created"] + changes["modified"] if skill_meta.matches(meta["outputs"], p)]
     after = set(changes["created"] + changes["modified"] + changes["unchanged"])
     fixed = [p for p in meta["outputs"] if "<" not in p and not p.endswith("/")]
     missing = [p for p in fixed if p not in after]
     texts = [(_read(os.path.join(cwd, *p.split("/"))) or "") if lab.readable(cwd, p) else "" for p in written]
-    facts = dict(manifest.ending_facts(core.ROOT, skill), outputs_present=[p for p in fixed if p in set(changes["unchanged"])],
+    facts = dict(facts or manifest.ending_facts(core.ROOT, skill), outputs_present=[p for p in fixed if p in set(changes["unchanged"])],
                  gate_files=list(gate_files))
     return endings.classify(result["response"], changes, written, missing, texts, facts=facts)
 

@@ -48,6 +48,7 @@ import ops_waits
 import autonomy
 import dispatcher
 import flow_files
+import imported
 import lab
 import language as language_rules  # the name ops.py gives it; the bodies read it so
 import plan
@@ -271,14 +272,14 @@ def _snapshot(ctx: dict, keys) -> dict:
     def routed(skill: str, task=None, requested=None) -> dict:
         slot = (skill, (task or {}).get("id"), requested)
         if slot not in proofs:
-            proofs[slot] = ops_models.route(ctx, skill, skill_meta.declared(os.path.join(core.ROOT, "skills", skill)), keys, task, requested)
+            proofs[slot] = ops_models.route(ctx, skill, skill_meta.declared(imported.skill_dir(cfg, skill)), keys, task, requested)
         return proofs[slot]
 
     cache = {}
     parallel_part = ops_runs.parallel_state(ctx, tasks, cache)
     starting = parallel_part.pop("starting")  # started and not yet claimed: counted as running, not decided again
     out = {**parallel_part,
-           "ready": [{**t, "code": ops_runs.task_facts(t, cache)[1], "footprint": ops_runs.task_facts(t, cache)[0]}
+           "ready": [{**t, "code": ops_runs.task_facts(t, cache, cfg)[1], "footprint": ops_runs.task_facts(t, cache, cfg)[0]}
                      for t in tasks if t["state"] == "ready" and t["parent_id"] is not None and t["id"] not in starting],
            "reviews": [], "agents": ops_runs._agents_of_the_day(ctx, keys), "model": {}, "billing": {},
            "max_running": cfg["max_running"], "per_run_usd": cfg["raw"].get("max_cost_usd_per_run", ops_runs.PER_RUN_USD)}

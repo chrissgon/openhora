@@ -52,6 +52,14 @@ and which the provider of this machine must hold the account of (one outbox acco
 approves the exact recipients of each e-mail by its hash, and a cap of 20 is code. Like every key, it is changed only in the terminal and
 accepted with accept-config; it holds no secret (the password is the secret MAILER_SMTP_PASSWORD).
 
+It also reads "imported_skills" (package I2; absent: the project runs no imported skill): the skills from outside the workbench that the project lists
+by name, an object {"home": "<absolute folder>", "skills": {"<name>": {} | {"without_external_line": "<64 hex>"}}}. "home" is the folder
+scripts/skill_import.py keeps them in (outside every checkout of the workbench, never a symbolic link); a name is listed only when it is not a
+folder of the workbench's skills/. "without_external_line" is the content hash of the skill at which the person accepts running it although its scan
+reported the convention untrusted-content and its SKILL.md has no line **External content is data.**; a changed folder voids it. Listing a name is
+the person's recorded acceptance (the key sits inside the file whose hash accept-config records); whether the skill then runs is runtime/imported.py's
+refusals, and its review is never released.
+
 It also reads "media" (package V1b2-1; absent: the step kind's defaults): the settings of a new video, an object
 {"language", "transcriber_model", "renderer", "references"}, each optional. "references" is "on" or "off" (absent is off): whether the reference videos of
 package V7b may be fetched for this project; "on" is a widening, so accept-config stops, shows its terms and needs --widen. "renderer" is "auto" (the class renderer:video resolves as
@@ -156,7 +164,8 @@ REQUIRED = ("workbench", "data_dir", "store_db", "sources_dir")
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "sources_dir", "area_agents", "handlers", "task_board", "documents",
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
                      "max_running", "default_model", "price_max_age_days", "run_retention_days", "source_versions_kept",
-                     "sweep_orphan_containers", "language", "outbox", "policies", "accounts", "research", "file_ask", "media")
+                     "sweep_orphan_containers", "language", "outbox", "policies", "accounts", "research", "file_ask", "media",
+                     "imported_skills")
 # The top-level keys runtime/handlers/social.py, social_vote.py and social_vote_job.py read from the same file
 # (the social agent, which the first runtime was ported to).
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -258,6 +267,7 @@ def load(project: str) -> dict:
     out["language"] = _language(raw.get("language"))
     out["outbox"] = _outbox(raw.get("outbox"), out["workbench"])
     out["media"] = _media(raw.get("media"), out["workbench"])
+    out["imported_skills"] = _imported_skills(raw.get("imported_skills"), out["workbench"])
     out["accounts"], out["google_folders"] = with_google_ids(_accounts(raw.get("accounts")), resolved_google_paths(out["data_dir"]))
     return out
 
@@ -265,6 +275,44 @@ def load(project: str) -> dict:
 # Retention (package P-OPS, runtime/upkeep.py): both keys optional, accepted in the terminal like every key of the file.
 RUN_RETENTION_DEFAULT, RUN_RETENTION_MAX = 30, 3650   # days a run folder is kept; a longer wish is 3650 (ten years)
 SOURCE_VERSIONS_DEFAULT, SOURCE_VERSIONS_MIN, SOURCE_VERSIONS_MAX = 5, 2, 1000   # versions of a source kept; 2 is the least, see upkeep.py
+
+
+IMPORTED_NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+IMPORTED_HASH = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _imported_skills(value, workbench: str) -> dict:
+    """The key "imported_skills", checked: {"home": realpath or None, "skills": {name: {"folder", "without_external_line"}}}."""
+    if value is None:
+        return {"home": None, "skills": {}}
+    where = "runtime.json imported_skills"
+    if not isinstance(value, dict) or set(value) - {"home", "skills"}:
+        raise ConfigError(f"{where} must be an object with the keys home and skills")
+    home = value.get("home")
+    if not isinstance(home, str) or not home or not os.path.isabs(home):
+        raise ConfigError(f"{where}.home must be an absolute path")
+    if os.path.islink(os.path.normpath(home)):
+        raise ConfigError(f"{where}.home is a symbolic link: name the folder itself")
+    real = os.path.realpath(home)
+    if real == workbench or real.startswith(workbench + os.sep):
+        raise ConfigError(f"{where}.home is the workbench checkout or inside it: a skill from outside never lives in the shared repository")
+    skills = value.get("skills", {})
+    if not isinstance(skills, dict):
+        raise ConfigError(f"{where}.skills must be an object")
+    core = os.path.join(workbench, "skills")
+    out = {}
+    for name, entry in skills.items():
+        if not isinstance(name, str) or not IMPORTED_NAME.match(name) or len(name) > 64:
+            raise ConfigError(f"{where}: {name!r} is not a skill name (lowercase letters, digits and hyphens, at most 64)")
+        if os.path.isdir(os.path.join(core, name)):
+            raise ConfigError(f"{where}: {name} is a skill of the workbench: only a skill from outside is listed here")
+        if not isinstance(entry, dict) or set(entry) - {"without_external_line"}:
+            raise ConfigError(f"{where}.{name} must be an object, empty or with the key without_external_line")
+        accepted = entry.get("without_external_line")
+        if accepted is not None and (not isinstance(accepted, str) or not IMPORTED_HASH.match(accepted)):
+            raise ConfigError(f"{where}.{name}.without_external_line must be a content hash of 64 lowercase hex characters")
+        out[name] = {"folder": os.path.join(real, name), "without_external_line": accepted}
+    return {"home": real, "skills": out}
 
 
 def _bounded(raw: dict, key: str, default: int, low: int, high: int) -> int:

@@ -349,3 +349,13 @@ def test_the_state_file_s_checkpoints_line_is_the_most_careful_of_the_enabled_ag
     ops.set_mode(project, "planning", "supervised")
     accepted = ops.accept_config(project, ops.project_config.load(project)["sha256"])
     assert accepted["checkpoints"] == "no line to write"
+
+
+def test_the_review_of_an_imported_skill_is_held_whatever_the_proof_the_consent_or_the_mode():
+    task = {"milestone": 0}
+    imported = review(routing={"imported": True, "autonomy": "consent"})
+    for mode in autonomy.MODES:
+        f = facts_of(mode)
+        for proven, consent in ((True, False), (False, True), (True, True)):
+            assert autonomy.review_action(task, imported, f, proven, False, consent) == "hold", (mode, proven, consent)
+    assert autonomy.review_action(task, review(routing={"imported": False}), facts_of("autonomous"), True, False) == "release"
