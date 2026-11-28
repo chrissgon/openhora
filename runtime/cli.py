@@ -215,6 +215,8 @@ video-catalogue lists the animations the caption review of a new video can add (
           that draw it, and `addable` with the reason when it is not). An animation is added with `captions-edit` and the edit
           `{"op": "animation", "block": "oh:keyword", "params": {"text": "..."}, "word_from": <i>, "word_to": <j>}`, removed with
           `{"op": "animation", "id": "a1", "remove": true}`; the renderer's own checker checks the parameters.
+          A layout with several pictures (the carousel) gets one slot per picture: `a<n>`, then `a<n>-asset2` and so on; give each its search
+          words with `slot_search`.
 video-storyboard draws the storyboard of a short-video post (--post docs/marketing/content/<name>.md): a still per beat of its ```script block
           and a contact sheet, over a neutral placeholder, with no recording and no model; it prints the key, the beats with the block that drew each
           and the block the project's own engine uses, and `sheet_path`, the absolute path of the sheet. Advisory: the video may look different.

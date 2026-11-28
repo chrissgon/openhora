@@ -485,7 +485,7 @@ def test_the_real_checker_accepts_a_declared_parameter_and_refuses_an_undeclared
 # V9b-3a. a layout with one picture parameter is added: its picture comes from the media set
 
 
-def test_a_layout_with_one_picture_parameter_is_addable_and_an_hf_block_or_a_block_with_two_is_not(tmp_path, monkeypatch):
+def test_a_layout_with_one_picture_parameter_is_addable_and_an_hf_block_is_not_and_a_block_with_two_is(tmp_path, monkeypatch):
     picture = {"type": ["image", "clip"], "required": True}
 
     def more(doc):
@@ -496,8 +496,8 @@ def test_a_layout_with_one_picture_parameter_is_addable_and_an_hf_block_or_a_blo
     found = animation.read_catalogue(root)["blocks"]
     presets = {"cutaway": "oh:cutaway"}
     assert animation.why_not(found["oh:cutaway"], "ffmpeg", presets) is None and animation.why_not(found["oh:screenshot"], "ffmpeg", presets) is None
-    assert animation.why_not(found["hf:frame"], "ffmpeg", presets) == "slot" and animation.why_not(found["oh:two"], "ffmpeg", presets) == "slot"
-    assert animation.why_not(found["oh:overlay-pic"], "ffmpeg", dict(presets, keyword="oh:keyword")) is None      # 7.3: only more than one picture parameter, or an hf: block, is `slot`
+    assert animation.why_not(found["hf:frame"], "ffmpeg", presets) == "slot" and animation.why_not(found["oh:two"], "ffmpeg", presets) is None      # P4e: an oh: block with several pictures is added
+    assert animation.why_not(found["oh:overlay-pic"], "ffmpeg", dict(presets, keyword="oh:keyword")) is None      # 7.3: an hf: block that takes a picture is `slot`
     assert animation.why_not(found["oh:cutaway"], "ffmpeg", {"keyword": "oh:keyword"}) == "engine"      # the engine does not draw the preset
     assert animation.why_not(found["oh:cutaway"], None, presets) == "not_configured" and animation.why_not(found["oh:cutaway"], "ffmpeg") is None
     assert animation.asset_params(found["oh:two"]) == ["asset", "second"] and animation.asset_params(found["oh:keyword"]) == []
@@ -514,6 +514,32 @@ def test_the_checker_shows_a_layout_a_placeholder_slot_stores_no_picture_and_ref
     assert len(fake.calls) == 1
     overlay = animate("oh:keyword", {"text": "x"}, "edits[0]")
     assert "asset_param" not in overlay
+
+
+def test_the_checker_shows_every_picture_parameter_a_slot_id_and_hands_back_the_ones_after_the_first(tmp_path, monkeypatch):
+    picture = {"type": ["image"]}
+    root = plant(tmp_path, lambda doc: doc["blocks"].append(entry("oh:many", kind="layout", preset="cutaway", params={"asset": dict(picture, required=True), "asset2": picture, "asset3": picture,
+                                                                                                                         "label": {"type": "text", "max": 40}})))
+    monkeypatch.setattr(seams.MediaStore, "root", lambda self: root)
+    monkeypatch.setattr(animation, "engine_name", lambda r, i=None: "ffmpeg")
+    fake = use(monkeypatch, Checking())
+    animate = animation.checker(ctx_of(tmp_path))
+    done = animate("oh:many", {"label": "Trip"}, "edits[0]")
+    assert fake.seen[0][1] == {"label": "Trip", "asset": "a1", "asset2": "a1-asset2", "asset3": "a1-asset3"}
+    assert done == {"block": "oh:many", "preset": "cutaway", "params": {"label": "Trip"}, "asset_param": "asset", "pic_kind": "layout", "more_params": ["asset2", "asset3"]}
+    for typed in ("asset", "asset2", "asset3"):
+        assert refusal(animate, "oh:many", {typed: "x"}, "edits[0]") == ("bad_params", "edits[0].params")
+    assert "more_params" not in animate("oh:cutaway", {"fit": "cover"}, "edits[0]")      # one picture: the result is as before (S2)
+    assert len(fake.calls) == 2
+
+
+def test_a_picture_parameter_whose_slot_id_would_not_fit_keeps_the_block_out_of_the_catalogue_addable_list(tmp_path):
+    long = "p" * (animation.MORE_PARAM_NAME_MAX + 1)
+    picture = {"type": ["image"]}
+    root = plant(tmp_path, lambda doc: doc["blocks"].append(entry("oh:long", kind="layout", preset="cutaway", params={"asset": dict(picture, required=True), long: picture})))
+    found = animation.read_catalogue(root)["blocks"]["oh:long"]
+    assert animation.why_not(found, "ffmpeg", {"cutaway": "oh:cutaway"}) == "slot"
+    assert len(f"a99-{'p' * animation.MORE_PARAM_NAME_MAX}") <= 32
 
 
 def test_the_asset_kinds_of_an_engine_come_from_the_catalogue_and_an_unknown_engine_draws_none(tmp_path, monkeypatch):

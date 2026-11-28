@@ -47,6 +47,7 @@ CATALOGUE_KEYS = ("name", "namespace", "kind", "preset", "band", "may_cross_face
                   "natural_duration", "runtimes", "engines", "tier")      # what the listing hands out of an entry; any other key is dropped
 KINDS = ("overlay", "layout", "caption", "effect")                       # effect: `aside`, which only a script asks for (never added at review: not in ANIMATION_KINDS)
 ANIMATION_KINDS = ("overlay", "layout")                                  # M1: overlays; V9b-3a: layouts that take one picture (the cutaway), whose picture comes from the media set
+MORE_PARAM_NAME_MAX = 28      # a picture parameter after the first makes the slot id `a<n>-<param>`, at most 32 characters (captions.SLOT_ID): "a99-" and 28 more
 SLOT_PLACEHOLDER = "a1"                                                  # the slot id the renderer's checker is shown for a layout's picture parameter: the real one (`a<n>`) is made when the animation is stored
 SLOT_TYPES = ("image", "clip")
 HEX64 = re.compile(r"[0-9a-f]{64}")
@@ -168,8 +169,9 @@ def asset_params(entry: dict) -> list:
 
 
 def why_not(entry: dict, engine, presets=None):
-    """The first word of WHY that holds for this block, or None when it can be added now. `slot` is for a block with more than one picture parameter, for an `hf:`
-    block that takes one (a block of either kind with exactly one is added: its picture is chosen in the media set, and its kind decides the list of beats it joins). `presets`, when given, is the
+    """The first word of WHY that holds for this block, or None when it can be added now. `slot` is for an `hf:` block that takes a picture, and for an `oh:` block
+    with a picture parameter whose name is too long for its slot id to fit (`a<n>-<param>`, at most MORE_PARAM_NAME_MAX characters): an `oh:` block with several picture
+    parameters is added, one slot for each (P4e), and its kind decides the list of beats it joins. `presets`, when given, is the
     engine's own `{preset: block}`: a layout whose preset the engine does not draw is `engine`."""
     if entry["kind"] == "caption":      # a caption block is chosen with the review's `caption` edit (P2a), not added as an animation
         return "caption"
@@ -178,7 +180,7 @@ def why_not(entry: dict, engine, presets=None):
     if entry["preset"] is None:
         return "no_preset"
     pictures = asset_params(entry)
-    if len(pictures) > 1 or (pictures and entry["name"].startswith("hf:")):
+    if (pictures and entry["name"].startswith("hf:")) or any(len(name) > MORE_PARAM_NAME_MAX for name in pictures[1:]):
         return "slot"
     if engine is not None and engine not in entry["engines"]:
         return "engine"
@@ -309,8 +311,9 @@ def checker(ctx: dict):
         if why is not None:
             raise captions.CaptionError(_CODES[why], f"{where}.block")
         cleaned = _shape(params, where)
-        picture = (asset_params(entry) or [None])[0]      # a layout's picture is never typed: its slot is made when it is stored, the picture is chosen in the media set
-        if picture is not None and picture in cleaned:
+        pictures = asset_params(entry)
+        picture = (pictures or [None])[0]      # a layout's pictures are never typed: their slots are made when it is stored, the pictures are chosen in the media set
+        if any(name in cleaned for name in pictures):
             raise captions.CaptionError("bad_params", f"{where}.params")
         for key, value in list(cleaned.items()):
             spec = entry["params"].get(key)
@@ -318,7 +321,8 @@ def checker(ctx: dict):
                 cleaned[key] = unicodedata.normalize("NFC", value).strip()
         if len(json.dumps(cleaned, ensure_ascii=False).encode("utf-8")) > PARAMS_MAX_BYTES:
             raise captions.CaptionError("bad_params", f"{where}.params")
-        checked_params = dict(cleaned, **({picture: SLOT_PLACEHOLDER} if picture else {}))      # what the renderer's checker is shown: a layout's picture parameter holds a slot id
+        more = pictures[1:]
+        checked_params = dict(cleaned, **({picture: SLOT_PLACEHOLDER} if picture else {}), **{name: f"{SLOT_PLACEHOLDER}-{name}" for name in more})      # what the renderer's checker is shown: each picture parameter holds a slot id
         fd, path = tempfile.mkstemp(prefix="block-params-", suffix=".json")
         try:
             with os.fdopen(fd, "wb") as f:
@@ -339,6 +343,8 @@ def checker(ctx: dict):
         found = {"block": block, "preset": entry["preset"], "params": cleaned}
         if picture is not None:
             found["asset_param"], found["pic_kind"] = picture, entry["kind"]
+            if more:
+                found["more_params"] = list(more)
         return found
 
     return animate

@@ -110,7 +110,7 @@ SLOT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")      # = providers/renderer/_v
 PICK = re.compile(r"[a-z][a-z0-9]{1,30}:(?:[A-Za-z0-9_-]{1,64}|q-[0-9a-f]{12})")      # "<source>:<item>", or "<source>:q-<sha12>" for a file of the quarantine
 STOCK_SLOTS_MAX = 6            # the slots of one video that take a picture or a clip from the media set
 THEME_CHOICES = ("identity", "default")   # the colours and fonts of the project's identity (runtime/theme.py), or the renderer's own default
-LAYOUT_KEYS = {"asset_param", "pic_kind", "show", "search", "want"}      # the keys an added layout (a picture block) carries beyond an overlay's
+LAYOUT_KEYS = {"asset_param", "more_params", "pic_kind", "show", "search", "want"}      # the keys an added layout (a picture block) carries beyond an overlay's
 CAPTION_POSITIONS = ("bottom", "center")      # = providers/renderer/renderer-presets.json caption.positions (a test compares)
 ZOOM_MODES = ("alternate", "none")            # = renderer-presets.json zoom.modes (a test compares)
 ZOOM_MAX = 10.0                               # validity: ffmpeg zoompan's range, = providers/renderer/_edl.py ZOOM_MAX (a test compares)
@@ -318,6 +318,12 @@ def _check_animations(items) -> None:
                 if not (isinstance(item["asset_param"], str) and PARAM_NAME.fullmatch(item["asset_param"]) and isinstance(item["params"], dict)
                         and item["asset_param"] not in item["params"]):
                     raise bad
+                if "more_params" in item:      # the picture parameters after the first (P4e): distinct names, none the first, none typed, each slot id `<id>-<param>` a valid slot id
+                    more = item["more_params"]
+                    if not (isinstance(more, list) and 0 < len(more) <= PARAMS_MAX - 1 and len(set(more)) == len(more)
+                            and all(isinstance(m, str) and PARAM_NAME.fullmatch(m) and m != item["asset_param"] and m not in item["params"] and SLOT_ID.fullmatch(f"{item['id']}-{m}")
+                                    for m in more)):
+                        raise bad
                 if "show" in item:
                     check_show(item["show"], "animations")
                 if ("search" in item) != ("want" in item) or (item.get("want") is not None and item["want"] not in WANT_KINDS):
@@ -539,9 +545,14 @@ def _plan_word_edit(op: str, edit: dict, where: str, n: int, words: list, chars:
         actions[i] = ("split", [harden_word(p, f"{where}.parts", chars) for p in parts], None)
 
 
+def animation_slots(item: dict) -> list:
+    """The slot ids of an added layout, the first one its own id: `a<n>`, then `a<n>-<param>` for each of its `more_params` (P4e). [] for an animation with no picture."""
+    return [item["id"]] + [f"{item['id']}-{p}" for p in item.get("more_params", [])] if "asset_param" in item else []
+
+
 def stock_slot_ids(review: dict, slots) -> set:
-    """The slot ids a picture can be asked for: the script's slots and the added layouts' (`a<n>`)."""
-    return set(slots) | {a["id"] for a in review["animations"] if "asset_param" in a}
+    """The slot ids a picture can be asked for: the script's slots and the added layouts' (`a<n>` and `a<n>-<param>`)."""
+    return set(slots) | {s for a in review["animations"] for s in animation_slots(a)}
 
 
 def _stock_slot(value, where: str, slots, review: dict) -> str:
@@ -808,9 +819,9 @@ def _decide_animation(edit: dict, where: str, words: list, review: dict, beats, 
         if not kept:
             raise CaptionError("unknown_animation", f"{where}.id")
         review["animations"] = [a for a in review["animations"] if a["id"] != edit["id"]]
-        if "asset_param" in kept[0]:      # an added layout takes its picture, its words and its choice with it
+        for slot in animation_slots(kept[0]):      # an added layout takes its pictures, their words and their choices with it
             for held in ("slot_searches", "slot_assets", "empty_slots"):
-                review[held].pop(edit["id"], None)
+                review[held].pop(slot, None)
         return
     base = {"op", "block", "params", "word_from", "word_to"}
     if not base <= set(edit) <= base | {"show", "search", "want"}:
@@ -832,6 +843,8 @@ def _decide_animation(edit: dict, where: str, words: list, review: dict, beats, 
     given = {k: edit[k] for k in ("show", "search", "want") if k in edit}
     if checked.get("asset_param"):      # a layout: the parameter that holds its picture, and the words that say what to show and what to search
         item["asset_param"] = checked["asset_param"]
+        if checked.get("more_params"):
+            item["more_params"] = list(checked["more_params"])
         if checked.get("pic_kind") in ("overlay", "layout"):
             item["pic_kind"] = checked["pic_kind"]
         if "show" in given:
@@ -1044,6 +1057,8 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
                "word_from": now and now[0], "word_to": now and now[1], "lost": now is None, "overlaps_beat": meets}
         if "asset_param" in item:      # a layout: its picture slot is the animation's own id
             row.update(slot=item["id"], asset_param=item["asset_param"], show=item.get("show"))
+            if item.get("more_params"):
+                row["more_params"] = list(item["more_params"])
         animations.append(row)
     effects = []
     for item in review["effects"]:
@@ -1071,11 +1086,11 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
                   "search": (found.get(s["slot"]) or {}).get("search"), "want": (found.get(s["slot"]) or {}).get("want"),
                   "pick": review["slot_assets"].get(s["slot"])}
                  for s in proposal_beats.get("slots") or []]
-    slot_rows += [{"slot": a["id"], "beat": None, "param": a["asset_param"], "type": "image|clip", "description": a.get("show") or "",
-                   "file": assets.get(a["id"]), "choice": review["empty_slots"].get(a["id"]),
-                   "search": (found.get(a["id"]) or {}).get("search"), "want": (found.get(a["id"]) or {}).get("want"),
-                   "pick": review["slot_assets"].get(a["id"]), "animation": a["id"]}
-                  for a in review["animations"] if "asset_param" in a]
+    slot_rows += [{"slot": slot, "beat": None, "param": param, "type": "image|clip", "description": a.get("show") or "",
+                   "file": assets.get(slot), "choice": review["empty_slots"].get(slot),
+                   "search": (found.get(slot) or {}).get("search"), "want": (found.get(slot) or {}).get("want"),
+                   "pick": review["slot_assets"].get(slot), "animation": a["id"]}
+                  for a in review["animations"] if "asset_param" in a for slot, param in zip(animation_slots(a), [a["asset_param"]] + a.get("more_params", []))]
     unplaced_rows = [{"index": u["index"], "word": (span_current(words, u["index"], u["index"]) or (None,))[0], "start": u["start"],
                       "end": u["end"]} for u in unplaced.values()]
     return {"revision": review["revision"], "words": shown, "chunks": chunks, "segments": segments, "retakes": retakes,
@@ -1200,6 +1215,9 @@ def animations_current(review: dict, edited: dict, live: set) -> tuple:
                    "word_from": inside[0], "word_to": inside[-1]}
             if "asset_param" in item:
                 row["asset_param"], row["pic_kind"] = item["asset_param"], item.get("pic_kind", "layout")
+                if item.get("more_params"):      # the other pictures: their parameter, their slot and the search words that say what each shows (the slot row's description)
+                    row["more"] = [{"param": p, "slot": slot, "words": [(review["slot_searches"].get(slot) or {}).get("search")]}
+                                   for p, slot in zip(item["more_params"], animation_slots(item)[1:])]
                 row["words"] = [item[k] for k in ("show", "search") if isinstance(item.get(k), str)]      # what the person said the picture shows, else the search words: the slot's description
             out.append(row)
         else:

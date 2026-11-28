@@ -927,15 +927,16 @@ def read_web_candidates(data, sent: dict) -> dict:
 
 def stock_slots(review: dict, proposal_beats: dict) -> list:
     """The slots `video-media-find` searches: `[{"slot", "show", "search", "want"}]`. A script slot (`proposal_beats["slots"]`) with the choice `stock` and a search; an
-    added layout that has a search and is not set to `none` (the picture is its whole point). A slot with no search is left out: it reads as `none` until the person gives
+    added layout's picture (each of its slots) that has a search and is not set to `none` (the picture is its whole point). A slot with no search is left out: it reads as `none` until the person gives
     words. In the order of the script, then of the added layouts."""
     found, choices, out = review["slot_searches"], review["empty_slots"], []
     for s in proposal_beats.get("slots") or []:
         if choices.get(s["slot"]) == "stock" and s["slot"] in found:
             out.append({"slot": s["slot"], "show": _show(s.get("description")), "search": found[s["slot"]]["search"], "want": found[s["slot"]]["want"]})
     for a in review["animations"]:
-        if "asset_param" in a and a["id"] in found and choices.get(a["id"]) != "none":
-            out.append({"slot": a["id"], "show": _show(a.get("show") or a["block"]), "search": found[a["id"]]["search"], "want": found[a["id"]]["want"]})
+        for slot in captions.animation_slots(a):      # one slot for each picture of the layout (`a<n>`, `a<n>-<param>`)
+            if slot in found and choices.get(slot) != "none":
+                out.append({"slot": slot, "show": _show(a.get("show") or a["block"]), "search": found[slot]["search"], "want": found[slot]["want"]})
     return out
 
 
