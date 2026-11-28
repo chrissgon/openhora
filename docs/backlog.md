@@ -69,6 +69,7 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - AT4: Files larger than 1 MiB by e-mail; priority high (#1025, `backlog: attachments`)
 - AT1: The live checks of the attachments (ATT-1 to ATT-4) (#892, `backlog: attachments`)
 - AT3: Follow-ups the maintainer deferred (#894, `backlog: attachments`)
+- AT5: The files of a forwarded e-mail are offered (#1026, `backlog: attachments`)
 
 ## Publishing
 
@@ -97,6 +98,7 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - I4: Writes from the page: fetch, accept an audit, run a test (#909, `backlog: imported skills`)
 - I5: A model helper for writing the cases of an imported skill (#910, `backlog: imported skills`)
 - I6: `core-security-audit` writes its vetting record beside the import (#911, `backlog: imported skills`)
+- I7: An imported skill may use the web, at the person's explicit word (#1027, `backlog: imported skills`)
 
 ## Answers from the sources
 
