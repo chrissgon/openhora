@@ -66,6 +66,7 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 
 ## Files from messaging apps
 
+- AT4: Files larger than 1 MiB by e-mail; priority high (#1025, `backlog: attachments`)
 - AT1: The live checks of the attachments (ATT-1 to ATT-4) (#892, `backlog: attachments`)
 - AT3: Follow-ups the maintainer deferred (#894, `backlog: attachments`)
 
