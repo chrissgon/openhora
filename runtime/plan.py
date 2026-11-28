@@ -35,6 +35,8 @@ Stage 6 (several deliveries, the brief, sub-tasks):
                                             planning agent when only its pack does); none or several: ValueError
   owner_of(path, root)                      the skill whose declared outputs hold path, or None
   delivery_tasks(route, k, flows, root, pack, prefix)   the tasks of one routed delivery
+  agent_for(task, agent_skills, imported)    the agent that owns a task; an imported skill's: imported_owner (I2b: the person's `agent`,
+                                            else the agent that covers the area of its name's prefix, else planning)
   combine(request, routed, flows, agent_skills, root, *, pack, limits, past)   one plan from the routes of the
                                             deliveries, in the order listed: {"plan": build() or None, "tasks",
                                             "deliveries", "unrouted"}
@@ -179,17 +181,46 @@ def agent_of(skill: str, agents: dict) -> str:
     return owners[0]
 
 
-def agent_for(task: dict, agents: dict):
+def imported_owner(task: dict, agents: dict, imported=None) -> tuple:
+    """(agent, why) for a task of an imported skill when area agents are configured (decision I2b; with no agents the caller
+    returns None). The person's choice first: the key `agent` of the skill's entry in `imported` ({name: entry}, the `skills` of
+    the project's imported_skills), which must be an enabled agent of `agents`. Else the area of the name: its prefix (an area has
+    one prefix, so the prefix of a workbench skill in a pack is its area; scripts/skill_import.py checks the name of a skill from
+    outside against the same prefixes). The candidates are the enabled agents other than planning whose pack holds a workbench
+    skill with that prefix: one owns the task; several are refused, never picked by order; none gives the task to the planning
+    agent, and `why` says so. ValueError names the skill, the agents and the key to set."""
+    name = task["skill"]
+    key = f"imported_skills.skills.{name}.agent"
+    chosen = ((imported or {}).get(name) or {}).get("agent")
+    if chosen:
+        if chosen not in agents:
+            raise ValueError(f"the imported skill {name} is set to the agent {chosen}, which is not an enabled agent of area_agents "
+                             f"(enabled: {', '.join(sorted(agents))}): enable it, or change {key} and accept the configuration again")
+        return chosen, f"the agent {chosen} was chosen for {name} in runtime.json"
+    prefix = name.split("-")[0]
+    covering = sorted(a for a, skills in agents.items() if a != PLANNING and any(s.split("-")[0] == prefix for s in skills))
+    if len(covering) > 1:
+        raise ValueError(f"the imported skill {name} is in the area {prefix}, which {len(covering)} enabled agents cover "
+                         f"({', '.join(covering)}): name the one that owns it with {key} and accept the configuration again")
+    if covering:
+        return covering[0], f"the agent {covering[0]} covers the area {prefix} of {name}"
+    if PLANNING not in agents:
+        raise ValueError(f"the imported skill {name} runs under the planning agent (no agent covers the area {prefix}), and "
+                         "runtime.json has no enabled planning agent")
+    return PLANNING, f"no agent covers the area {prefix}: the planning agent owns it"
+
+
+def agent_for(task: dict, agents: dict, imported=None):
     """The agent that owns a plan task. A step task (a key `step`: the name of a kind of runtime/steps.py) belongs to the runtime's own
     pseudo-agent, steps.OWNER, whatever the project's area agents are: it runs no skill and no model, so no pack holds it and none
-    needs to. A task of an imported skill (key `imported`): the planning agent, or None without area agents. Any other task: agent_of its skill when area agents are configured, else None (stages 1 to 4)."""
+    needs to. A task of an imported skill (key `imported`): imported_owner (the person's choice, else the agent of the area of its
+    name, else the planning agent), or None without area agents; `imported` is the `skills` map of the project's imported_skills.
+    Any other task: agent_of its skill when area agents are configured, else None (stages 1 to 4). Who owns a task never widens
+    what it may do: the limits of an imported task are those of runtime/imported.py."""
     if task.get("step"):
         return steps.OWNER
-    if task.get("imported"):   # a skill from outside is in no pack: the planning agent, the reception, owns its task (decision I2)
-        if agents and PLANNING not in agents:
-            raise ValueError(f"the imported skill {task['skill']} runs under the planning agent, and runtime.json has no enabled "
-                             "planning agent")
-        return PLANNING if agents else None
+    if task.get("imported"):
+        return imported_owner(task, agents, imported)[0] if agents else None
     return agent_of(task["skill"], agents) if agents else None
 
 
@@ -668,7 +699,7 @@ def with_sources(tasks: list, chosen: dict, forced) -> str | None:
 
 
 def combine(request: dict, routed: list, flows: dict, agent_skills: dict, root: str, *, pack, limits: dict,
-            past: list, forced=(), project_language=None) -> dict:
+            past: list, forced=(), project_language=None, imported=None) -> dict:
     """One plan from the routes of the deliveries, in the order listed (decision P3). routed is [{"item", "route",
     "reply"}], route None when the router asked or gave no route line, else read_route() with "checked". A delivery
     whose route is not valid goes to "unrouted" with the whole reply and gets no task. A task depends on a task of an
@@ -694,7 +725,7 @@ def combine(request: dict, routed: list, flows: dict, agent_skills: dict, root: 
             unrouted.append({"item": entry["item"], "why": refused, "reply": entry.get("reply") or ""})
             continue
         for t in mine:
-            t["agent"] = agent_for(t, agent_skills)
+            t["agent"] = agent_for(t, agent_skills, imported)
         language.with_language(mine, request.get("language") or route.get("language"))
         brief = mine[0]["key"] if "skill" in checked and checked["skill"] == BRIEF_SKILL else None
         deliveries.append({"item": entry["item"], "route": route["line"], "tasks": [t["key"] for t in mine],

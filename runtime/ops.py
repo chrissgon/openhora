@@ -1091,7 +1091,7 @@ def _with_agents(cfg: dict, tasks: list) -> list:
     """The tasks of a plan the person named, each with its area agent (plan.agent_of) when area agents are
     configured; without them every agent is None (stages 1 to 4)."""
     skills = plan.agent_skills(cfg, core.ROOT)
-    return [dict(t, agent=plan.agent_for(t, skills)) for t in tasks]
+    return [dict(t, agent=plan.agent_for(t, skills, (cfg.get("imported_skills") or {}).get("skills", {}))) for t in tasks]
 
 
 def _plan_pending(ctx: dict, request: dict, tasks: list, route_read, source: str, flow, bound=None) -> dict:

@@ -172,6 +172,21 @@ def test_the_task_is_owned_by_the_planning_agent_when_area_agents_are_configured
         ops.route(world["path"], other, flow="tidy")
 
 
+def test_a_task_owned_by_the_area_agent_keeps_every_limit_of_an_imported_skill(world):
+    st.skill(world["tree"], "ops-core-thing", "docs/workbench/state.md", "docs/ops/core-thing.md", area="delivery")
+    pack = {"pack": "default", "mode": "supervised", "max_runs_per_day": 5, "max_usd_per_day": 5.0}
+    configure(world, area_agents={"planning": dict(pack), "delivery": dict(pack)})
+    rid = plan_and_approve(world)
+    task = the_task(world, rid)
+    assert task["agent"] == "delivery"                                           # the prefix ops- is the delivery area, its agent covers it
+    out = ops.run_next(world["path"])
+    assert out["task_state"] == "waiting" and out["routing"]["imported"] is True
+    assert out["routing"]["autonomy"] == "supervised" and out["routing"]["web"] is False
+    assert out["routing"]["proven"] is False and out["routing"]["consent"] is False
+    (item,) = pending_of(world, task["id"])
+    assert item["kind"] == "review"
+
+
 def test_review_is_held_in_autonomous_mode_with_consent(world):
     agent = {"pack": "default", "mode": "autonomous", "max_runs_per_day": 5, "max_usd_per_day": 5.0, "model": "m",
              "consent": {"model": "m", "mode": "autonomous"}}

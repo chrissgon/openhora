@@ -55,7 +55,7 @@ def test_a_listing_is_read_with_its_folder_and_its_acceptance(tree):
         "ops-tidy-notes": {}, "ops-sort-links": {"without_external_line": HASH}}}))["imported_skills"]
     real = os.path.realpath(home)
     assert got["home"] == real
-    assert got["skills"]["ops-tidy-notes"] == {"folder": os.path.join(real, "ops-tidy-notes"), "without_external_line": None}
+    assert got["skills"]["ops-tidy-notes"] == {"folder": os.path.join(real, "ops-tidy-notes"), "without_external_line": None, "agent": None}
     assert got["skills"]["ops-sort-links"]["without_external_line"] == HASH
 
 
@@ -99,3 +99,12 @@ def test_a_folder_of_the_workbench_is_never_listed(tree):
                                    {"without_external_line": 5}], ids=["key", "list", "short", "upper", "number"])
 def test_an_entry_is_empty_or_one_hash(tree, entry):
     refused(tree, {"home": str(tree["home"]), "skills": {"ops-tidy-notes": entry}})
+
+
+def test_the_agent_key_is_an_agent_name(tree):
+    home = str(tree["home"])
+    got = project_config.load(configure(tree, {"home": home, "skills": {"ops-tidy-notes": {"agent": "delivery"}}}))["imported_skills"]
+    assert got["skills"]["ops-tidy-notes"]["agent"] == "delivery"
+    assert project_config.load(configure(tree, {"home": home, "skills": {"ops-tidy-notes": {}}}))["imported_skills"]["skills"]["ops-tidy-notes"]["agent"] is None
+    for bad in ["Delivery", "two words", "", 3, None, "x" * 65]:
+        assert "agent" in refused(tree, {"home": home, "skills": {"ops-tidy-notes": {"agent": bad}}})
