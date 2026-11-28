@@ -269,7 +269,7 @@ def load_token(test_mode: bool, secret: str = SECRET, username: str = KEYRING_US
         found = state(secret, allow_store=not test_mode)
         if found.state not in ("found", "missing"):
             raise ProviderError(f"the Notion token ({secret}) cannot be read ({found.state}): "
-                                f"{one_line(found.detail, 600) or 'no detail'}; nothing was sent", EXIT_NOT_CONFIGURED)
+                                f"{one_line(found.detail, 300) or 'no detail'}; nothing was sent", EXIT_NOT_CONFIGURED)
         token = found.value if found.state == "found" else ""
     else:
         found = resolver.resolve(secret, allow_store=not test_mode)

@@ -1397,6 +1397,18 @@ def test_no_ledger_is_read_from_the_old_cache(env, fake, text_file, tmp_path):
     assert old.read_bytes() == before
 
 
+def test_an_old_cache_ledger_with_no_new_one_is_said_once_on_stderr_and_names_the_move_command(env, fake, text_file, tmp_path):
+    e, new, old = default_ledger_env(env, tmp_path)
+    old.parent.mkdir(parents=True)
+    old.write_text('{"version": 2, "entries": {}}')
+    dry = run(SCRIPT, publish_args(text_file, "--idempotency-key", "launch-1", "--dry-run"), e)
+    assert dry.returncode == 0, dry.stderr
+    lines = [line for line in dry.stderr.splitlines() if "rename_move.py" in line]
+    assert len(lines) == 1 and str(old) in lines[0] and "nothing reads it" in lines[0]
+    clean_env = {**e, "XDG_CACHE_HOME": str(tmp_path / "empty-cache")}
+    assert "rename_move.py" not in run(SCRIPT, publish_args(text_file, "--idempotency-key", "launch-1", "--dry-run"), clean_env).stderr
+
+
 def test_the_provider_has_no_ledger_migration():
     module = load_module()
     assert not hasattr(module, "ledger_migrate") and not hasattr(module, "old_ledger_path")

@@ -313,7 +313,7 @@ def load_token(test_mode: bool) -> dict:
         answer = state("LINKEDIN_ACCESS_TOKEN", allow_store=not test_mode)
         if answer.state not in ("found", "missing"):
             raise ProviderError(f"the LinkedIn token (LINKEDIN_ACCESS_TOKEN) cannot be read ({answer.state}): "
-                                f"{one_line(answer.detail, 600) or 'no detail'}; nothing was sent", EXIT_NOT_CONFIGURED)
+                                f"{one_line(answer.detail, 300) or 'no detail'}; nothing was sent", EXIT_NOT_CONFIGURED)
         token, source = (answer.value, answer.source) if answer.state == "found" else (None, "")
     else:
         found = resolver.resolve("LINKEDIN_ACCESS_TOKEN", allow_store=not test_mode)
@@ -400,9 +400,26 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+OLD_LEDGER_SAID = []   # the old cache ledger is told once in a process
+
+
+def say_old_ledger_is_unread(path: Path) -> None:
+    """One stderr line when the ledger the old versions kept in the cache folder exists and the new one does not: nothing reads the old
+    one, so a key recorded there looks new to this run (scripts/rename_move.py is what carries it across)."""
+    if OLD_LEDGER_SAID or os.environ.get("PUBLISHER_LINKEDIN_LEDGER") or PINNED_LEDGER is not None or path.exists():
+        return
+    cache = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    old = Path(cache) / "ai-workbench" / LEDGER_NAME
+    if old.is_file():
+        OLD_LEDGER_SAID.append(1)
+        print(f"note: an idempotency ledger exists at {old} and nothing reads it there, so a key recorded in it looks new to this run; "
+              "run scripts/rename_move.py to move it (it lists first and changes nothing without --yes)", file=sys.stderr)
+
+
 def ledger_read() -> dict:
     """The ledger's content. It writes nothing."""
     path = ledger_path()
+    say_old_ledger_is_unread(path)
     if not path.exists():
         return {"version": 2, "entries": {}}
     try:

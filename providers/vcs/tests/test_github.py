@@ -682,6 +682,21 @@ def test_no_ledger_is_read_from_the_old_cache(env, fake, comment_file, tmp_path)
     assert len(fake.patches()) == 2 and old.read_bytes() == before and new.is_file()
 
 
+def test_an_old_cache_ledger_with_no_new_one_is_said_once_on_stderr_and_names_the_move_command(env, fake, comment_file, tmp_path):
+    e, new, old = default_ledger_env(env, tmp_path)
+    old.parent.mkdir(parents=True)
+    old.write_text('{"version": 1, "entries": {}}')
+    proc = run(dismiss_args(comment_file, "--dry-run"), e)
+    assert proc.returncode == 0, proc.stderr
+    lines = [line for line in proc.stderr.splitlines() if "rename_move.py" in line]
+    assert len(lines) == 1 and str(old) in lines[0] and "nothing reads it" in lines[0]
+    clean_env = {**e, "XDG_CACHE_HOME": str(tmp_path / "empty-cache")}
+    assert "rename_move.py" not in run(dismiss_args(comment_file, "--dry-run"), clean_env).stderr
+    new.parent.mkdir(parents=True)
+    new.write_text('{"version": 1, "entries": {}}')
+    assert "rename_move.py" not in run(dismiss_args(comment_file, "--dry-run"), e).stderr, "once the new ledger exists the old one is no news"
+
+
 def test_the_provider_has_no_ledger_migration():
     module = load_module()
     assert not hasattr(module, "ledger_migrate") and not hasattr(module, "old_ledger_path")

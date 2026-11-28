@@ -135,7 +135,7 @@ def linkedin_check() -> int:
         if answer.state not in ("found", "missing"):
             print(json.dumps({"provider": "linkedin", "found": False, "state": answer.state}, indent=2))
             log(f"cannot read the LinkedIn token (LINKEDIN_ACCESS_TOKEN): {answer.state}: "
-                f"{' '.join(str(answer.detail).split())[:600] or 'no detail'}; nothing was sent")
+                f"{' '.join(str(answer.detail).split())[:300] or 'no detail'}; nothing was sent")
             return EXIT_NOT_CONFIGURED
         found = (answer.value, answer.source) if answer.state == "found" else None
     else:

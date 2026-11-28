@@ -312,7 +312,7 @@ def load_token(test_mode: bool) -> str:
         found = state(SECRET, allow_store=not test_mode)
         if found.state not in ("found", "missing"):
             raise ProviderError(f"the Notion token ({SECRET}) cannot be read ({found.state}): "
-                                f"{one_line(found.detail, 600) or 'no detail'}; nothing was sent", EXIT_NOT_CONFIGURED)
+                                f"{one_line(found.detail, 300) or 'no detail'}; nothing was sent", EXIT_NOT_CONFIGURED)
         token = found.value if found.state == "found" else ""
     else:
         found = resolver.resolve(SECRET, allow_store=not test_mode)
