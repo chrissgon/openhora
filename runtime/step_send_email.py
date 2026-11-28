@@ -333,9 +333,21 @@ def _open(ctx: steps.Context, state: dict) -> dict:
     doc = _service(ctx, "effect_files").read(ctx.task_id, int(state.get("cycle", 0)), recorded)
     send_document.check(doc)
     payload = {"effect": send_document.summary(doc)}
+    new = _first_time(ctx, doc)      # EM6: the same list builds the card and the body, so that the card says what the body says; the hash stays the document's
     if send_document.is_own(doc):      # the card, line by line: the phrase table says it in the project's language, the hash stays the effect's
-        payload["card"] = send_document.card_lines(doc, recorded)
-    return {"title": send_document.title(doc)[:200], "body": send_document.body(doc, recorded), "payload_sha256": recorded, "payload": payload}
+        payload["card"] = send_document.card_lines(doc, recorded, new)
+    return {"title": send_document.title(doc)[:200], "body": send_document.body(doc, recorded, new), "payload_sha256": recorded, "payload": payload}
+
+
+def _first_time(ctx: steps.Context, doc: dict) -> list:
+    """The recipients of an own-account e-mail the person has neither received from nor sent to (EM6), or []. The flag is advice: any failure of the record is no flag."""
+    if not send_document.is_own(doc) or "account_mail" not in ctx.services:
+        return []
+    try:
+        return list(ctx.services["account_mail"].first_time(doc))
+    except Exception as e:      # noqa: BLE001  (the record is advisory: a card is never stopped by it)
+        print(f"first-time recipients not worked out ({type(e).__name__})", file=sys.stderr)      # the type only: no address, no subject
+        return []
 
 
 KIND = steps.register(steps.Kind(

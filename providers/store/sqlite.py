@@ -3685,6 +3685,14 @@ def pending_list(conn: sqlite3.Connection, status: str = "open", task_id: int | 
     return [row_dict(r, ("payload",)) for r in rows]
 
 
+def pending_effects_resolved(conn: sqlite3.Connection, limit: int) -> list:
+    """The newest `limit` approved effect decisions that are resolved (newest first, by id), with their payloads as objects: a bounded read for a caller that needs
+    only recent history (EM6: who the person has sent e-mail to), so that it never parses every resolved decision."""
+    rows = conn.execute("SELECT * FROM pending_decisions WHERE status = 'resolved' AND kind = 'effect' AND resolution = 'approved' ORDER BY id DESC LIMIT ?",
+                        (max(0, int(limit)),)).fetchall()
+    return [row_dict(r, ("payload",)) for r in rows]
+
+
 # --- entry point ------------------------------------------------------------------
 
 

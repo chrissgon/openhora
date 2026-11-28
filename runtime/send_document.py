@@ -454,11 +454,26 @@ def received_text(received: str) -> str:
     return f"{ENGLISH_WEEKDAY[moment.weekday()]} {moment.day:02d}/{moment.month:02d}/{moment.year} {moment:%H:%M}"
 
 
-def card_lines(doc: dict, digest: str) -> list:
+def first_time(doc: dict, known) -> list:
+    """The addresses of `to`, `cc` and `bcc` (in that order, each once) that are not in `known` (the addresses the person has received from or sent to) and are not the
+    document's own `from` (EM6, chrissgon/openhora#891). A reply has none: it goes to a sender, who is known by construction. Pure: the record is the caller's."""
+    if doc.get("reply"):
+        return []
+    known = {a.lower() for a in known}      # an address is the same address in any case: the document keeps the local part as typed
+    out = []
+    for address in [*doc["to"], *doc["cc"], *doc["bcc"]]:
+        if address.lower() not in known and address.lower() != doc["from"].lower() and address not in out:
+            out.append(address)
+    return out
+
+
+def card_lines(doc: dict, digest: str, new_addresses=()) -> list:
     """The card of an e-mail from the person's own account, line by line: [[phrase key, {field: text}], ...], every key of the family CARD_ (runtime/phrases.py).
     The sender (the account) and every recipient come first, so that nothing a long text can do hides one; the Bcc is listed; then the subject, the message answered
     (and the other address it asked replies to go to, which is not used), the text exactly as it will be sent behind a mark on every line, each attachment by
-    name, size and hash, and the hash with the command that approves it. The values are the person's or a service's words and are never translated."""
+    name, size and hash, and the hash with the command that approves it. `new_addresses` (EM6) is the list of recipients the person has never written to or heard from (`first_time`
+    below, worked out by code beside the document and never part of it): one line after the Cc and Bcc says so; with none, the lines are the ones there always were.
+    The values are the person's or a service's words and are never translated."""
     own = [["CARD_MAIL_REPLY" if doc["reply"] else "CARD_MAIL_SEND", {}], ["CARD_MAIL_FROM_ACCOUNT", {"address": doc["from"], "account": doc["account"]}]]
     reply = doc["reply"]
     if reply:
@@ -475,6 +490,8 @@ def card_lines(doc: dict, digest: str) -> list:
     for key, name in (("CARD_MAIL_CC", "cc"), ("CARD_MAIL_BCC", "bcc")):
         if doc[name]:
             own.append([key, {"addresses": ", ".join(doc[name])}])
+    if new_addresses:
+        own.append(["CARD_MAIL_FIRST_TIME", {"addresses": ", ".join(new_addresses)}])
     own += [["CARD_MAIL_SUBJECT_REPLY" if reply else "CARD_MAIL_SUBJECT", {"subject": doc["subject"]}], ["CARD_MAIL_COUNT", {"count": str(len(recipients(doc)))}],
             ["CARD_MAIL_MESSAGE", {"body": guttered(doc["body"])}]]
     if doc["attachments"]:
@@ -487,12 +504,12 @@ def card_lines(doc: dict, digest: str) -> list:
     return own
 
 
-def body(doc: dict, digest: str) -> str:
+def body(doc: dict, digest: str, new_addresses=()) -> str:
     """What the person reads before approving, the whole e-mail: the sender and every recipient first (so that nothing a long text can do
     hides one), the Bcc included, then the subject, the reply, the text exactly as it will be sent, each attachment by name, size and hash, and
-    the hash of the effect with the command that approves it. For an e-mail from the person's own account, the lines of its card in English."""
+    the hash of the effect with the command that approves it. For an e-mail from the person's own account, the lines of its card in English (with the first-time line when `new_addresses` is given: the outbox's e-mail has none)."""
     if is_own(doc):
-        return phrases.card_text(card_lines(doc, digest))
+        return phrases.card_text(card_lines(doc, digest, new_addresses))
 
     def line(label, items):
         return f"{label}: " + (", ".join(items) if items else "(none)")
