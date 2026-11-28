@@ -43,15 +43,13 @@ function stroke(svg, d, color, width, shown, len) {
 
 // The picture card (P4b): the picture whole as a rounded card with a shadow, centred, `width_frac` of the frame wide and no taller than `max_height`, with a slow
 // push-in over the beat. It fades and scales in over `enter_seconds` and fades out over the last `exit_seconds`. A stamp (an X of two strokes, or a check of one)
-// is drawn over the card's centre: it pops in at `stamp_delay` and its strokes are drawn over `stamp_seconds`. `backdrop`: `solid` paints the theme's background
-// under the card; `blur` and `none` leave the page transparent (the compose draws the speaker's shot blurred, or sharp, under it). A pure function of t.
+// is drawn over the card's centre: it pops in at `stamp_delay` and its strokes are drawn over `stamp_seconds`. The page is always transparent: `backdrop` `blur` or `none`
+// is the compose's (it draws the speaker's shot blurred, or sharp, under the card), so the page does not read it. A pure function of t.
 window.renderAt = function (t, data) {
   const P = data.params;
   const L = data.look;
   const stage = document.getElementById('stage');
-  const backdrop = P.backdrop === undefined ? 'blur' : P.backdrop;
   const stamp = P.stamp === undefined ? 'none' : P.stamp;
-  stage.style.background = backdrop === 'solid' ? 'var(--c-bg)' : 'transparent';
   const img = window.__imgs[P.asset];          // decoded by the driver before frame 0
   const w = img.naturalWidth, h = img.naturalHeight;
   const fs = w > 0 && h > 0 ? Math.min(L.width_frac * FRAME_W / w, L.max_height / h, MAX_SCALE) : 1;

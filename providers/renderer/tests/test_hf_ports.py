@@ -35,7 +35,7 @@ PORTS = {
 }
 NOT_ADMITTED: set = set()      # every port has a determinism record since PF-a4e (the repaint of `seek_admitted`); before it count-up, testimonial-card (PF-a4d) and spring-pop (PF-a4b) failed the reverse run
 DEFAULTS = {"aside": "oh:aside", "caption": "hf:caption-highlight", "cutaway": "oh:cutaway", "focus_card": "oh:focus-card", "keyword": "hf:spring-pop", "list": "oh:list", "mark": "oh:mark", "nametag": "oh:nametag", "number": "hf:count-up",
-            "quote": "hf:testimonial-card", "sticker": "oh:sticker"}
+            "quote": "hf:testimonial-card", "sticker": "oh:sticker", "title_card": "oh:title-card"}
 CAPTION_PORTS = [n for n, (preset, _, _) in PORTS.items() if preset == "caption"]
 MAKER = "hey" + "gen"            # the registry's maker may be named in NOTICE.md and the licence file only (V0 section 8): this test never spells it out
 
@@ -178,7 +178,7 @@ def test_an_hf_port_is_refused_on_the_ffmpeg_engine_naming_the_blocks_it_does_dr
     assert caught.value.code == "block_not_on_engine" and caught.value.field == DEFAULTS[preset]
     assert catalogue["engines"]["ffmpeg"]["presets"] == {"aside": "oh:aside", "caption": "hf:caption-highlight", "cutaway": "oh:cutaway", "keyword": "hf:spring-pop", "list": "oh:list",
                                                          "mark": "oh:mark", "nametag": "oh:nametag", "number": "hf:count-up", "pip": "oh:pip", "quote": "hf:testimonial-card",
-                                                         "split": "oh:split", "sticker": "oh:sticker"}
+                                                         "split": "oh:split", "sticker": "oh:sticker", "title_card": "oh:title-card"}
 
 
 def test_the_registry_licence_text_is_the_file_with_the_pinned_hash_and_travels_beside_the_notice():

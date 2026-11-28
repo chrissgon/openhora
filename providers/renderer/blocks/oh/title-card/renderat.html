@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-preset" content="title_card">
+<meta name="pv-params" content="text,note,style,color,backdrop">
+<meta name="pv-looks" content="max_w,max_h,start_size,enter_seconds,exit_seconds,rise_em,enter_scale,note_delay,styles">
+<style>
+:root { --c-bg:#0B0F14; --c-text:#FFFFFF; --c-muted:#A8B0BC; --c-accent:#FFC93C; --c-chip_fill:#1B1F2A; --c-chip_text:#FFE08A; --c-chip_border:#FFC93C;
+        --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
+        --weight-display:800; --weight-text:500; --weight-mono:500; }
+html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
+#stage { position:absolute; left:0; top:0; width:1080px; height:1920px; overflow:hidden; background:transparent; display:flex; flex-direction:column; justify-content:center; align-items:center; }
+#note { display:block; max-width:930px; box-sizing:border-box; margin-bottom:0.5em; text-align:center; font-family:var(--font-text); font-weight:var(--weight-text); line-height:1.15; letter-spacing:0.01em; text-shadow:0 6px 40px rgba(0,0,0,0.45); }
+#kw { display:block; text-align:center; white-space:pre; font-family:var(--font-display); font-weight:var(--weight-display); line-height:1.05; letter-spacing:-0.01em; text-shadow:0 6px 40px rgba(0,0,0,0.45); }
+</style>
+</head>
+<body>
+<div id="stage"><div id="note"></div><div id="kw"></div></div>
+<script>
+'use strict';
+// The title card (P4c): one keyword large on a full-screen card. The page is always transparent: `backdrop` `blur` or `none` is the compose's (it blurs the speaker's
+// shot under the beat, or leaves it sharp), so the page does not read it. The keyword is sized by the largest-fit loop of oh:keyword-slab: the largest type, from
+// `start_size` down by 6 percent a step, whose box is within `max_w` by `max_h`; a text with a space is tried on one line and on two (split at the space nearest the
+// middle), the larger type wins, one line on a tie. `style` (a, b or c: the maintainer's A, B and C of P4-6; c is the default) picks capitals or as typed, the keyword's colour and the small line above it (the `note`), from
+// `look.styles`; `color` overrides the keyword's colour. Entry: the keyword rises `rise_em` and scales in from 1 - `enter_scale` over `enter_seconds` (ease-out cubic),
+// the note rises 0.6 em, `note_delay` later; both fade over the last `exit_seconds`. A pure function of (t, data): every style is set here.
+function col(v) { return v.charAt(0) === '#' ? v : 'var(--c-' + v + ')'; }
+function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+function clamp(x) { return Math.max(0, Math.min(1, x)); }
+function seg(t, a, b) { return clamp((t - a) / (b - a)); }      // 0 before a, 1 after b
+const SIZE_FLOOR = 12;                                           // the loop ends here, so that it always ends
+// The text on two lines, split at the space nearest the middle (the first one on a tie); null when the text has no space.
+function twoLines(text) {
+  const mid = text.length / 2;
+  let best = -1;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charAt(i) === ' ' && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
+  }
+  if (best < 0) return null;
+  return text.slice(0, best) + '\n' + text.slice(best + 1);
+}
+// The largest type, from the start size down by 6 percent a step, at which the text fits the width and the height.
+function fit(kw, text, L) {
+  kw.textContent = text;
+  let fs = L.start_size;
+  kw.style.fontSize = fs + 'px';
+  while ((kw.offsetWidth > L.max_w || kw.offsetHeight > L.max_h) && fs > SIZE_FLOOR) { fs = fs * 0.94; kw.style.fontSize = fs.toFixed(1) + 'px'; }
+  return fs;
+}
+window.renderAt = function (t, data) {
+  const P = data.params;
+  const L = data.look;
+  const S = L.styles[P.style === undefined ? 'c' : P.style];
+  const note = document.getElementById('note');
+  const kw = document.getElementById('kw');
+  kw.style.textTransform = S.caps ? 'uppercase' : 'none';
+  const one = P.text;
+  const two = twoLines(P.text);
+  const fs1 = fit(kw, one, L);
+  const fs2 = two === null ? 0 : fit(kw, two, L);
+  const useTwo = fs2 > fs1;                                    // the one line wins a tie
+  const fs = useTwo ? fs2 : fs1;
+  kw.textContent = useTwo ? two : one;
+  kw.style.fontSize = fs.toFixed(1) + 'px';
+  kw.style.color = col(P.color || S.fg);
+  const out = clamp((data.duration - t) / L.exit_seconds);
+  const inn = easeOutCubic(seg(t, 0, L.enter_seconds));
+  kw.style.opacity = (inn * out).toFixed(3);
+  kw.style.transform = 'translateY(' + ((1 - inn) * L.rise_em).toFixed(3) + 'em) scale(' + (1 - L.enter_scale * (1 - inn)).toFixed(4) + ')';
+  const hasNote = S.note_style === 'small' && P.note !== undefined && P.note !== '';
+  note.style.display = hasNote ? 'block' : 'none';
+  if (hasNote) {
+    const nin = easeOutCubic(seg(t, L.note_delay, L.note_delay + L.enter_seconds));
+    note.textContent = P.note;
+    note.style.fontSize = S.note_size + 'px';
+    note.style.color = col(S.note_color);
+    note.style.textTransform = S.note_caps ? 'uppercase' : 'none';
+    note.style.opacity = (nin * out).toFixed(3);
+    note.style.transform = 'translateY(' + ((1 - nin) * 0.6).toFixed(3) + 'em)';
+  }
+};
+</script>
+</body>
+</html>

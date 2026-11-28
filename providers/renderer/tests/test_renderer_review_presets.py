@@ -24,7 +24,7 @@ VOCAB = load_vocabulary(str(K.VOCABULARY))
 DATA = load_data()
 NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(not NODE, reason="node is not installed")
-GLYPHS = ["check", "star", "bolt", "arrow-up", "heart", "flag", "clock", "coin", "bulb", "question", "exclaim", "eye"]
+GLYPHS = ["check", "star", "bolt", "arrow-up", "heart", "flag", "clock", "coin", "bulb", "question", "exclaim", "eye", "cross"]      # `cross` (P4c) is drawn by its own function, not by the icon table
 
 
 @pytest.fixture(scope="module")
@@ -50,8 +50,8 @@ def test_the_vocabulary_merges_the_three_review_presets_marked():
         assert not review_only(VOCAB, name) and "review_only" not in VOCAB["presets"][name], name
     assert not review_only(VOCAB, "explode") and not review_only(VOCAB, None)
     shared = json.loads(K.VOCABULARY.read_text(encoding="utf-8"))
-    assert not (set(NAMES) | {"focus_card"}) & set(shared["presets"])             # the shared vocabulary file, and so the skill's checker, never holds them
-    assert set(DATA["review_presets"]) == set(NAMES) | {"focus_card"} and set(DATA["review_presets"]) <= set(DATA["presets"])      # each has its timing beside the others
+    assert not (set(NAMES) | {"focus_card", "title_card"}) & set(shared["presets"])             # the shared vocabulary file, and so the skill's checker, never holds them
+    assert set(DATA["review_presets"]) == set(NAMES) | {"focus_card", "title_card"} and set(DATA["review_presets"]) <= set(DATA["presets"])      # each has its timing beside the others
 
 
 def test_a_clash_with_a_vocabulary_preset_is_refused(monkeypatch):
@@ -110,17 +110,17 @@ def test_each_new_block_params_equal_its_review_preset(catalogue, name):
 @pytest.mark.parametrize("name", NAMES)
 def test_each_sample_passes_the_checker(catalogue, name):
     block = catalogue["blocks"]["oh:" + name]
-    assert 1 <= len(block["samples"]) <= 3
+    assert 1 <= len(block["samples"]) <= 5          # the block checker's own bound
     for sample in block["samples"]:
         assert _blocks.check_params(block, sample, VOCAB) == sample
         assert _vocab.check_params(VOCAB, name, sample) == sample
 
 
-def test_the_sticker_glyphs_are_the_twelve_names(catalogue):
+def test_the_sticker_glyphs_are_the_twelve_icons_and_the_cross(catalogue):
     values = catalogue["blocks"]["oh:sticker"]["params"]["glyph"]["values"]
-    assert values == GLYPHS and values[:8] == VOCAB["icons"]
+    assert values == GLYPHS and values[:8] == VOCAB["icons"] and values[-1] == "cross"
     table = re.search(r"const ICONS = \{(.*?)\n\};", page_of("sticker"), re.S).group(1)
-    assert re.findall(r"^  '([a-z-]+)':", table, re.M) == GLYPHS
+    assert re.findall(r"^  '([a-z-]+)':", table, re.M) == GLYPHS[:-1]
     assert refused(_vocab.check_params, VOCAB, "sticker", {"glyph": "skull"}).code == "bad_choice"
     assert refused(_vocab.check_params, VOCAB, "sticker", {}).code == "missing_param"
     assert refused(_vocab.check_params, VOCAB, "mark", {"text": "x" * 25}).code == "text_too_long"
@@ -182,16 +182,19 @@ def test_the_mark_page_sizes_its_text_by_the_keyword_rule(tmp_path):
 def test_the_mark_paths_are_fixed_finite_and_hold_the_room_they_declare(tmp_path):
     body = """
 const out = {};
-['underline', 'circle', 'arrow', 'none'].forEach(function (m) { out[m] = [markPath(m, 620, 240), markPath(m, 620, 240), extent(m, 620, 240)]; });
+['underline', 'circle', 'arrow', 'strike', 'none'].forEach(function (m) { out[m] = [markPath(m, 620, 240), markPath(m, 620, 240), extent(m, 620, 240)]; });
+out.cross = [crossPaths(620, 240), crossPaths(620, 240), extent('cross', 620, 240)];
 console.log(JSON.stringify(out));
 """
     out = mark_pure(tmp_path, body, None)
     for mark, (first, again, room) in out.items():
         assert first == again, mark                                            # no randomness: the same text every time
-        assert not re.search(r"NaN|Infinity|undefined", first), mark
+        assert not re.search(r"NaN|Infinity|undefined", json.dumps(first)), mark
     assert out["none"][0] == "" and out["none"][2] == {"l": 0, "r": 0, "t": 0, "b": 0}
     assert out["underline"][0] == "M 0 254 C 186.0 244, 434.0 264, 620 252"
     assert out["arrow"][0].startswith("M -120 330 Q -110 110.0, -16 120.0 M -36 102.0 L -16 120.0 L -38 134.0") and out["arrow"][2]["l"] == 130
+    assert out["strike"][0] == "M -34 134.4 C 186.0 124.8, 434.0 158.4, 654 144.0" and out["strike"][2] == {"l": 47, "r": 47, "t": 0, "b": 0}
+    assert out["cross"][0] == ["M -40 -75 L 660 315", "M 660 -75 L -40 315"] and out["cross"][2] == {"l": 53, "r": 53, "t": 88, "b": 88}      # the maintainer's pick (P4-6): padx 40, pady 75, stroke 22
     circle = out["circle"][0]
     assert circle.startswith("M ") and circle.count(" C ") == 4
     assert out["circle"][2]["l"] == out["circle"][2]["r"] and out["circle"][2]["t"] == out["circle"][2]["b"] > 28
@@ -337,7 +340,7 @@ def test_focus_card_is_merged_review_only_a_layout_with_a_picture_slot_and_the_c
     assert spec["review_only"] is True and review_only(VOCAB, "focus_card") and spec["kind"] == "layout" and spec["main"] == "label"
     assert _vocab.slot_params(VOCAB, "focus_card") == ["asset"] and spec["params"]["asset"] == {"type": "image", "required": True}
     assert spec["params"]["stamp"] == {"type": "choice", "values": ["none", "x", "check"], "default": "none"}
-    assert spec["params"]["backdrop"] == {"type": "choice", "values": ["blur", "solid", "none"], "default": "blur"}
+    assert spec["params"]["backdrop"] == {"type": "choice", "values": ["blur", "none"], "default": "blur"}
     shared = json.loads(K.VOCABULARY.read_text(encoding="utf-8"))
     assert "focus_card" not in shared["presets"]
     block = catalogue["blocks"]["oh:focus-card"]
@@ -356,7 +359,21 @@ def test_a_script_naming_focus_card_is_refused_and_the_skills_checker_does_not_k
 
 
 def test_the_focus_cards_choices_are_checked_by_the_vocabulary():
-    assert _vocab.check_params(VOCAB, "focus_card", {"asset": "a1", "stamp": "check", "backdrop": "solid", "label": "Before"})["stamp"] == "check"
+    assert _vocab.check_params(VOCAB, "focus_card", {"asset": "a1", "stamp": "check", "backdrop": "none", "label": "Before"})["stamp"] == "check"
     assert refused(_vocab.check_params, VOCAB, "focus_card", {"asset": "a1", "stamp": "cross"}).code == "bad_choice"
     assert refused(_vocab.check_params, VOCAB, "focus_card", {"asset": "a1", "backdrop": "glass"}).code == "bad_choice"
     assert refused(_vocab.check_params, VOCAB, "focus_card", {"stamp": "x"}).code == "missing_param"
+
+
+# ---------------------------------------------------------------- P4c: `cross` and `strike` on the mark, `cross` on the sticker
+
+def test_the_mark_values_and_the_pages_hold_the_picked_constants():
+    assert VOCAB["presets"]["mark"]["params"]["mark"]["values"] == ["underline", "circle", "arrow", "cross", "strike", "none"]
+    assert "const CROSS = { size: 118, pop: 0.22, back: 1.6, delay: 0.25, draw: 0.45, stroke: 22, padx: 40, pady: 75, over: 34 };" in page_of("mark")
+    assert "[[0, 0.55], [0.45, 1]]" in page_of("mark")          # the first stroke over 0 to 55 percent of the draw time, the second over 45 to 100
+
+
+def test_the_sticker_cross_holds_the_picked_constants():
+    page = page_of("sticker")
+    assert "const CROSS = { cx: 540, cy: 820, half: 230, stroke: 120, tilt: -7, pop: 0.3, overshoot: 2.2, exit: 0.22, white: 138, dark: 156, shrink: 0.65 };" in page
+    assert _vocab.check_params(VOCAB, "sticker", {"glyph": "cross"}) == {"glyph": "cross"}

@@ -203,12 +203,35 @@
     "stamp_x_color": "#FF3B30",
     "stamp_check_color": "#34C759"
    }
+  },
+  "title_card": {
+   "anchor": "window",
+   "min_duration": 1.0,
+   "max_duration": null,
+   "tail": 0.3,
+   "settled": 0.4,
+   "page_images": false,
+   "looks": {
+    "max_w": 930,
+    "max_h": 1100,
+    "start_size": 360,
+    "enter_seconds": 0.28,
+    "exit_seconds": 0.2,
+    "rise_em": 0.18,
+    "enter_scale": 0.08,
+    "note_delay": 0.12,
+    "styles": {
+     "a": {"caps": true, "fg": "accent", "note_style": "none", "note_color": "muted", "note_size": 0, "note_caps": false},
+     "b": {"caps": false, "fg": "text", "note_style": "small", "note_color": "muted", "note_size": 54, "note_caps": false},
+     "c": {"caps": true, "fg": "text", "note_style": "small", "note_color": "accent", "note_size": 50, "note_caps": true}
+    }
+   }
   }
  },
  "review_presets": {
   "mark": {
    "kind": "overlay",
-   "summary": "a short phrase drawn large with a hand-drawn underline, circle or arrow",
+   "summary": "a short phrase drawn large with a hand-drawn underline, circle, arrow, X over it or strike through it",
    "main": "text",
    "params": {
     "text": {
@@ -222,6 +245,8 @@
       "underline",
       "circle",
       "arrow",
+      "cross",
+      "strike",
       "none"
      ],
      "default": "underline"
@@ -250,7 +275,8 @@
       "bulb",
       "question",
       "exclaim",
-      "eye"
+      "eye",
+      "cross"
      ],
      "required": true
     },
@@ -313,7 +339,42 @@
      "type": "choice",
      "values": [
       "blur",
-      "solid",
+      "none"
+     ],
+     "default": "blur"
+    }
+   }
+  },
+  "title_card": {
+   "kind": "layout",
+   "summary": "one keyword large on a full-screen card, over your own shot blurred and greyed",
+   "main": "text",
+   "params": {
+    "text": {
+     "type": "text",
+     "max": 40,
+     "required": true
+    },
+    "note": {
+     "type": "text",
+     "max": 60
+    },
+    "style": {
+     "type": "choice",
+     "values": [
+      "a",
+      "b",
+      "c"
+     ],
+     "default": "c"
+    },
+    "color": {
+     "type": "color"
+    },
+    "backdrop": {
+     "type": "choice",
+     "values": [
+      "blur",
       "none"
      ],
      "default": "blur"

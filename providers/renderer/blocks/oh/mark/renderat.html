@@ -23,7 +23,8 @@ html, body { margin:0; padding:0; background:transparent; width:1080px; height:1
 <script>
 'use strict';
 // A short phrase, large and centred in the band the face box leaves above it (data.zones.card = [top, bottom]), with a hand-drawn mark: an
-// underline, a circle or an arrow. The text pops in (ease-out-back); the mark is one stroke that draws itself from 0.25 s on. Every offset of
+// underline, a circle or an arrow. The text pops in (ease-out-back); the mark is one stroke that draws itself from 0.25 s on. Two more marks (P4c, the maintainer's
+// pick of P4-6): `cross`, an X of two strokes over the words, and `strike`, one stroke through them, drawn with the numbers of CROSS below. Every offset of
 // the strokes is a fixed number, so the drawing is the same at every render. The element marked data-zone is the text plus the room the
 // mark needs, so the driver's face-box check sees the stroke too. Pure function of (t, data): every style it relies on is set here.
 function col(v) { return v.charAt(0) === '#' ? v : 'var(--c-' + v + ')'; }
@@ -34,7 +35,12 @@ function clamp(x) { return Math.max(0, Math.min(1, x)); }
 const NS = 'http://www.w3.org/2000/svg';
 const FIT = 0.84, FS_MAX = 140, FS_MIN = 26, EM_CHAR = 0.62, EM_PAD = 1.2, EM_MARK = 1.2, LINE_EM = 1.1, MARK_EM = 0.73;
 const GROUP_FIT = 0.86;   // the share of the band the text and its mark fill at rest: the pop's overshoot (about 8 percent) then stays inside the band
-const GROW = 0.08;        // the circle's radius grows by this much over its turn, so the end of the stroke does not lie on its start
+const GROW = 0.08;
+// The look of `cross` and `strike` (P4c): the text is at most `size` px, pops in over `pop` s (ease-out-back, `back`), the strokes are `stroke` px wide and start
+// `delay` s in, drawn over `draw` s. `cross`: two diagonals over the text box, extended by `padx` and `pady`; the first is drawn over the first 55 percent of `draw`,
+// the second over the last 55 percent (from 45). `strike`: one cubic curve from `over` px before the box to `over` px past it, between 52 and 66 percent of the text's height.
+const CROSS = { size: 118, pop: 0.22, back: 1.6, delay: 0.25, draw: 0.45, stroke: 22, padx: 40, pady: 75, over: 34 };
+const CAP = 2;            // the room a stroke's round cap and its anti-aliasing add beyond half its width, px        // the circle's radius grows by this much over its turn, so the end of the stroke does not lie on its start
 function band(data) {
   const z = data.zones.card;
   const pos = document.getElementById('pos');
@@ -42,7 +48,7 @@ function band(data) {
   pos.style.height = (z[1] - z[0]) + 'px';
   return z[1] - z[0];
 }
-function fit(text, bandHeight, width) {
+function fit(text, bandHeight, width, cap) {
   let lines = [text];
   if (text.length > 12) {
     let best = -1;
@@ -53,7 +59,7 @@ function fit(text, bandHeight, width) {
   }
   let longest = 0;
   lines.forEach(function (l) { longest = Math.max(longest, l.length); });
-  let size = Math.min(FS_MAX, width / (EM_CHAR * longest + EM_PAD + EM_MARK));
+  let size = Math.min(cap === undefined ? FS_MAX : cap, width / (EM_CHAR * longest + EM_PAD + EM_MARK));
   while ((LINE_EM * lines.length + MARK_EM) * size > bandHeight * FIT && size > FS_MIN) size = size * 0.94;
   return { size: size, lines: lines };
 }
@@ -66,6 +72,14 @@ function extent(mark, w, h) {
     const q = circleRadii(w, h);
     return { l: Math.ceil(q.rx * (1 + GROW) - w / 2) + 6, r: Math.ceil(q.rx * (1 + GROW) - w / 2) + 6,
              t: Math.ceil(q.ry * (1 + GROW) - h / 2) + 6, b: Math.ceil(q.ry * (1 + GROW) - h / 2) + 6 };
+  }
+  if (mark === 'cross') {
+    const ex = Math.ceil(CROSS.padx + CROSS.stroke / 2) + CAP, ey = Math.ceil(CROSS.pady + CROSS.stroke / 2) + CAP;
+    return { l: ex, r: ex, t: ey, b: ey };
+  }
+  if (mark === 'strike') {
+    const ex = Math.ceil(CROSS.over + CROSS.stroke / 2) + CAP;
+    return { l: ex, r: ex, t: 0, b: 0 };
   }
   return { l: 0, r: 0, t: 0, b: 0 };
 }
@@ -94,7 +108,15 @@ function markPath(mark, w, h) {
     return 'M -120 ' + (h + 90) + ' Q -110 ' + num(h / 2 - 10) + ', -16 ' + num(h / 2) +
            ' M -36 ' + num(h / 2 - 18) + ' L -16 ' + num(h / 2) + ' L -38 ' + num(h / 2 + 14);
   }
+  if (mark === 'strike') {
+    return 'M ' + (-CROSS.over) + ' ' + num(0.56 * h) + ' C ' + num(0.3 * w) + ' ' + num(0.52 * h) + ', ' + num(0.7 * w) + ' ' + num(0.66 * h) + ', ' + (w + CROSS.over) + ' ' + num(0.6 * h);
+  }
   return '';
+}
+// The two diagonals of `cross`, each from its start to its end: over the text box, past it by `padx` and `pady` on every side.
+function crossPaths(w, h) {
+  const x0 = -CROSS.padx, x1 = w + CROSS.padx, y0 = -CROSS.pady, y1 = h + CROSS.pady;
+  return ['M ' + x0 + ' ' + y0 + ' L ' + x1 + ' ' + y1, 'M ' + x1 + ' ' + y0 + ' L ' + x0 + ' ' + y1];
 }
 // Writes `lines` into the text element, shrinks the type from `size` toward `floor` until the text and the room of `mark` fit the band and the
 // 950 px width, and returns {mark, w, h, room} (the measured text box and the room around it), or null when they do not fit at the floor.
@@ -132,21 +154,51 @@ window.renderAt = function (t, data) {
   txt.replaceChildren();
   svg.replaceChildren();
   const asked = P.mark || 'underline';
-  const widthOf = function (m) { return m === 'arrow' ? 950 - 130 : (m === 'circle' ? 950 - 68 : 950); };
-  const first = fit(P.text, bandH, widthOf(asked));
+  const drawn = asked === 'cross' || asked === 'strike';
+  const widthOf = function (m) {
+    if (m === 'cross' || m === 'strike') return 950 - 2 * extent(m, 0, 0).l;
+    return m === 'arrow' ? 950 - 130 : (m === 'circle' ? 950 - 68 : 950);
+  };
+  const first = fit(P.text, bandH, widthOf(asked), drawn ? CROSS.size : undefined);
   // what is tried, in order, until text and mark fit the band: the asked mark on the lines fit() chose (down to the type floor), the same
   // mark on one line, the smallest mark (an underline) on one line down to a smaller floor; none fits: the render is refused, never drawn across the band
   const tries = [[first.lines, asked, first.size, FS_MIN]];
   if (first.lines.length > 1) tries.push([[P.text], asked, first.size, FS_MIN]);
   if (asked === 'circle' || asked === 'arrow') tries.push([[P.text], 'underline', Math.min(first.size, FS_MAX), 12]);
+  if (asked === 'cross') tries.push([[P.text], 'strike', Math.min(first.size, CROSS.size), 12]);      // the smallest of the two drawn marks
   let got = null;
   for (let k = 0; k < tries.length && !got; k++) got = place(txt, tries[k][0], tries[k][1], tries[k][2], tries[k][3], bandH);
   if (!got) throw new Error('mark_does_not_fit');
   const mark = got.mark, w = got.w, h = got.h, room = got.room;
   wrap.style.padding = room.t + 'px ' + room.r + 'px ' + room.b + 'px ' + room.l + 'px';
-  const tin = clamp(t / 0.25);
-  txt.style.transform = 'scale(' + (0.5 + 0.5 * easeOutBack(tin, 2.0)).toFixed(4) + ')';
-  if (mark !== 'none') {
+  const stroke2 = mark === 'cross' || mark === 'strike';
+  const tin = clamp(t / (stroke2 ? CROSS.pop : 0.25));
+  txt.style.transform = 'scale(' + (0.5 + 0.5 * easeOutBack(tin, stroke2 ? CROSS.back : 2.0)).toFixed(4) + ')';
+  if (stroke2) {
+    const k = clamp((t - CROSS.delay) / CROSS.draw);
+    svg.setAttribute('width', w);
+    svg.setAttribute('height', h);
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    svg.style.left = room.l + 'px';
+    svg.style.top = room.t + 'px';
+    const parts = mark === 'cross' ? crossPaths(w, h) : [markPath('strike', w, h)];
+    const spans = mark === 'cross' ? [[0, 0.55], [0.45, 1]] : [[0, 1]];
+    parts.forEach(function (d, i) {
+      const p = easeOutCubic(clamp((k - spans[i][0]) / (spans[i][1] - spans[i][0])));
+      const path = document.createElementNS(NS, 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('pathLength', '1');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', color);
+      path.setAttribute('stroke-width', String(CROSS.stroke));
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      path.setAttribute('stroke-dasharray', '1');
+      path.setAttribute('stroke-dashoffset', (1 - p).toFixed(4));
+      path.setAttribute('opacity', p > 0 ? '1' : '0');
+      svg.appendChild(path);
+    });
+  } else if (mark !== 'none') {
     const p = easeOutCubic(clamp((t - 0.25) / 0.5));
     svg.setAttribute('width', w);
     svg.setAttribute('height', h);
