@@ -287,6 +287,10 @@ def api_base() -> tuple[str, bool]:
     return override.rstrip("/"), True
 
 
+def one_line(text, limit: int = 300) -> str:
+    return " ".join(str(text).split())[:limit]
+
+
 def secret_resolver():
     """The workbench's one secret resolver, imported by path: resolver.py next to this file first (a
     scheduled job runs a copy of this script from its job folder, with resolver.py in the same
@@ -309,8 +313,17 @@ def load_token(test_mode: bool) -> dict:
     """Return {"access_token": str, "expires_at": str|None}. Raise EXIT_NOT_CONFIGURED if absent or expired."""
     # The resolver reads LINKEDIN_ACCESS_TOKEN from the environment, then the OS secret store, where
     # auth.py keeps a JSON record; tests never read the store.
-    found = secret_resolver().resolve("LINKEDIN_ACCESS_TOKEN", allow_store=not test_mode)
-    token, source = found if found else (None, "")
+    resolver = secret_resolver()
+    state = getattr(resolver, "resolve_state", None)   # an older resolver.py next to a scheduled job's copy has none: the old reading stands
+    if state is not None:
+        answer = state("LINKEDIN_ACCESS_TOKEN", allow_store=not test_mode)
+        if answer.state not in ("found", "missing"):
+            raise ProviderError(f"the LinkedIn token (LINKEDIN_ACCESS_TOKEN) cannot be read ({answer.state}): "
+                                f"{one_line(answer.detail, 600) or 'no detail'}; nothing was sent", EXIT_NOT_CONFIGURED)
+        token, source = (answer.value, answer.source) if answer.state == "found" else (None, "")
+    else:
+        found = resolver.resolve("LINKEDIN_ACCESS_TOKEN", allow_store=not test_mode)
+        token, source = found if found else (None, "")
     expires_at = os.environ.get("LINKEDIN_TOKEN_EXPIRES_AT")
     if token and source == "secret store":
         stored, token, expires_at = token, None, None

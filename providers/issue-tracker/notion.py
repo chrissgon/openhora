@@ -306,8 +306,17 @@ def secret_resolver():
 
 
 def load_token(test_mode: bool) -> str:
-    found = secret_resolver().resolve(SECRET, allow_store=not test_mode)
-    token = found[0] if found else ""
+    resolver = secret_resolver()
+    state = getattr(resolver, "resolve_state", None)   # an older resolver.py next to a scheduled job's copy has none: the old reading stands
+    if state is not None:
+        found = state(SECRET, allow_store=not test_mode)
+        if found.state not in ("found", "missing"):
+            raise ProviderError(f"the Notion token ({SECRET}) cannot be read ({found.state}): "
+                                f"{one_line(found.detail, 600) or 'no detail'}; nothing was sent", EXIT_NOT_CONFIGURED)
+        token = found.value if found.state == "found" else ""
+    else:
+        found = resolver.resolve(SECRET, allow_store=not test_mode)
+        token = found[0] if found else ""
     if not token:
         raise ProviderError(f"no Notion token: export {SECRET}, or store one with "
                             f"uv run --with keyring==25.7.0 keyring set openhora {KEYRING_USERNAME}",

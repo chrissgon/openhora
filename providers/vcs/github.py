@@ -358,8 +358,17 @@ def load_token(test_mode: bool, required: bool = True) -> tuple[str, str]:
     the token is optional."""
     # The resolver reads VCS_GITHUB_TOKEN, then GITHUB_TOKEN (a harness or CI may export its own,
     # with other permissions), then the OS secret store; tests never read the store.
-    found = secret_resolver().resolve("VCS_GITHUB_TOKEN", allow_store=not test_mode)
-    token, source = found if found else ("", "")
+    resolver = secret_resolver()
+    state = getattr(resolver, "resolve_state", None)   # an older resolver.py next to a scheduled job's copy has none: the old reading stands
+    if state is not None:
+        answer = state("VCS_GITHUB_TOKEN", allow_store=not test_mode)
+        if answer.state == "unsafe" or (answer.state == "locked" and required):
+            raise ProviderError(f"the GitHub token (VCS_GITHUB_TOKEN) cannot be read ({answer.state}): "
+                                f"{one_line(answer.detail, 600) or 'no detail'}; nothing was sent", EXIT_NOT_CONFIGURED)
+        token, source = (answer.value, answer.source) if answer.state == "found" else ("", "")
+    else:
+        found = resolver.resolve("VCS_GITHUB_TOKEN", allow_store=not test_mode)
+        token, source = found if found else ("", "")
     if not token and not required:
         return "", ""
     if not token:
@@ -378,8 +387,16 @@ def load_pr_token(test_mode: bool) -> tuple[str, str, str]:
     the secret store; tests never read the store), and only when that name is found nowhere the everyday token of
     load_token. The name used and where it was found go to stderr; the value never does."""
     resolver = secret_resolver()
+    state = getattr(resolver, "resolve_state", None)   # an older resolver.py next to a scheduled job's copy has none: the old reading stands
     try:
-        found = resolver.resolve(PR_TOKEN_NAME, allow_store=not test_mode)
+        if state is not None:
+            answer = state(PR_TOKEN_NAME, allow_store=not test_mode)
+            if answer.state in ("unsafe", "locked"):
+                raise ProviderError(f"the GitHub pull request token ({PR_TOKEN_NAME}) cannot be read ({answer.state}): "
+                                    f"{one_line(answer.detail, 600) or 'no detail'}; nothing was sent", EXIT_NOT_CONFIGURED)
+            found = (answer.value, answer.source) if answer.state == "found" else None
+        else:
+            found = resolver.resolve(PR_TOKEN_NAME, allow_store=not test_mode)
     except resolver.NotRegistered:  # an older resolver.py next to a scheduled job's copy of this script
         found = None
     if found and found[0]:

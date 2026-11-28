@@ -128,7 +128,18 @@ def linkedin_check() -> int:
     """Whether a token is there and when it expires, read the way the provider reads it: through the secret
     resolver (the environment, then the OS secret store; contracts/secrets.md). No network. Exit 3 when the
     person has something to do (no token, an unreadable record, an expired token)."""
-    found = secret_resolver().resolve("LINKEDIN_ACCESS_TOKEN")
+    resolver = secret_resolver()
+    state = getattr(resolver, "resolve_state", None)   # an older resolver.py next to a scheduled job's copy has none: the old reading stands
+    if state is not None:
+        answer = state("LINKEDIN_ACCESS_TOKEN")
+        if answer.state not in ("found", "missing"):
+            print(json.dumps({"provider": "linkedin", "found": False, "state": answer.state}, indent=2))
+            log(f"cannot read the LinkedIn token (LINKEDIN_ACCESS_TOKEN): {answer.state}: "
+                f"{' '.join(str(answer.detail).split())[:600] or 'no detail'}; nothing was sent")
+            return EXIT_NOT_CONFIGURED
+        found = (answer.value, answer.source) if answer.state == "found" else None
+    else:
+        found = resolver.resolve("LINKEDIN_ACCESS_TOKEN")
     if not found:
         print(json.dumps({"provider": "linkedin", "found": False, "stored": False}, indent=2))
         log("not configured: no LinkedIn token in the environment or the OS secret store; "
