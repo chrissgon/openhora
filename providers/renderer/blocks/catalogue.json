@@ -66,6 +66,42 @@
     "Apache-2.0"
    ],
    "may_cross_face": false,
+   "name": "hf:char-slam-explode",
+   "namespace": "hf",
+   "natural_duration": 3.5,
+   "params": {
+    "text": {
+     "max": 12,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "keyword",
+   "runtimes": [
+    "hf"
+   ],
+   "samples": [
+    {
+     "text": "Impacto"
+    },
+    {
+     "text": "Chega!"
+    }
+   ],
+   "source": "hyperframes-registry",
+   "tier": "A",
+   "use_when": "one short word of impact only, for example Chega!: its letters scatter and slam back; never a phrase"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "ffmpeg"
+   ],
+   "kind": "overlay",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
    "name": "hf:count-up",
    "namespace": "hf",
    "natural_duration": 2.2,
@@ -109,7 +145,9 @@
   },
   {
    "band": "card",
-   "engines": [],
+   "engines": [
+    "ffmpeg"
+   ],
    "kind": "overlay",
    "license": [
     "Apache-2.0"
@@ -247,6 +285,42 @@
    "source": "hyperframes-registry",
    "tier": "B",
    "use_when": "the speaker repeats a sentence someone said, in a card that names the author"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "ffmpeg"
+   ],
+   "kind": "overlay",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:text-shimmer",
+   "namespace": "hf",
+   "natural_duration": 3.0,
+   "params": {
+    "text": {
+     "max": 24,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "keyword",
+   "runtimes": [
+    "hf"
+   ],
+   "samples": [
+    {
+     "text": "Sem esfor\u00e7o"
+    },
+    {
+     "text": "Seu dinheiro, em ordem"
+    }
+   ],
+   "source": "hyperframes-registry",
+   "tier": "A",
+   "use_when": "a calm, short headline that gets one clean light sweep through its letters"
   },
   {
    "band": "card",
@@ -840,7 +914,7 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "4a3bb5a9b7f83a30662dc8de412cdd7d253d35c18dde64951158eb67e618602d",
+ "blocks_sha256": "1d09bf6e539cccd32780238b8a72591d17f3ac3ba0f1fa349a3e64e09a1f6a2c",
  "engines": {
   "ffmpeg": {
    "presets": {

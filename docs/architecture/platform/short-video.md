@@ -308,3 +308,5 @@ Updated on 2026-11-07 by V3a-2.
 2026-11-26: P1b, `captions-edit` places and removes transitions (`transition` op, `transitions_current`, `transition_lost`), and the review marks the words that open a shot (`docs/decisions/2026-11-26-p1a-transitions.md`)
 
 2026-11-27: P2a, `captions-edit` chooses the caption block and its position, the zoom and a font per role for one video (`caption`, `zoom`, `font` ops, `--caption-block`, `edl.captions.block`; `docs/decisions/2026-11-27-p2a-video-choices.md`, draft)
+
+2026-11-27: P2r, three text overlays join the block choices: the registry components `hf:text-shimmer` and `hf:char-slam-explode` (admission entries in `providers/renderer/hf-runtime/entries/`, edit E1 only; the second is for one short word, text at most 12 characters) and the port `hf:lt-mask-reveal` (a name bar with a role line, `quote` preset); each with its determinism record (`docs/decisions/2026-11-27-p2r-registry-blocks.md`, draft)

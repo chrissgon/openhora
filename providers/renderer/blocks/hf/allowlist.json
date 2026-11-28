@@ -1,6 +1,139 @@
 {
  "schema_version": 1,
  "note": "The hf: blocks admitted from the HyperFrames registry: written by V3b's compatibility run and reviewed in its pull request with the run's report and contact sheets (section 3 of docs/decisions/2026-11-07-v0-short-video-hyperframes.md). Empty until V3b.",
- "registry_commit": null,
- "blocks": []
+ "registry_commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
+ "blocks": [
+  {
+   "name": "hf:char-slam-explode",
+   "kind": "overlay",
+   "preset": "keyword",
+   "band": "card",
+   "may_cross_face": false,
+   "license": [
+    "Apache-2.0"
+   ],
+   "source": "hyperframes-registry",
+   "use_when": "one short word of impact only, for example Chega!: its letters scatter and slam back; never a phrase",
+   "params": {
+    "text": {
+     "type": "text",
+     "max": 12,
+     "required": true
+    }
+   },
+   "samples": [
+    {
+     "text": "Impacto"
+    },
+    {
+     "text": "Chega!"
+    }
+   ],
+   "natural_duration": 3.5,
+   "implementations": {
+    "hf": "char-slam-explode.html"
+   },
+   "tier": "A",
+   "commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
+   "notice": "Apache-2.0; HyperFrames registry at b4cc674f; notices in providers/renderer/hf-runtime/NOTICE.md",
+   "files": {
+    "char-slam-explode.html": "41aae5bb4032ac37f058b46d58def69acf417ee03e4d38073f75c2fd2f84082f"
+   },
+   "component": "registry/components/char-slam-explode",
+   "edits": [
+    "E1"
+   ],
+   "font_map": {},
+   "served_sha256": "25157a7c3085df18e7488ad83e4dc195a0f727f02b3e95d379020c91f85f567b",
+   "bind": {
+    "text": "var:text"
+   },
+   "fixed": {
+    "accent": "green",
+    "spread": "tight"
+   },
+   "theme_vars": {
+    "--fg": "text",
+    "--font-display": "font:display",
+    "--brand": "accent"
+   },
+   "determinism": {
+    "served_sha256": "25157a7c3085df18e7488ad83e4dc195a0f727f02b3e95d379020c91f85f567b",
+    "runtime_sha256": "491a22ffea0bf65cedc4389ddda9c31e2906c7adac05726333e4d4f422bf42ea",
+    "samples": 2,
+    "frames": 108,
+    "runs": 4,
+    "blocked": 0,
+    "date": "2026-11-27",
+    "image": "openhora-renderer:1f957754145a",
+    "seconds": 31.94
+   }
+  },
+  {
+   "name": "hf:text-shimmer",
+   "kind": "overlay",
+   "preset": "keyword",
+   "band": "card",
+   "may_cross_face": false,
+   "license": [
+    "Apache-2.0"
+   ],
+   "source": "hyperframes-registry",
+   "use_when": "a calm, short headline that gets one clean light sweep through its letters",
+   "params": {
+    "text": {
+     "type": "text",
+     "max": 24,
+     "required": true
+    }
+   },
+   "samples": [
+    {
+     "text": "Sem esfor\u00e7o"
+    },
+    {
+     "text": "Seu dinheiro, em ordem"
+    }
+   ],
+   "natural_duration": 3.0,
+   "implementations": {
+    "hf": "text-shimmer.html"
+   },
+   "tier": "A",
+   "commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
+   "notice": "Apache-2.0; HyperFrames registry at b4cc674f; notices in providers/renderer/hf-runtime/NOTICE.md",
+   "files": {
+    "text-shimmer.html": "a96775b95265720efc23311566d17d574768cd60383743fa2dd71c9fd3241153"
+   },
+   "component": "registry/components/text-shimmer",
+   "edits": [
+    "E1"
+   ],
+   "font_map": {},
+   "served_sha256": "9cc15a004f782d69c6114d62bb2b2ca7226362817af5867324edea7ef4f51224",
+   "bind": {
+    "text": "var:text"
+   },
+   "fixed": {
+    "accent": "green",
+    "sweep_at": 1.2
+   },
+   "theme_vars": {
+    "--fg": "text",
+    "--font-display": "font:display",
+    "--brand": "accent"
+   },
+   "determinism": {
+    "served_sha256": "9cc15a004f782d69c6114d62bb2b2ca7226362817af5867324edea7ef4f51224",
+    "runtime_sha256": "491a22ffea0bf65cedc4389ddda9c31e2906c7adac05726333e4d4f422bf42ea",
+    "samples": 2,
+    "frames": 108,
+    "runs": 4,
+    "blocked": 0,
+    "date": "2026-11-27",
+    "image": "openhora-renderer:149b9d220fce",
+    "seconds": 31.65
+   }
+  }
+ ]
 }

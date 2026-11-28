@@ -3,6 +3,7 @@ admission stages the component, the entry, the vocabulary and the blocks into th
 schema, and writes only after a result that matches the plan. The measurement itself is `test_admit.py`'s (the container's entry point on the host)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -58,6 +59,7 @@ def test_a_confirmed_admission_stages_what_the_container_reads_and_writes_the_en
     w = world(tmp_path / "w")
     from test_admit import plan
     served = plan(w)["entry"]["served_sha256"]
+    pins_before = hashlib.sha256((Path(w["blocks"]) / "pins.json").read_bytes()).hexdigest()      # the world's own pins (an empty allowlist since P2r), staged before the entry is written
     fake_result(dk, w, served)
     rc, out, err = dk.host(*admit_args(w, "--confirmed"), env=env_of(w))
     assert rc == 0, err
@@ -67,7 +69,7 @@ def test_a_confirmed_admission_stages_what_the_container_reads_and_writes_the_en
     assert argv[argv.index("--network") + 1] == "none"
     inner = argv[argv.index("admit-check"):]
     assert inner[inner.index("--entry") + 1] == "/job/entry.json" and inner[inner.index("--component-dir") + 1] == "/job/component"
-    assert inner[inner.index("--blocks") + 1] == "/job/blocks" and inner[inner.index("--blocks-sha256") + 1] == K.BLOCKS_SHA256 and "--in" not in inner
+    assert inner[inner.index("--blocks") + 1] == "/job/blocks" and inner[inner.index("--blocks-sha256") + 1] == pins_before and "--in" not in inner
     assert out["ok"] is True and out["staged"] is False and out["determinism"]["runs"] == 4 and out["determinism"]["frames"] == 108
     assert out["determinism"]["image"] == D.image_tag() and "planted" not in json.dumps(out)
     allow = json.loads((Path(w["blocks"]) / "hf" / "allowlist.json").read_text())

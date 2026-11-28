@@ -39,3 +39,13 @@ licence and the changes, and each `block.json` points here in its `notice` field
 The source files are not in this repository: the hashes name the files the ports were written from, and a port quotes no sample text of its source. Our own blocks
 (`blocks/oh/*`, MIT, the repository's licence) are not derivative and carry no entry here. The licence review of these six entries is the maintainer's (decision
 `docs/decisions/2026-11-08-v3b-4-hf-ports.md`); this notice is the text it reviews.
+
+<!-- admitted: hf:text-shimmer -->
+## Admitted component `hf:text-shimmer`
+
+`registry/components/text-shimmer/text-shimmer.html` of the registry repository at commit `b4cc674f7f312e77ded32e0b53006cc0bad6723b` (Apache License 2.0, notices in the repository's own LICENSE, which the image carries). Fetched at image build from the raw-file URL at that commit, pinned by sha256 in `registry.sha256`; not committed here. Served with the edits `E1` (the CDN GSAP line becomes the vendored one; a font family name becomes the host's) and no other. Determinism test recorded 2026-11-27: 2 samples, 108 frames, 4 runs.
+
+<!-- admitted: hf:char-slam-explode -->
+## Admitted component `hf:char-slam-explode`
+
+`registry/components/char-slam-explode/char-slam-explode.html` of the registry repository at commit `b4cc674f7f312e77ded32e0b53006cc0bad6723b` (Apache License 2.0, notices in the repository's own LICENSE, which the image carries). Fetched at image build from the raw-file URL at that commit, pinned by sha256 in `registry.sha256`; not committed here. Served with the edits `E1` (the CDN GSAP line becomes the vendored one; a font family name becomes the host's) and no other. Determinism test recorded 2026-11-27: 2 samples, 108 frames, 4 runs.
