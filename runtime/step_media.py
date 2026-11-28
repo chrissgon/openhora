@@ -520,13 +520,15 @@ def _catalogue_blocks(store) -> dict:
         raise
 
 
-def _slot_row(store, entry: dict, a: dict, blocks: dict) -> dict:
+def _slot_row(store, entry: dict, a: dict, blocks: dict, slot=None, param=None, words=None) -> dict:
     """The row of beats.json `slots` for an added layout or picture overlay drawn with its approved picture, made as the renderer's aligner makes its own
     (providers/renderer/_align.py build_beats): `slot` is the entry's id, `beat` its beat, `param` the picture parameter, `type` the picture kinds of the added animation's block read
     from `blocks` (the catalogue's entries) joined with `|`, `description` what the person said the picture shows (`show`), else the search words, else SLOT_FALLBACK, inside the
-    vocabulary file's limits (`slot_description_min`, `slot_description_max`). A block the catalogue does not hold is `step_output_invalid` with the field `catalogue`."""
+    vocabulary file's limits (`slot_description_min`, `slot_description_max`). A block the catalogue does not hold is `step_output_invalid` with the field `catalogue`. `slot`,
+    `param` and `words` name another picture of the same animation (`a["more"]`, P4e): the row is made for that slot and parameter, with that slot's own search words."""
+    slot, param, words = slot or entry["id"], param or a["asset_param"], a.get("words") if words is None else words
     try:
-        spec = blocks[a["block"]]["params"][a["asset_param"]]
+        spec = blocks[a["block"]]["params"][param]
         kinds = spec["type"] if isinstance(spec["type"], list) else [spec["type"]]
     except (KeyError, TypeError):
         raise steps.StepFailure("step_output_invalid", "catalogue") from None
@@ -538,14 +540,14 @@ def _slot_row(store, entry: dict, a: dict, blocks: dict) -> dict:
     except (OSError, ValueError, KeyError, TypeError, RecursionError):
         raise steps.StepFailure("step_output_invalid", "vocabulary") from None
     kinds = [k for k in kinds if k in ("image", "clip")]
-    words = next((w.strip() for w in a.get("words") or [] if isinstance(w, str) and low <= len(w.strip()) <= high), SLOT_FALLBACK)
-    return {"slot": entry["id"], "beat": entry["beat"], "param": a["asset_param"], "type": "|".join(kinds), "description": words}
+    words = next((w.strip() for w in words or [] if isinstance(w, str) and low <= len(w.strip()) <= high), SLOT_FALLBACK)
+    return {"slot": slot, "beat": entry["beat"], "param": param, "type": "|".join(kinds), "description": words}
 
 
-def _add_slot_row(store, beats: dict, entry: dict, a: dict, blocks: dict) -> None:
+def _add_slot_row(store, beats: dict, entry: dict, a: dict, blocks: dict, slot=None, param=None, words=None) -> None:
     rows = beats.setdefault("slots", [])
-    if not any(isinstance(r, dict) and r.get("slot") == entry["id"] for r in rows):
-        rows.append(_slot_row(store, entry, a, blocks))
+    if not any(isinstance(r, dict) and r.get("slot") == (slot or entry["id"]) for r in rows):
+        rows.append(_slot_row(store, entry, a, blocks, slot, param, words))
 
 
 def fit_clip_entries(beats: dict, edl: dict, clips: dict) -> list:
@@ -626,6 +628,10 @@ def _align(ctx: steps.Context, state: dict) -> dict:
                     continue
                 entry["params"] = dict(a["params"], **{a["asset_param"]: a["id"]})
                 _add_slot_row(store, beats, entry, a, blocks)
+                for other in a.get("more") or []:      # the other pictures (P4e): each is put in the params and given its slot row only when it has an approved pick, so the beat is drawn with the pictures there are
+                    if other["slot"] in stock:
+                        entry["params"][other["param"]] = other["slot"]
+                        _add_slot_row(store, beats, entry, a, blocks, other["slot"], other["param"], other["words"])
                 beats.setdefault("overlays" if a.get("pic_kind") == "overlay" else "layouts", []).append(entry)
                 continue
             if (blocks.get(a["block"]) or {}).get("kind") == "layout":      # a text-only layout (no picture parameter) is a layout, not an overlay: the renderer refuses a layout preset in `overlays`

@@ -193,3 +193,89 @@ def test_the_constants_equal_the_renderers_own():
     assert re.search(r'^PARAM_NAME = re.compile\(r"(.*)"\)$', source, re.M).group(1) == cap.PARAM_NAME.pattern
     catalogue = json.loads((REPO / "providers" / "renderer" / "blocks" / "catalogue.json").read_text(encoding="utf-8"))
     assert all(cap.BLOCK_NAME.fullmatch(b["name"]) for b in catalogue["blocks"])
+
+
+# P4e: one added layout takes several pictures
+
+
+def many(block, params, where):
+    return {"block": block, "preset": "carousel", "params": dict(params), "asset_param": "asset", "pic_kind": "layout", "more_params": ["asset2", "asset3"]}
+
+
+def with_pictures(**kw):
+    edited, review = fresh()
+    _, out, _ = apply(edited, review, [dict(ADD, block="oh:many", params={"label": "Trip"}, **kw)], animate=many)
+    return edited, out
+
+
+def test_adding_a_layout_with_several_pictures_stores_more_params_and_lists_every_slot():
+    edited, review = with_pictures(search="old harbour", want="image")
+    [item] = review["animations"]
+    assert item["more_params"] == ["asset2", "asset3"] and item["asset_param"] == "asset" and "asset" not in item["params"]
+    assert review["slot_searches"] == {"a1": {"search": "old harbour", "want": "image"}}      # the search given with the add fills the first slot only
+    assert cap.animation_slots(item) == ["a1", "a1-asset2", "a1-asset3"]
+    assert cap.stock_slot_ids(review, {"beat7"}) == {"beat7", "a1", "a1-asset2", "a1-asset3"}
+    assert cap.check_review(review)["animations"] == review["animations"]
+    assert cap.animation_slots(dict(item, id="a2"))[1] == "a2-asset2" and cap.animation_slots({"id": "a1"}) == []
+
+
+def test_each_other_slot_gets_its_words_and_pick_through_the_slot_ops_and_the_bound_still_holds():
+    edited, review = with_pictures()
+    edits = [{"op": "slot_search", "slot": "a1-asset2", "search": "market", "want": "image"}, {"op": "slot_search", "slot": "a1-asset3", "search": "harbour", "want": "clip"},
+             {"op": "slot", "slot": "a1-asset3", "choice": "none"}]
+    _, out, _ = cap.apply_edits(edited, review, edits, revision=review["revision"], proposals={}, beats={1, 2, 3}, slots=set(), animate=many)
+    assert set(out["slot_searches"]) == {"a1-asset2", "a1-asset3"} and out["empty_slots"] == {"a1-asset3": "none"}
+    with pytest.raises(cap.CaptionError) as caught:      # a slot that is nobody's
+        cap.apply_edits(edited, review, [{"op": "slot_search", "slot": "a1-asset4", "search": "x y", "want": "image"}], revision=review["revision"], proposals={}, beats={1}, slots=set(), animate=many)
+    assert caught.value.code == "unknown_slot"
+    full = dict(review, slot_searches={f"s{k}": {"search": "word", "want": "image"} for k in range(cap.STOCK_SLOTS_MAX)})
+    with pytest.raises(cap.CaptionError) as caught:      # STOCK_SLOTS_MAX is unchanged (S13)
+        cap.apply_edits(edited, full, [{"op": "slot_search", "slot": "a1-asset2", "search": "market", "want": "image"}], revision=review["revision"], proposals={}, beats={1}, slots=set(), animate=many)
+    assert (caught.value.code, cap.STOCK_SLOTS_MAX) == ("too_many_slots", 6)
+
+
+def test_removing_the_animation_clears_every_slots_search_pick_and_choice():
+    edited, review = with_pictures()
+    review = dict(review, slot_searches={s: {"search": "word", "want": "image"} for s in ("a1", "a1-asset2")}, slot_assets={"a1": "src:one", "a1-asset3": "src:two"},
+                  empty_slots={"a1-asset2": "none", "keep": "none"})
+    _, out, _ = cap.apply_edits(edited, review, [{"op": "animation", "id": "a1", "remove": True}], revision=review["revision"], proposals={}, beats={1}, slots=set(), animate=many)
+    assert out["animations"] == [] and out["slot_searches"] == {} and out["slot_assets"] == {} and out["empty_slots"] == {"keep": "none"}
+
+
+def test_a_stored_item_with_a_bad_more_params_is_review_unreadable():
+    _, review = with_pictures()
+    item = review["animations"][0]
+    plain = {k: v for k, v in item.items() if k != "more_params"}
+    broken = [dict(item, more_params=[]), dict(item, more_params="asset2"), dict(item, more_params=["asset2", "asset2"]), dict(item, more_params=["asset"]), dict(item, more_params=["Asset2"]),
+              dict(item, more_params=[2]), dict(item, more_params=["label"], params={"label": "x"}), dict(item, more_params=["x" * 40]), dict(item, more_params=["p%d" % k for k in range(12)]),
+              {k: v for k, v in item.items() if k != "asset_param"}]      # more_params without its asset_param
+    for one in broken:
+        with pytest.raises(cap.CaptionError) as caught:
+            cap.check_review(dict(review, animations=[one]))
+        assert (caught.value.code, caught.value.field) == ("review_unreadable", "animations"), one
+    assert cap.check_review(dict(review, animations=[plain]))["animations"] == [plain]      # a review with one picture per animation reads as before (S2)
+
+
+def test_the_view_has_one_slot_row_per_picture_of_an_added_layout():
+    edited, review = with_pictures(show="a busy trip")
+    review = dict(review, slot_searches={"a1-asset3": {"search": "harbour", "want": "image"}}, slot_assets={"a1-asset3": "src:two"})
+    shown = cap.view(edited, review, {}, {"slots": []}, {})
+    rows = [r for r in shown["slots"] if r.get("animation") == "a1"]
+    assert [(r["slot"], r["param"], r["type"], r["animation"]) for r in rows] == [("a1", "asset", "image|clip", "a1"), ("a1-asset2", "asset2", "image|clip", "a1"), ("a1-asset3", "asset3", "image|clip", "a1")]
+    assert rows[2]["search"] == "harbour" and rows[2]["pick"] == "src:two" and rows[1]["pick"] is None
+    assert [a["more_params"] for a in shown["animations"]] == [["asset2", "asset3"]]
+
+
+def test_animations_current_carries_the_other_pictures_with_their_words():
+    edited, review = with_pictures()
+    review = dict(review, slot_searches={"a1-asset2": {"search": "old market", "want": "image"}})
+    placed, lost = cap.animations_current(review, edited, {w["index"] for w in edited["words"]})
+    assert lost == [] and placed[0]["more"] == [{"param": "asset2", "slot": "a1-asset2", "words": ["old market"]}, {"param": "asset3", "slot": "a1-asset3", "words": [None]}]
+
+
+def test_the_media_sets_slot_list_has_one_entry_per_searched_picture_of_a_layout():
+    stock = st.load("media_stock")
+    edited, review = with_pictures(show="a busy trip", search="old harbour", want="image")
+    review = dict(review, slot_searches=dict(review["slot_searches"], **{"a1-asset2": {"search": "market", "want": "image"}, "a1-asset3": {"search": "pier", "want": "clip"}}),
+                  empty_slots={"a1-asset3": "none"})
+    assert [(r["slot"], r["search"]) for r in stock.stock_slots(review, {"slots": []})] == [("a1", "old harbour"), ("a1-asset2", "market")]      # a slot set to none is left out

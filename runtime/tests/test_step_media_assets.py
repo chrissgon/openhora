@@ -448,7 +448,7 @@ class Checks:
         return {"ok": True, "block": args[args.index("--block") + 1], "engine": "ffmpeg", "params": sorted(json.loads(Path(args[args.index("--params") + 1]).read_text()))}
 
 
-def added_layout_video(world, monkeypatch, block="oh:cutaway", params=None, **words):
+def added_layout_video(world, monkeypatch, block="oh:cutaway", params=None, more=(), **words):
     """A video with an added layout `a1` (its words 3 to 5), its picture found, picked, fetched and approved; the fake renderer's final beats are the complete empty document
     the real aligner writes. Returns the task; the next step is the review's Continue."""
     engine = world["engine"]
@@ -459,6 +459,8 @@ def added_layout_video(world, monkeypatch, block="oh:cutaway", params=None, **wo
     ops_media = st.load("ops_media")
     ops_media.captions_edit(world["path"], found["task"], review_of(world)["revision"], edits=json.dumps([edit]))
     ops_media.captions_edit(world["path"], found["task"], review_of(world)["revision"], edits=json.dumps([{"op": "slot", "slot": "a1", "choice": "stock"}]))
+    for slot, search in more:      # the other pictures of a layout (P4e): their own search words, through `slot_search`
+        ops_media.captions_edit(world["path"], found["task"], review_of(world)["revision"], edits=json.dumps([{"op": "slot_search", "slot": slot, "search": search, "want": "image"}]))
     done = ops.video_media_find(world["path"], found["task"], confirm=True)
     for row in done["slots"]:
         pick(world, found["task"], row["slot"], row["candidates"][0]["pick"], review_of(world)["revision"])
@@ -589,6 +591,36 @@ def test_a_slot_row_that_exists_is_not_written_twice(world):
     store = type("S", (), {"reference": staticmethod(lambda rel: str(st.REPO / rel))})
     step_media._add_slot_row(store, beats, {"id": "a1", "beat": 1001, "preset": "cutaway"}, {"block": "oh:cutaway", "asset_param": "asset", "words": ["new words"]}, CUTAWAY_BLOCKS)
     assert beats["slots"] == [{"slot": "a1", "beat": 1, "param": "asset", "type": "image", "description": "kept"}]
+
+
+# P4e: one added layout takes several pictures
+
+THREE = {"params": {"asset": {"type": ["image"], "required": True}, "asset2": {"type": ["image"]}, "asset3": {"type": ["image"]}, "label": {"type": "text", "max": 40}}}
+
+
+def test_a_layout_with_several_pictures_draws_with_the_pictures_there_are_one_slot_row_each(world, monkeypatch):
+    plant_blocks(monkeypatch, **{"oh:three-test": ("oh:cutaway", THREE)})
+    task = added_layout_video(world, monkeypatch, block="oh:three-test", params={"label": "Trip"}, more=[("a1-asset3", "old harbour")], show=SHOW)      # no search for the second picture
+    assert go_on(world, task)["ok"] is True
+    beats = beats_of(world)
+    [layout] = beats["layouts"]
+    assert layout["params"] == {"label": "Trip", "asset": "a1", "asset3": "a1-asset3"}      # `asset2` has no approved pick: it is left out
+    assert beats["slots"] == [{"slot": "a1", "beat": layout["beat"], "param": "asset", "type": "image", "description": SHOW},
+                              {"slot": "a1-asset3", "beat": layout["beat"], "param": "asset3", "type": "image", "description": "old harbour"}]
+    args = world["engine"].of("render")[-1]["args"]
+    for name in ("--asset", "--asset-sha256"):      # the render step passes both approved files
+        assert sorted(args[i + 1].split("=")[0] for i, a in enumerate(args) if a == name) == ["a1", "a1-asset3"]
+
+
+def test_a_layout_with_several_pictures_is_not_drawn_without_its_first_picture(world, monkeypatch):
+    plant_blocks(monkeypatch, **{"oh:three-test": ("oh:cutaway", THREE)})
+    task = added_layout_video(world, monkeypatch, block="oh:three-test", params={"label": "Trip"}, more=[("a1-asset3", "old harbour")], show=SHOW)
+    st.load("ops_media").captions_edit(world["path"], task, review_of(world)["revision"], edits=json.dumps([{"op": "slot_asset", "slot": "a1", "clear": True}]))
+    shown = ops.video_media_approve(world["path"], task)
+    ops.video_media_approve(world["path"], task, hash=shown["sha256"])
+    assert go_on(world, task)["ok"] is True
+    beats = beats_of(world)
+    assert beats["layouts"] == [] and not beats.get("slots")      # a picture after the first does not draw the beat alone
 
 
 def renderer_checker():
