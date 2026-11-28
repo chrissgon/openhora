@@ -13,7 +13,7 @@ the runtime know it: packs resolve against skills/ only, and the router never pr
 
 A task of an imported skill runs only when `refusals` is empty for the model it would run on. Every failing condition is named, in
 a fixed order, with the command that clears it. The run itself (runtime/ops_task_run.py) is made from one copy of the folder, in the
-eval container, without the web, and its review is never released (runtime/autonomy.py review_action): the cases of a skill from
+eval container, without the web, and its review is never released (runtime/autonomy.py review_action), whichever agent owns the task (the person's choice in the entry's `agent` key, else the agent of the area of the name's prefix, else the planning agent: runtime/plan.py imported_owner, package I2b): the cases of a skill from
 outside are the person's own and nobody else read them. No file of the folder is run, imported or opened with an interpreter on the
 host: the lab (runtime/lab.py) lists, reads, hashes and copies, and a runtime manifest that lists documents is refused, because a
 document's checker is a script of the skill that runs on this machine.
@@ -61,7 +61,7 @@ def _is_core(cfg, skill: str) -> bool:
 
 
 def entry(cfg: dict, skill: str):
-    """The entry of `skill` in the project's `imported_skills` ({"folder", "without_external_line"}), or None when the project does
+    """The entry of `skill` in the project's `imported_skills` ({"folder", "without_external_line", "agent"}), or None when the project does
     not list it or when it is a folder of skills/ of the checkout (a skill of the workbench is never read from a listing)."""
     if not skill or _is_core(cfg, skill):
         return None

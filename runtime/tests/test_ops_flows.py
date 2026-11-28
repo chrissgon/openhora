@@ -467,7 +467,7 @@ def free_text_plan(world, route_skill="demo-asks", sources=None, request_text="S
     if sources:
         route["sources"] = {"*": sources}
     routed = [{"item": request_text, "reply": "", "route": route}]
-    out = plan.combine(row, routed, {}, {}, str(world["tree"]), pack=[route_skill], limits=LIMITS, past=[])
+    out = plan.combine(row, routed, {}, {}, str(world["tree"]), pack=[route_skill], limits=LIMITS, past=[], imported={})
     opened = ctx["store"].plan_open(ctx["conn"], request, title=out["plan"]["title"], body=out["plan"]["body"], payload=out["plan"]["payload"])
     return request, opened["pending_id"], out
 
