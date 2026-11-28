@@ -16,8 +16,9 @@ The folders (--platform defaults to the one this machine runs):
   $XDG_CONFIG_HOME/systemd/user, or ~/.config/systemd/user) are looked at, never changed.
 
 The plan:
-  1. delete  the old Notion test ledgers (documents-notion.json and issue-tracker-notion.json, with their lock files) in the
-             old data folder (decision 13);
+  1. delete  an old Notion ledger (documents-notion.json or issue-tracker-notion.json, with its lock files) in the old data folder
+             (decision 13) only when it reads as a ledger and holds no pending key (a pending key guards against a duplicate page);
+             any other is moved like a file. The plan lists, for each, its counts of done, pending and other entries, never its content;
   2. ledgers the cache folder still holds (publisher-linkedin.json and vcs-github.json, with their lock files): moved to the
              new data folder when neither data folder holds that name, else to the new cache folder like any other entry;
   3. move    every other entry of each old folder to the same place in its new folder; a folder present in both is merged
@@ -26,8 +27,11 @@ The plan:
 
 What blocks (nothing is moved, exit 1; each blocker has a path, why and fix):
   a job still scheduled under the old name; a job record in the old home that is scheduled or running; a lock a process
-  holds; a file present in both folders; an old and a new folder on different devices; project data folders in the old
-  data folder with no --project given; a --project whose docs/workbench/runtime.json points into an old folder.
+  holds (checked again right before the renames); a file present in both folders; an old folder that is a symbolic link or
+  cannot be read; an old and a new folder on different devices; a project data folder under the old runtime/ that no
+  --project names (there is no way to skip one); a --project with no readable docs/workbench/runtime.json; a --project
+  whose runtime.json holds, at any depth, a path (relative, ~ and $HOME expanded) into an old folder.
+A move that fails part way (a nested mount, a full disk) can be run again: it continues from what is left.
 
 Output: JSON on stdout (mode, folders, move, delete, remove_empty, blockers, done, next); a summary on stderr.
 Exit 0: nothing blocks (the list) or the move finished. 1: something blocks, or an error stopped the move. 2: usage.
@@ -52,6 +56,7 @@ UNFINISHED = ("scheduled", "running")
 NEXT = [
     "accept again the configuration of each project whose runtime.json you changed",
     "schedule each job you still want again, through its dry run and the gate",
+    "if a move fails part way (a nested mount, a full disk), run this command again: it continues from what is left",
 ]
 
 
@@ -105,6 +110,35 @@ def cache_ledger_of(name: str):
     return None
 
 
+def ledger_counts(path: Path):
+    """{"done", "pending", "other"} entry counts of a Notion ledger file, or None when it is not a readable ledger (not JSON, not an
+    object with an "entries" object). Only counts leave this function: never a key, never an entry."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("entries"), dict):
+        return None
+    counts = {"done": 0, "pending": 0, "other": 0}
+    for entry in data["entries"].values():
+        status = entry.get("status") if isinstance(entry, dict) else None
+        counts[status if status in ("done", "pending") else "other"] += 1
+    return counts
+
+
+def string_values(value, trail=""):
+    """(path of the key, string) for every non-empty string in a JSON value, nested objects and lists included: a.b, a.list[1].c."""
+    if isinstance(value, str):
+        if value:
+            yield trail, value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from string_values(item, f"{trail}.{key}" if trail else str(key))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from string_values(item, f"{trail}[{index}]")
+
+
 def lock_held(path: Path) -> bool:
     """Whether a process holds an exclusive lock on `path`. The file is opened read-only and never created."""
     try:
@@ -131,6 +165,10 @@ class Plan:
         self.deletes: list = []
         self.remove_empty: list = []
         self.blockers: list = []
+        self.ledgers: list = []
+        self.notes: list = []
+        self.ledger_action: dict = {}
+        self.referenced: list = []
         self.cross_device_checked: set = set()
 
     def blocker(self, path, why: str, fix: str) -> None:
@@ -144,17 +182,28 @@ class Plan:
 
     # --- the plan -------------------------------------------------------------------------------
 
+    def names(self, folder: Path) -> list:
+        """The sorted names in a folder; a folder that cannot be read is a blocker and holds no names."""
+        try:
+            return sorted(os.listdir(folder))
+        except OSError:
+            self.blocker(folder, "this folder cannot be read", "fix its permissions, then run this again")
+            return []
+
     def build(self) -> "Plan":
         for kind, old, new in self.pairs:
-            if is_dir(old):
+            if os.path.islink(old):
+                self.blocker(old, "the old folder is a symbolic link",
+                             f"replace it with the real folder (or move what it points to by hand), then run this again; {new} is where it goes")
+            elif is_dir(old):
                 self.check_device(old, new)
                 self.walk(kind, old, new, top=True)
                 self.remove_empty.append(str(old))
         self.check_schedulers()
         self.check_jobs()
-        self.check_locks()
-        self.check_runtime_folders()
+        self.blockers.extend(self.lock_blockers())
         self.check_projects()
+        self.check_runtime_folders()
         return self
 
     def check_device(self, old: Path, new: Path) -> None:
@@ -166,13 +215,35 @@ class Plan:
             self.blocker(old, "a rename cannot cross devices",
                          f"put {new} on the same device as {old}, or move the folder by hand, then run this again")
 
+    def notion_ledger_action(self, old: Path, base: str) -> str:
+        """"delete" or "move" for a Notion ledger and its locks: delete only a ledger that reads as one and holds no pending key."""
+        if base in self.ledger_action:
+            return self.ledger_action[base]
+        path = old / base
+        if not os.path.isfile(path) or os.path.islink(path):
+            action = "delete"          # locks with no ledger beside them hold nothing
+        else:
+            counts = ledger_counts(path)
+            if counts is None:
+                self.ledgers.append({"path": str(path), "unreadable": True, "action": "move"})
+                self.notes.append(f"{base} is not a readable ledger: it is moved, not deleted")
+                action = "move"
+            else:
+                action = "delete" if counts["pending"] == 0 else "move"
+                self.ledgers.append({"path": str(path), **counts, "action": action})
+                if action == "move":
+                    self.notes.append(f"{base} holds {counts['pending']} pending key(s) that guard against a duplicate page: it is moved, not deleted")
+        self.ledger_action[base] = action
+        return action
+
     def walk(self, kind: str, old: Path, new: Path, top: bool) -> None:
-        for name in sorted(os.listdir(old)):
+        for name in self.names(old):
             src, dst = old / name, new / name
-            is_file = os.path.isfile(src) and not os.path.islink(src)
-            if top and kind == "data" and is_file and is_notion_ledger_file(name):
-                self.deletes.append({"path": str(src), "why": "the old Notion test ledger (decision 13)"})
-                continue
+            if top and kind == "data" and is_notion_ledger_file(name):
+                base = next(l for l in NOTION_LEDGERS if name == l or name.startswith(l + "."))
+                if os.path.isfile(src) and not os.path.islink(src) and self.notion_ledger_action(old, base) == "delete":
+                    self.deletes.append({"path": str(src), "why": "the old Notion test ledger holds no pending key (decision 13)"})
+                    continue
             if top and kind == "cache" and cache_ledger_of(name):
                 target = self.cache_ledger_target(name)
                 if target is not None:
@@ -182,8 +253,6 @@ class Plan:
             if is_dir(src) and is_dir(dst):
                 self.walk(kind, src, dst, top=False)
                 self.remove_empty.append(str(src))
-            elif os.path.lexists(dst):
-                self.blocker(dst, "both folders hold this file", "compare the two copies and keep one, then run this again")
             else:
                 self.add_move(src, dst)
 
@@ -196,13 +265,16 @@ class Plan:
         return new_data / name
 
     def add_move(self, src: Path, dst: Path) -> None:
+        if os.path.lexists(dst):
+            self.blocker(dst, "both folders hold this file", "compare the two copies and keep one, then run this again")
+            return
         self.moves.append({"from": str(src), "to": str(dst)})
 
     # --- what blocks ----------------------------------------------------------------------------
 
     def check_schedulers(self) -> None:
         for kind, folder in scheduler_dirs():
-            for name in sorted(os.listdir(folder)):
+            for name in self.names(folder):
                 if not name.startswith(OLD_LABEL_PREFIX):
                     continue
                 path = folder / name
@@ -221,7 +293,7 @@ class Plan:
         jobs = self.old_of("data") / "scheduler"
         if not is_dir(jobs):
             return
-        for name in sorted(os.listdir(jobs)):
+        for name in self.names(jobs):
             record = jobs / name / "job.json"
             if not os.path.isfile(record):
                 continue
@@ -234,47 +306,65 @@ class Plan:
             if status in UNFINISHED:
                 self.blocker(record, "a job record in the old home is not finished", fix)
 
-    def check_locks(self) -> None:
+    def lock_blockers(self) -> list:
+        """A blocker for each lock a process holds now: the ones directly in an old folder and each job's run.lock."""
         candidates = []
         for kind in ("data", "cache"):
             old = self.old_of(kind)
             if is_dir(old):
-                candidates += [old / n for n in sorted(os.listdir(old)) if n.endswith(".lock")]
+                candidates += [old / n for n in self.names(old) if n.endswith(".lock")]
         jobs = self.old_of("data") / "scheduler"
         if is_dir(jobs):
-            candidates += [jobs / n / "run.lock" for n in sorted(os.listdir(jobs))]
+            candidates += [jobs / n / "run.lock" for n in self.names(jobs)]
+        found = []
         for path in candidates:
             if os.path.isfile(path) and not os.path.islink(path) and lock_held(path):
-                self.blocker(path, "a process holds this lock",
-                             "stop the service, the messaging bridge and any provider run, then run this again")
+                found.append({"path": str(path), "why": "a process holds this lock",
+                              "fix": "stop the service, the messaging bridge and any provider run, then run this again"})
+        return found
 
     def check_runtime_folders(self) -> None:
+        """Every project data folder under the old runtime/ must be named by a --project (some value of its runtime.json is that folder or
+        inside it), or the move would leave that project pointing at an empty folder."""
         runtime = self.old_of("data") / "runtime"
-        occupied = os.path.lexists(runtime) and (not is_dir(runtime) or bool(os.listdir(runtime)))
-        if occupied and not self.projects:
-            self.blocker(runtime, "the old folder holds project data folders",
-                         "pass --project <dir> for every project whose docs/workbench/runtime.json names a path there")
+        if not os.path.lexists(runtime):
+            return
+        fix = "pass --project <dir> for the project whose docs/workbench/runtime.json names it (there is no way to skip one)"
+        why = "the old folder holds a project data folder that no --project names"
+        if not is_dir(runtime):
+            self.blocker(runtime, why, fix)
+            return
+        base = os.path.normpath(str(runtime))
+        for name in self.names(runtime):
+            folder = os.path.join(base, name)
+            if not any(ref == base or ref == folder or ref.startswith(folder + os.sep) for ref in self.referenced):
+                self.blocker(folder, why, fix)
 
     def check_projects(self) -> None:
         olds = {kind: self.old_of(kind) for kind in ("data", "cache")}
         for project in self.projects:
             record = Path(project) / "docs" / "workbench" / "runtime.json"
             if not os.path.isfile(record):
+                self.blocker(project, "this project has no readable docs/workbench/runtime.json",
+                             "give the project folder that holds docs/workbench/runtime.json")
                 continue
             try:
                 data = json.loads(record.read_text(encoding="utf-8"))
             except (OSError, ValueError):
+                data = None
+            if not isinstance(data, dict):
                 self.blocker(record, "this project's runtime.json cannot be read", "fix or restore it, then run this again")
                 continue
-            if not isinstance(data, dict):
-                continue
-            for key, value in data.items():
-                if not isinstance(value, str) or not value:
-                    continue
-                resolved = os.path.normpath(os.path.expanduser(value))
+            for key, value in string_values(data):
+                expanded = os.path.expanduser(os.path.expandvars(value))
+                resolved = os.path.normpath(expanded if os.path.isabs(expanded) else os.path.join(str(project), expanded))
                 for kind, old in olds.items():
+                    new_base = os.path.normpath(str(self.new_of(kind)))
+                    if resolved == new_base or resolved.startswith(new_base + os.sep):   # already updated: it names the folder all the same
+                        self.referenced.append(os.path.normpath(str(old)) + resolved[len(new_base):])
                     base = os.path.normpath(str(old))
                     if resolved == base or resolved.startswith(base + os.sep):
+                        self.referenced.append(resolved)
                         new_path = str(self.new_of(kind)) + resolved[len(base):]
                         self.blocker(value, f"{key} of this project points into the old folder",
                                      f"stop the service, set {key} to {new_path}, run this again, then accept the "
@@ -285,9 +375,11 @@ class Plan:
     def report(self, mode: str) -> dict:
         return {
             "mode": mode,
-            "folders": [{"kind": kind, "from": str(old), "to": str(new), "exists": is_dir(old)} for kind, old, new in self.pairs],
+            "folders": [{"kind": kind, "from": str(old), "to": str(new), "exists": os.path.lexists(old)} for kind, old, new in self.pairs],
             "move": self.moves,
             "delete": self.deletes,
+            "ledgers": self.ledgers,
+            "notes": self.notes,
             "remove_empty": self.remove_empty,
             "blockers": self.blockers,
             "next": list(NEXT),
@@ -295,9 +387,12 @@ class Plan:
 
 
 def execute(plan: Plan, report: dict) -> int:
+    held = plan.lock_blockers()      # a lock may have been taken since the plan was made: look again right before the renames
+    if held:
+        report["blockers"].extend(held)
+        return 1
     done: list = []
     report["done"] = done
-    report["mode"] = "moved"
     try:
         for move in plan.moves:
             dst = Path(move["to"])
@@ -312,8 +407,10 @@ def execute(plan: Plan, report: dict) -> int:
                 os.rmdir(folder)
                 done.append({"step": "rmdir", "path": folder})
     except OSError as exc:
+        report["mode"] = "error"
         report["error"] = " ".join(str(exc).split())
         return 1
+    report["mode"] = "moved"
     return 0
 
 
@@ -333,6 +430,8 @@ def main(argv=None) -> int:
         code = 1
     elif args.yes:
         code = execute(plan, report)
+        if report["blockers"]:
+            plan.blockers = report["blockers"]
     print(json.dumps(report, indent=2))
     if "error" in report:
         log(f"error: {report['error']}; run this again to continue from what is left")
