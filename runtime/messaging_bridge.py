@@ -63,6 +63,9 @@ event of kind `skipped`; the listen session only counts them (`take_unread`). At
 the "N more waiting" line goes to (`hears_count`) one fixed sentence of its own, never the provider's reason, a uid, a Message-ID, an address or a
 subject, at most once an hour to a chat, and only to a sender who still hears the count when the line goes out (the policy is read again then); the count of what
 a chat has not been told lives in memory, so a restart forgets it (the provider's log line stays). A line that failed to send is tried again an hour later.
+A message the provider set aside for its size (the e-mail provider, over 1 MiB) is the same with an error event of kind `too-large`, counted by the session
+apart from `skipped` (`take_too_large`), with its own sentence (`TOO_LARGE_ONE`, `TOO_LARGE_MANY`), its own count and its own hour per chat (AT2b): a
+chat may be told one line of each kind in the same hour. Nothing is known of who sent such a message, so the line goes to the listed senders, never addressed to the writer as such: the writer gets the line only as a listed sender who hears the count.
 
 Files (ATT-1b). A file a listed sender sends is fetched only when THAT sender's profile permits `attachment-hold` (the group `add-sources`, or the grant
 `add-sources-direct`); runtime/messaging_attach.py does the work, from the update to the fetch, the hold, the card or the add, and from the card's answer to the
@@ -211,6 +214,8 @@ REPLY_TO_CARD = phrases.en("REPLY_TO_CARD")
 FWD_NOT_A_REQUEST = phrases.en("FWD_NOT_A_REQUEST")
 UNREAD_ONE = phrases.en("UNREAD_ONE")
 UNREAD_MANY = phrases.en("UNREAD_MANY")
+TOO_LARGE_ONE = phrases.en("TOO_LARGE_ONE")
+TOO_LARGE_MANY = phrases.en("TOO_LARGE_MANY")
 UNREAD_EVERY = 3600.0   # seconds between two such lines to one chat
 QUEUED = phrases.en("QUEUED")
 QUEUE_EXPIRED = phrases.en("QUEUE_EXPIRED")
@@ -343,6 +348,8 @@ class Bridge(shell_kit.Jobs):
         self.deferred_chats = set()           # chats with a card kept for later: an update from one asks for a notice at once
         self.unread_waiting = {}              # chat -> how many skipped messages it has not been told of (memory only)
         self.unread_told = {}                 # chat -> time.monotonic() of the last line about skipped messages
+        self.too_large_waiting = {}           # chat -> how many too-large messages it has not been told of (memory only)
+        self.too_large_told = {}              # chat -> time.monotonic() of the last line about too-large messages
         self.monotonic = time.monotonic       # the clock of the waiting lines (a test moves it)
         self.resent = {}                      # (project id, chat, decision) -> when its card was last sent again to that chat (NR-2: at most once in RESEND_EVERY seconds)
         self.last_sent = {}                   # chat -> the id of the last message of any kind sent to it (memory only; S2, limit L64): a word decides a card only while the card is it
@@ -864,7 +871,7 @@ class Bridge(shell_kit.Jobs):
         self.notify_unread()
 
     def hearers(self) -> set:
-        """The chats that may be told about a skipped message NOW: for every served project, the senders `hears_count` returns under the accepted
+        """The chats that may be told about a skipped or too-large message NOW: for every served project, the senders `hears_count` returns under the accepted
         settings read at this moment. A project whose settings cannot be read adds none."""
         heard = set()
         for project in self.projects:
@@ -878,32 +885,35 @@ class Bridge(shell_kit.Jobs):
         return heard
 
     def notify_unread(self) -> None:
-        """Tell the senders who hear the count that the provider gave up a message (`UNREAD_ONE`, `UNREAD_MANY`). The hearers are read first, and
-        only then is the count taken from the messenger (an error while reading them loses nothing). A skip adds its count to the chats that hear now;
+        """Tell the senders who hear the count that the provider gave up a message (`UNREAD_ONE`, `UNREAD_MANY`) or set one aside for its size
+        (`TOO_LARGE_ONE`, `TOO_LARGE_MANY`): two kinds, each with its own count, its own sentence and its own hour. The hearers are read first, and
+        only then is the count taken from the messenger (an error while reading them loses nothing). A count is added to the chats that hear now;
         a chat that no longer hears (removed from the list, narrowed to `actionable`, no longer permitted to read) loses what it was owed, so a line
-        held back for the hour is never sent to a sender the policy has since closed. A chat is told at most once in `UNREAD_EVERY`, the count carrying
+        held back for the hour is never sent to a sender the policy has since closed. A chat is told at most once in `UNREAD_EVERY` of a kind, the count carrying
         the rest; a deferred reply is tried again at the next tick, and a failed one (logged by `reply`) is tried again an hour later, never at every tick.
         Nothing of the provider's reason is used."""
         heard = self.hearers()
-        taker = getattr(self.messenger, "take_unread", None)      # as `session` in serve_loop: a messenger object that counts nothing has nothing unread
-        found = taker() if taker is not None else 0
-        if found > 0:
-            for chat in heard:
-                self.unread_waiting[chat] = self.unread_waiting.get(chat, 0) + found
-        for chat in [c for c in self.unread_waiting if c not in heard]:
-            del self.unread_waiting[chat]
-        now = time.monotonic()
-        for chat, count in list(self.unread_waiting.items()):
-            last = self.unread_told.get(chat)
-            if last is not None and now - last < UNREAD_EVERY:
-                continue
-            with self.sentences_for(chat):
-                sent = self.reply(chat, self.t("UNREAD_ONE", chat=chat) if count == 1 else self.t("UNREAD_MANY", chat=chat, n=count))
-            if sent is None:
-                continue
-            self.unread_told[chat] = now
-            if sent:
-                del self.unread_waiting[chat]
+        for taker_name, waiting, told, one, many in (("take_unread", self.unread_waiting, self.unread_told, "UNREAD_ONE", "UNREAD_MANY"),
+                                                     ("take_too_large", self.too_large_waiting, self.too_large_told, "TOO_LARGE_ONE", "TOO_LARGE_MANY")):
+            taker = getattr(self.messenger, taker_name, None)      # as `session` in serve_loop: a messenger object that counts nothing has nothing to tell
+            found = taker() if taker is not None else 0
+            if found > 0:
+                for chat in heard:
+                    waiting[chat] = waiting.get(chat, 0) + found
+            for chat in [c for c in waiting if c not in heard]:
+                del waiting[chat]
+            now = time.monotonic()
+            for chat, count in list(waiting.items()):
+                last = told.get(chat)
+                if last is not None and now - last < UNREAD_EVERY:
+                    continue
+                with self.sentences_for(chat):
+                    sent = self.reply(chat, self.t(one, chat=chat) if count == 1 else self.t(many, chat=chat, n=count))
+                if sent is None:
+                    continue
+                told[chat] = now
+                if sent:
+                    del waiting[chat]
 
     # --- updates in ------------------------------------------------------------------------------------------
 

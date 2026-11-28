@@ -1,0 +1,7 @@
+{
+  "package": "at2b",
+  "table": {
+    "TOO_LARGE_ONE": "A message sent to this channel was too large to read (over 1 MB with its attachments) and was set aside: nothing was done with it. If it was yours, send smaller files: about 700 KB in all at most.",
+    "TOO_LARGE_MANY": "{n} messages sent to this channel were too large to read (over 1 MB with their attachments) and were set aside: nothing was done with them. If one was yours, send smaller files: about 700 KB in all at most."
+  }
+}
