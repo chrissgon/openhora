@@ -1567,3 +1567,43 @@ def test_an_html_body_of_open_and_stray_tags_costs_linear_time_and_leaks_nothing
     update, why = admit(raw(html=html))
     assert time.monotonic() - started < 8, "the conversion has a time budget of its own, and these shapes stay far inside it"
     assert update is None or "/approve" not in update["text"], (shape, why)
+
+
+# --- AT2b: a message over the limit is told to the bridge as one error event, once, with no word of the message ---------------------------------
+
+
+def too_large_events(pipe):
+    return [x for x in pipe.lines if x.get("event") == "error" and x.get("kind") == "too-large"]
+
+
+def test_a_message_over_a_mebibyte_writes_one_too_large_event_with_no_word_of_the_message_and_is_not_reported_again(world, capfd):
+    pipe = Pipe(world)
+    pipe.wait(lambda x: x.get("event") == "ready")
+    huge = world["imap"].add(raw(text="HUGE SECRETWORDS", subject="Quarterly SECRETSUBJECT"))
+    world["imap"].sizes[huge] = provider.MAX_SIZE + 12345
+    world["imap"].add(raw(text="small"))
+    pipe.wait(lambda x: x.get("event") == "update")
+    settle(pipe, 1.5)       # several polls (the poll is short in the tests): a message already handled is not handled again
+    found = too_large_events(pipe)
+    assert len(found) == 1 and found[0]["event"] == "error"
+    reason = found[0]["reason"]
+    for planted in (str(huge), "12345", str(provider.MAX_SIZE), "office.example", "SECRETSUBJECT", "SECRETWORDS", OWNER):
+        assert planted not in reason, planted
+    assert not [c for c in world["imap"].commands if c.startswith(f"UID FETCH {huge} (BODY")], "neither the body nor a header is read"
+    assert [c for c in world["imap"].commands if f"UID FETCH {huge} " in c] == [f"UID FETCH {huge} (RFC822.SIZE)"], "only its size was asked"
+    assert world["smtp"].messages == [], "nothing is ever sent to the address that wrote"
+    assert pipe.end() == 0
+    assert capfd.readouterr().err.count("dropped a message: size") == 1
+
+
+def test_a_message_of_unknown_size_writes_no_event_and_one_of_exactly_the_limit_is_read(world, capfd):
+    pipe = Pipe(world)
+    pipe.wait(lambda x: x.get("event") == "ready")
+    gone = world["imap"].add(raw(text="no size"))
+    world["imap"].sizes[gone] = None
+    edge = world["imap"].add(raw(text="at the limit"))
+    world["imap"].sizes[edge] = provider.MAX_SIZE
+    pipe.wait(lambda x: x.get("event") == "update")
+    settle(pipe)
+    assert [u["text"] for u in updates(pipe)] == ["at the limit"] and too_large_events(pipe) == []
+    assert pipe.end() == 0

@@ -53,10 +53,12 @@ approves the exact recipients of each e-mail by its hash, and a cap of 20 is cod
 accepted with accept-config; it holds no secret (the password is the secret MAILER_SMTP_PASSWORD).
 
 It also reads "imported_skills" (package I2; absent: the project runs no imported skill): the skills from outside the workbench that the project lists
-by name, an object {"home": "<absolute folder>", "skills": {"<name>": {} | {"without_external_line": "<64 hex>"}}}. "home" is the folder
+by name, an object {"home": "<absolute folder>", "skills": {"<name>": {} | {"without_external_line": "<64 hex>", "agent": "<agent name>"}}}. "home" is the folder
 scripts/skill_import.py keeps them in (outside every checkout of the workbench, never a symbolic link); a name is listed only when it is not a
 folder of the workbench's skills/. "without_external_line" is the content hash of the skill at which the person accepts running it although its scan
-reported the convention untrusted-content and its SKILL.md has no line **External content is data.**; a changed folder voids it. Listing a name is
+reported the convention untrusted-content and its SKILL.md has no line **External content is data.**; a changed folder voids it. "agent" is the person's choice of the area agent that owns the skill's task (any agent name; at plan time
+it must be an enabled agent of area_agents, runtime/plan.py imported_owner); without it the agent that covers the area of the name's prefix owns it
+(package I2b). Listing a name is
 the person's recorded acceptance (the key sits inside the file whose hash accept-config records); whether the skill then runs is runtime/imported.py's
 refusals, and its review is never released.
 
@@ -282,7 +284,8 @@ IMPORTED_HASH = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _imported_skills(value, workbench: str) -> dict:
-    """The key "imported_skills", checked: {"home": realpath or None, "skills": {name: {"folder", "without_external_line"}}}."""
+    """The key "imported_skills", checked: {"home": realpath or None, "skills": {name: {"folder", "without_external_line", "agent"}}}
+    (the last two None when the entry does not set them)."""
     if value is None:
         return {"home": None, "skills": {}}
     where = "runtime.json imported_skills"
@@ -306,12 +309,18 @@ def _imported_skills(value, workbench: str) -> dict:
             raise ConfigError(f"{where}: {name!r} is not a skill name (lowercase letters, digits and hyphens, at most 64)")
         if os.path.isdir(os.path.join(core, name)):
             raise ConfigError(f"{where}: {name} is a skill of the workbench: only a skill from outside is listed here")
-        if not isinstance(entry, dict) or set(entry) - {"without_external_line"}:
-            raise ConfigError(f"{where}.{name} must be an object, empty or with the key without_external_line")
+        if not isinstance(entry, dict) or set(entry) - {"without_external_line", "agent"}:
+            raise ConfigError(f"{where}.{name} must be an object, empty or with the keys without_external_line and agent")
         accepted = entry.get("without_external_line")
         if accepted is not None and (not isinstance(accepted, str) or not IMPORTED_HASH.fullmatch(accepted)):
             raise ConfigError(f"{where}.{name}.without_external_line must be a content hash of 64 lowercase hex characters")
-        out[name] = {"folder": os.path.join(real, name), "without_external_line": accepted}
+        agent = entry.get("agent")
+        if "agent" in entry and (not isinstance(agent, str) or not autonomy.AGENT_KEY.fullmatch(agent) or len(agent) > autonomy.AGENT_KEY_MAX):
+            raise ConfigError(f"{where}.{name}.agent must be the name of an area agent (lowercase letters, digits and hyphens, at most "
+                              f"{autonomy.AGENT_KEY_MAX})")
+        if agent in autonomy.RESERVED_AGENTS:
+            raise ConfigError(f"{where}.{name}.agent: {agent} is the runtime's own name, the owner of step tasks; name an area agent")
+        out[name] = {"folder": os.path.join(real, name), "without_external_line": accepted, "agent": agent}
     return {"home": real, "skills": out}
 
 

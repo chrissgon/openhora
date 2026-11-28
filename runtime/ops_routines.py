@@ -537,7 +537,9 @@ def fire(ctx: dict, record: dict, slot: str, now) -> dict:
         ops_flows._check_sources(ctx, bound["flow"])
         agents = plan.agent_skills(cfg, core.ROOT)
         tasks = plan.from_flow(bound["flow"], core.ROOT, plan.pack_skills(cfg, core.ROOT))
-        tasks = [dict(t, agent=plan.agent_for(t, agents)) for t in tasks]
+        tasks = [dict(t) for t in tasks]
+        for t in tasks:
+            plan.assign(t, agents, imported=(cfg.get("imported_skills") or {}).get("skills", {}))
         word = effective_model(ctx, record)
         if word == AUTO:
             tasks, why = _models_for(ctx, record, tasks)

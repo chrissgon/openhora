@@ -322,7 +322,7 @@ def combined(flow=FLOW, agent_skills=None, pack=("biz-market-analysis",), root=N
     routed = [{"item": "the job", "reply": "", "route": {"kind": "route", "line": "Route: flow-x (flow, pending)",
                                                         "checked": {"ok": True, "flow": flow["flow"]}}}]
     return plan.combine(REQUEST, routed, {flow["flow"]: flow}, agent_skills if agent_skills is not None else {"business": ["biz-market-analysis"]},
-                        root or str(st.REPO), pack=list(pack), limits=LIMITS, past=[])
+                        root or str(st.REPO), pack=list(pack), limits=LIMITS, past=[], imported={})
 
 
 def test_a_plan_with_a_step_task_passes_combine_and_the_step_belongs_to_the_runtime(monkeypatch):

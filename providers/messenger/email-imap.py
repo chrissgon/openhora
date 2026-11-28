@@ -103,6 +103,7 @@ EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 CAPABILITIES = {"max_text": 8000, "buttons": False, "max_buttons": 0, "max_button_label": 0, "lists": False,
                 "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": False, "listen": True,
                 "actions_need_reply": True, "attachments": True, "max_attachment_bytes": 1048576}
+TOO_LARGE_REASON = "a message over the channel's limit was not read"      # the whole reason of the `too-large` event: no size, uid, address or subject
 MAX_SIZE = 1 << 20                 # a message over this is skipped without being fetched; it is also the most one file can be (the whole message is read)
 MAX_TEXT = 8000                    # characters of an update's text
 CUT_LINE = "[The message was cut at 8,000 characters.]"
@@ -1354,6 +1355,8 @@ class Listener:
         size = box.size(uid)
         if size is None or size > MAX_SIZE:
             log("dropped a message: " + ("size" if size else "unreadable"))
+            if size is not None:        # too large for the channel (AT2b): the person hears of it once; nothing of the message is known, so the reason names none of it
+                self.error_event("too-large", TOO_LARGE_REASON)
             return
         raw = box.fetch(uid)
         if raw is None:
