@@ -167,7 +167,7 @@ def test_a_class_the_resolver_does_not_know_is_reported_as_unknown_without_a_tra
 
 
 def test_the_secrets_report_names_the_store_service_that_answered(monkeypatch):
-    """The compatibility stage of the rename (T23): a secret stored under the old service is found and says so."""
+    """A secret stored under the service the workbench used before the rename is not found: only `openhora` is asked."""
     import types
     held = {("ai-workbench", "github"): "zz-not-a-real-value-41", ("openhora", "notion"): "zz-not-a-real-value-41"}
     fake = types.ModuleType("keyring")
@@ -176,6 +176,8 @@ def test_the_secrets_report_names_the_store_service_that_answered(monkeypatch):
     for name in ("VCS_GITHUB_TOKEN", "GITHUB_TOKEN", "NOTION_TOKEN"):
         monkeypatch.delenv(name, raising=False)
     rows = {row["name"]: row for row in doctor.secrets_report({})}
-    assert rows["VCS_GITHUB_TOKEN"]["found"] and rows["VCS_GITHUB_TOKEN"]["service"] == "ai-workbench (legacy)"
+    assert rows["VCS_GITHUB_TOKEN"]["found"] is False and rows["VCS_GITHUB_TOKEN"]["service"] is None
     assert rows["NOTION_TOKEN"]["found"] and rows["NOTION_TOKEN"]["service"] == "openhora"
+    assert "(legacy)" not in json.dumps(list(rows.values()))
     assert "zz-not-a-real-value-41" not in json.dumps(list(rows.values()))
+

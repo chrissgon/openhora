@@ -103,7 +103,7 @@ Command file:
 }
 ```
 
-A provider reads its credential through `providers/secrets/resolver.py`; the job runs a copy of the provider from its own folder, so the resolver goes into the snapshot too, and the copy finds it next to itself. A job scheduled without it fails at run time with a message that names the snapshot. A job scheduled before the workbench was renamed to openhora carries a resolver that reads the OS secret store under the service `ai-workbench` only: do not delete the old entries (`keyring delete ai-workbench <username>`) until those jobs have run or have been scheduled again, after which the snapshot holds the resolver that reads `openhora` first (`contracts/secrets.md`). Jobs scheduled before 2026-09-28 hold a copy of the provider from before the resolver and run as they are.
+A provider reads its credential through `providers/secrets/resolver.py`; the job runs a copy of the provider from its own folder, so the resolver goes into the snapshot too, and the copy finds it next to itself. A job scheduled without it fails at run time with a message that names the snapshot. A job scheduled before the workbench was renamed to openhora carries a resolver that reads the OS secret store under the service `ai-workbench` only, and the current resolver reads `openhora` only: such a job is cancelled and scheduled again (`scripts/rename_move.py` refuses to move the old folders while one is scheduled). Jobs scheduled before 2026-09-28 hold a copy of the provider from before the resolver and run as they are.
 
 Jobs live in `~/Library/Application Support/openhora/scheduler/<id>/`, agents in `~/Library/LaunchAgents/dev.openhora.scheduler.<id>.plist`.
 

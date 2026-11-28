@@ -10,9 +10,7 @@ Every script asks for a secret by name; the resolver looks in the same places, i
      or an export in the shell);
   2. the credentials directory, the one supported backend for a machine with no desktop session (see
      "The credentials directory" below);
-  3. the OS secret store (keyring): service "openhora", the username listed below; a name not found
-     there is looked up under the service the workbench used before it was renamed, "ai-workbench"
-     (LEGACY_SERVICE), for one stage (removed with the next change of the lab models, T23);
+  3. the OS secret store (keyring): service "openhora", the username listed below;
   4. a password manager (1Password first), only for a name the person mapped to a reference in the mapping file (see "The
      password manager" below).
 The first non-empty value wins. Values are never printed, logged or written, not even partially.
@@ -61,8 +59,7 @@ Usage:
   python3 providers/secrets/resolver.py [--registry <file>]... --check <NAME>
 
   --list      every registered secret: purpose, minimum permission, readers, whether it is found
-              and where (environment or store, and which store service answered: "openhora" or
-              "ai-workbench (legacy)", the name to move), and how to set it; never the value
+              and where (environment or store, and which store service answered: "openhora"), and how to set it; never the value
   --check     exit 0 when <NAME> is found, 3 when not, 4 when the store is locked or unavailable or the
               credentials directory or the mapping file is unsafe or the password manager is locked or unavailable (the answer is not
               "missing"), 2 when <NAME> is not
@@ -97,8 +94,6 @@ import sys
 from dataclasses import dataclass, field, replace
 
 SERVICE = "openhora"
-LEGACY_SERVICE = "ai-workbench"  # T23: what the store held before the rename; read as a fallback, never written
-LEGACY_LABEL = f"{LEGACY_SERVICE} (legacy)"
 EXIT_USAGE = 2
 EXIT_NOT_FOUND = 3
 EXIT_LOCKED = 4
@@ -519,24 +514,18 @@ def _ask(store, service: str, username: str) -> str:
 
 
 def _from_store(secret: Secret, store) -> tuple[str, str, str] | None:
-    """(value, "secret store", the service that answered): SERVICE first, then LEGACY_SERVICE. A service that raises does not stop
-    the other from answering; StoreLocked when nothing was found and one of them raised (the secret may be in the one that could not
-    be read)."""
+    """(value, "secret store", the service that answered), asking SERVICE only; StoreLocked when the store raised (the secret may be in
+    it and cannot be read now)."""
     if not secret.store_username or store is None:
         return None
-    failed = None
-    for service, label in ((SERVICE, SERVICE), (LEGACY_SERVICE, LEGACY_LABEL)):
-        try:
-            value = _ask(store, service, secret.store_username)
-        except StoreLocked as e:
-            failed = failed or e
-            continue
-        if value:
-            _FAILURE.update(kind=None, sentence="")
-            return value, "secret store", label
-    if failed is not None:
-        _FAILURE.update(kind=failed.kind, sentence=LOCKED_SENTENCE)
-        raise failed
+    try:
+        value = _ask(store, SERVICE, secret.store_username)
+    except StoreLocked as e:
+        _FAILURE.update(kind=e.kind, sentence=LOCKED_SENTENCE)
+        raise
+    if value:
+        _FAILURE.update(kind=None, sentence="")
+        return value, "secret store", SERVICE
     return None
 
 
@@ -907,7 +896,7 @@ def probe_manager(environ=None) -> dict:
 
 def resolve_detail(name: str, *, allow_store: bool = True, environ=None, store="default") -> tuple[str, str, str | None] | None:
     """Return (value, source, service) for a registered secret, or None. The service is None for the environment and the credentials
-    directory, and for the store "openhora" or "ai-workbench (legacy)". A locked store, an unsafe credentials directory and an absent
+    directory, and for the store "openhora". A locked store, an unsafe credentials directory and an absent
     secret are all None here: resolve_state tells them apart (and store_failure / store_locked_note say whether the last read of the
     store failed). Never prints the value."""
     got = resolve_state(name, allow_store=allow_store, environ=environ, store=store)

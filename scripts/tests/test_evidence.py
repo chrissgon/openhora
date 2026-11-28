@@ -93,12 +93,13 @@ def test_record_start_writes_a_use_line_of_the_closed_form_and_prints_its_id(tre
     assert start(tree) != use and len(lines(tree)) == 2  # one line per use, appended
 
 
-def test_a_copy_installed_before_the_rename_keeps_the_hash_of_its_source(tree):
-    """The legacy marker (T23) is left out of the hash as well: a copy made under the old name is still its source."""
+def test_a_copy_that_still_holds_the_old_marker_no_longer_gives_the_hash_of_its_source(tree):
+    """The marker of before the rename is not left out of the hash any more: the copy hashes differently, so its field
+    evidence does not match a version line until the skill is installed again."""
     (tree["installed"] / ".installed-by-openhora").unlink()
     (tree["installed"] / ".installed-by-ai-workbench").write_text("")
     start(tree)
-    assert lines(tree)[0]["content_sha256"] == es.content_hash(str(tree["skill"]))
+    assert lines(tree)[0]["content_sha256"] != es.content_hash(str(tree["skill"]))
 
 
 def test_a_copied_skill_folder_with_its_marker_gives_the_hash_of_its_source(tree):

@@ -78,7 +78,7 @@ def test_the_environment_wins_over_a_locked_store_and_the_store_is_not_asked():
     assert got.state == "found" and store.asked == []
 
 
-def test_a_new_service_that_raises_still_lets_the_old_one_answer_but_two_that_raise_are_locked():
+def test_a_store_that_raises_is_locked_and_the_old_service_is_never_asked():
     class PerService(FakeStore):
         def get_password(self, service, username):
             self.asked.append((service, username))
@@ -86,9 +86,18 @@ def test_a_new_service_that_raises_still_lets_the_old_one_answer_but_two_that_ra
                 raise KeyringLocked("locked")
             return self.values.get((service, username))
 
-    assert res.resolve_state(NAME, environ={}, store=PerService({("ai-workbench", "github"): SENTINEL})).state == "found"
-    # one service raised and the other holds nothing: the secret may be in the one that could not be read
-    assert res.resolve_state(NAME, environ={}, store=PerService()).state == "locked"
+    held_old = PerService({("ai-workbench", "github"): SENTINEL})
+    assert res.resolve_state(NAME, environ={}, store=held_old).state == "locked"
+    assert held_old.asked == [("openhora", "github")]
+    # the old service answers nothing even when the new one is readable and empty
+    class Readable(FakeStore):
+        def get_password(self, service, username):
+            self.asked.append((service, username))
+            return self.values.get((service, username))
+
+    only_old = Readable({("ai-workbench", "github"): SENTINEL})
+    assert res.resolve_state(NAME, environ={}, store=only_old).state == "missing"
+    assert only_old.asked == [("openhora", "github")]
 
 
 def test_report_marks_locked_and_asks_the_store_once():
