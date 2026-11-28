@@ -25,15 +25,13 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - T47: Remove the compatibility stages of the rename to openhora (formerly the rename items of T23) (#865, `backlog: tooling`)
 - T48: The runtime workarounds marked `T23:` (formerly workarounds 4 to 8 of T23) (#866, `backlog: tooling`)
 - T49: An opencode runner pair on the OpenCode 2 line is not planned (#867, `backlog: tooling`)
-- T26: Smaller findings of the reviews before the battery (#868, `backlog: tooling`)
 - T31: The installers carry what a skill needs of `providers/` and print the workbench root (#870, `backlog: tooling`)
-- T33: The inventory snapshot cites the head commit of the checkout that generated it (#871, `backlog: tooling`)
 - T34: The providers say "no token" when the credentials directory is unsafe (#872, `backlog: tooling`)
 - T41: A step kind reaches the script provider through a `ctx.services` seam (#873, `backlog: tooling`)
 - T42: Channel restrictions that stay fixed after POL-1 (phase 2) (#874, `backlog: tooling`)
 - T43: What policies per person leave out (POL-2) (#875, `backlog: tooling`)
-- T44: Recompute and compare `approval_digest` at every firing (#876, `backlog: tooling`)
 - T46: Versioned, immutable measured pairs: adding a model or updating the image never changes a pair already meas... (#877, `backlog: tooling`)
+- T50: Anchor the approved digest in the job's launch arguments (#1009, `backlog: tooling`)
 - SKILL-SEARCH: Before writing a new skill, look for what already exists (#980, `backlog: tooling`)
 - LAYOUT-CHECK: Every project keeps the same kind of file in the same place (#981, `backlog: tooling`)
 
@@ -51,7 +49,6 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - SETUP-GUIDE: A guided setup of a project from zero, in the interface, over a command-line tool (#976, `backlog: runtime`)
 - VOICE-MODE: Talk to openhora by voice, and let it see what the person shows (#978, `backlog: runtime`)
 - CARD-READ: Decision cards on a phone are easy to read, in the project's language (#987, `backlog: runtime`)
-- AC0: The dated entries of the agent company's decisions in the runtime contract (#989, `backlog: runtime`)
 - AC1: Agent profiles: a persona per agent, written by the person (#990, `backlog: runtime`)
 - AC2: A conversation per agent (#991, `backlog: runtime`)
 - AC3: The conversation lane: fast replies in the service, streamed (#992, `backlog: runtime`)
@@ -67,15 +64,12 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 
 ## Website
 
-- W3: The website has no `/llms.txt` (#886, `backlog: website`)
-- W4: The claims picker scrolls the page (#887, `backlog: website`)
 - W5: The website has no documentation section (#888, `backlog: website`)
 - W6: openhora.dev does not appear in search results (#889, `backlog: website`)
 - DESIGN-FILES: The website, and later the interface, documented in Figma (#979, `backlog: website`)
 
 ## E-mail
 
-- EM5: A time budget for the HTML-to-text step of the Gmail and Outlook readers (#890, `backlog: e-mail`)
 - EM6: A first-time recipient is flagged on the card of an e-mail (#891, `backlog: e-mail`)
 
 ## Files from messaging apps
@@ -115,7 +109,6 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 
 ## Answers from the sources
 
-- NR4: Confirmed writes in words (#912, `backlog: answers`)
 - NR6: A drafted body, contacts, the titles of the calendar index, FIND-1 (#913, `backlog: answers`)
 
 ## Accounts
