@@ -23,8 +23,9 @@ module builds those services, once, for the process that runs the task (runtime/
                    credential, opens no connection, sends nothing and has no way to: the one flag it adds to the provider's verb is that dry run
   account_mail     AccountMailReader (package W2): the project's `accounts` for an e-mail from the person's own account (`enabled`, `address`, `implementation`: the mailer
                    of the account), `reply_facts` (what the index of a snapshot recorded of the message a reply answers, through runtime/item_refs.py) and `dry_run(doc,
-                   attachments)` (the account's mailer, which reads no credential, opens no connection and sends nothing). It has no way to send: the one flag it adds to
-                   the mailer's `send` is that dry run
+                   attachments)` (the account's mailer, which reads no credential, opens no connection and sends nothing), and `first_time(doc)` (EM6: the recipients of an
+                   e-mail the person has neither received from, in the snapshots' indexes, nor sent to, in the effect files of the sends that landed; [] when that record is
+                   incomplete). It has no way to send: the one flag it adds to the mailer's `send` is that dry run
   publisher        PublisherReader: `provider`, `check` and `preview` for a platform (PUBLISH-EFFECT): the implementation of the class
                    publisher:<platform> the project resolves to, the provider's `--check`, and the post as the publishing skill's own script builds it
                    with the provider's dry run of it (what it would send, and what its ledger holds under the key). It reads no credential of its
@@ -85,6 +86,7 @@ import isolated  # noqa: E402
 import item_refs  # noqa: E402
 import media  # noqa: E402
 import files_document  # noqa: E402
+import mail_address  # noqa: E402
 import mail_refs  # noqa: E402
 import mailbox_document  # noqa: E402
 import ops_core as core  # noqa: E402
@@ -108,6 +110,8 @@ EXPORTER_TIMEOUT = 300
 CALENDAR_TIMEOUT = 120
 CALENDAR_READ_VERBS = ("event-get", "event-instances")      # the only verbs of a calendar writer a step kind can reach with a credential (a write verb is reached with --dry-run and none); `event-instances` (CB-7, limit L58) lists the instances of a series in a window of at most two days: id, version, times and status, no title and no attendee
 IMPLEMENTATION_ACCOUNT = {"google": "google", "outlook": "microsoft"}      # the implementation of a calendar source's origin (sources_mail.calendar_origin) -> the account
+SENT_READ_MAX = 500      # EM6: the newest sent e-mails whose effect files are read to know who the person has written to
+SEND_STEP_KIND = "send-email"      # the name of runtime/step_send_email.py's kind, which this module cannot import (a test holds them equal)
 SNAPSHOT_CLOCK = None      # the clock item_refs reads a snapshot's age against (None: the real one); a test replaces it
 MAILBOX_TIMEOUT = 300
 TASKS_TIMEOUT = 120
@@ -268,6 +272,58 @@ class AccountMailReader:
     def dry_run(self, doc: dict, attachments) -> dict:
         """The account's mailer's dry run of `doc`: what it would send, and nothing is sent, no credential is read and no connection is opened."""
         return mailer_dry_run(self._root, doc["provider"], doc, attachments)
+
+    def first_time(self, doc: dict) -> list:
+        """The recipients of an own-account e-mail the person has neither received from nor sent to (EM6), in the document's order; [] when the record is incomplete.
+        Received from: every sender and Reply-To of the newest snapshot of every registered mail source (the operations' own reading, `channel=None`). Sent to: the
+        recipients of the e-mails this runtime sent (the newest SENT_READ_MAX approved send-email decisions that landed, whose effect file still hashes to the
+        approved hash). A snapshot that cannot be read (stale, no index, changed outside the runtime) or no mail source makes the record incomplete, and an incomplete
+        record flags no one: a partial one would flag people the person does write to. Nothing is written, logged or kept."""
+        if not send_document.is_own(doc) or doc.get("reply"):
+            return []
+        known = set()
+        try:
+            mail = [row for row in sources.list_catalog(self._ctx, hashes=False) if row["type"] == "mail"]
+            if not mail:
+                return []
+            for row in mail:
+                for entry in item_refs.read_index(self._ctx, row["id"], channel=None, kinds=("mail",), clock=SNAPSHOT_CLOCK)["entries"]:
+                    for key in ("from_address", "reply_to_address"):
+                        try:
+                            if entry.get(key):
+                                known.add(mail_address.normalize_address(entry[key]))
+                        except mail_address.AddressError:
+                            continue
+        except (item_refs.ItemRefError, sources.SourcesError):
+            return []
+        known.update(self._sent_to())
+        return send_document.first_time(doc, known)
+
+    def _sent_to(self) -> set:
+        """The recipients of the newest e-mails the platform sent, from their effect files (checked against the hash the person approved)."""
+        store, conn, cfg = self._ctx["store"], self._ctx["conn"], self._cfg
+        landed = []
+        for row in store.pending_list(conn, "resolved"):
+            payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+            step, result = payload.get("step"), payload.get("result")
+            if row.get("kind") == "effect" and row.get("resolution") == "approved" and isinstance(step, dict) and step.get("kind") == SEND_STEP_KIND \
+                    and isinstance(result, dict) and result.get("sent") is True and row.get("payload_sha256"):
+                landed.append(row)
+        found = set()
+        for row in sorted(landed, key=lambda r: r["id"])[-SENT_READ_MAX:]:
+            folder = os.path.join(cfg["data_dir"], ops_step_effects.EFFECTS_DIR, str(row["task_id"]))
+            try:
+                cycles = sorted(int(name) for name in os.listdir(folder) if name.isdigit())
+            except OSError:
+                continue
+            for cycle in cycles:
+                try:
+                    sent = effects.read_document(os.path.join(folder, str(cycle), effects.EFFECT_FILE), row["payload_sha256"])
+                except (effects.EffectError, OSError, ValueError):
+                    continue
+                found.update(a for key in ("to", "cc", "bcc") for a in (sent.get(key) or []) if isinstance(a, str))
+                break
+        return found
 
 
 class PublisherReader:

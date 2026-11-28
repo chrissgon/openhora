@@ -151,7 +151,7 @@ def test_the_live_instruction_replaces_the_card_with_one_whose_text_ends_with_th
     assert isinstance(new, int) and new != old
     assert says(got["say"], "RV_DONE_MAIL"), got["say"]
     lines = card_lines(world, got)
-    assert_lines(lines[1:4], [("CARD_MAIL_FROM_ACCOUNT", {"address": "pat@example.com", "account": "google"}), ("CARD_MAIL_TO", {"addresses": ADDRESS}), ("CARD_MAIL_SUBJECT", {"subject": "Reunião amanhã às 16h"})])      # validate: allow english-only -- the stand-in model's answer
+    assert_lines(lines[1:5], [("CARD_MAIL_FROM_ACCOUNT", {"address": "pat@example.com", "account": "google"}), ("CARD_MAIL_TO", {"addresses": ADDRESS}), ("CARD_MAIL_FIRST_TIME", {"addresses": ADDRESS}), ("CARD_MAIL_SUBJECT", {"subject": "Reunião amanhã às 16h"})])      # validate: allow english-only -- the stand-in model's answer
     assert before[1:3] == lines[1:3], "the same From and the same To"
     assert text_of(lines)[-2:] == ["Atenciosamente,", "Renato Bragança"]      # validate: allow english-only -- the stand-in model's answer
     assert text_of(lines)[-1] == "Renato Bragança" and text_of(lines)[:-1] == text_of(before)      # validate: allow english-only -- the stand-in model's answer

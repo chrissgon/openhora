@@ -1,0 +1,8 @@
+{
+ "package": "em6",
+ "table": {
+  "CARD_MAIL_FIRST_TIME": "Primeira vez que você escreve para: {addresses}",
+  "NW_MAIL_ASK_TO_UNNAMED": "quem vai receber"
+ },
+ "same_as_english": []
+}
