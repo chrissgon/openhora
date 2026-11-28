@@ -486,6 +486,47 @@
     "MIT"
    ],
    "may_cross_face": false,
+   "name": "oh:keyword-slab",
+   "namespace": "oh",
+   "natural_duration": 1.0,
+   "params": {
+    "color": {
+     "type": "color"
+    },
+    "text": {
+     "max": 24,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "keyword",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "text": "Go"
+    },
+    {
+     "text": "Name every dollar today"
+    },
+    {
+     "text": "Promo\u00e7\u00e3o s\u00f3 hoje, j\u00e1!"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "one short keyword the speaker says should stand out, on a slab of colour"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "ffmpeg"
+   ],
+   "kind": "overlay",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": false,
    "name": "oh:list",
    "namespace": "oh",
    "natural_duration": 2.5,
@@ -914,7 +955,7 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "1d09bf6e539cccd32780238b8a72591d17f3ac3ba0f1fa349a3e64e09a1f6a2c",
+ "blocks_sha256": "521d20ef4ec035d4dbbdb3f6222e79757c8679eb18109b624e9dc220296841da",
  "engines": {
   "ffmpeg": {
    "presets": {

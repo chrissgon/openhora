@@ -99,7 +99,7 @@ def test_a_template_outside_the_folder_or_with_a_changed_hash_is_refused(tmp_pat
 
 
 def test_the_blocks_presets_and_declared_parameters_are_equal():
-    assert {os.path.relpath(p, str(K.BLOCKS)) for p in TEMPLATES} == {K.template_of(n) for n in DATA["presets"]} | {K.template_of("caption"), "oh/screenshot/renderat.html"}      # oh:screenshot draws the cutaway preset (V9b-2)
+    assert {os.path.relpath(p, str(K.BLOCKS)) for p in TEMPLATES} == {K.template_of(n) for n in DATA["presets"]} | {K.template_of("caption"), "oh/screenshot/renderat.html", "oh/keyword-slab/renderat.html"}      # oh:screenshot draws the cutaway preset (V9b-2); oh:keyword-slab draws the keyword preset as one more choice (P2c)
     for name, cfg in DATA["presets"].items():
         html = read(os.path.join(str(K.BLOCKS), K.template_of(name)))
         params = re.search(r'<meta name="pv-params" content="([^"]*)">', html).group(1)
@@ -110,6 +110,11 @@ def test_the_blocks_presets_and_declared_parameters_are_equal():
         assert set(re.findall(r"\bP\.([a-z0-9_]+)", html)) <= set(VOCAB["presets"][name]["params"]), name
         assert set(re.findall(r"\bL\.([a-z0-9_]+)", html)) <= set(cfg["looks"]), name
         assert "innerHTML" not in html
+    slab = read(os.path.join(str(K.BLOCKS), "oh", "keyword-slab", "renderat.html"))      # P2c: the slab declares a subset of the keyword preset's parameters
+    declared = set(filter(None, re.search(r'<meta name="pv-params" content="([^"]*)">', slab).group(1).split(",")))
+    assert declared == {"text", "color"} <= set(VOCAB["presets"]["keyword"]["params"])
+    assert re.search(r'<meta name="pv-preset" content="([^"]*)">', slab).group(1) == "keyword"
+    assert set(re.findall(r"\bP\.([a-z0-9_]+)", slab)) <= declared and "innerHTML" not in slab
 
 
 def test_the_dot_that_keeps_frames_rgba_and_the_zone_marks_are_in_the_driver_and_the_templates():
