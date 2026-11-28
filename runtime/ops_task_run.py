@@ -53,6 +53,7 @@ import imported
 import lab
 import manifest
 import path_rule
+import plan
 import skill_meta
 import sources
 import workcopy
@@ -80,6 +81,19 @@ MANDATORY_LINE = ("This delivery is a mandatory milestone: the next task accepts
 PREPARE_ERRORS = (skill_meta.SkillError, manifest.ManifestError, lab.LabError, core.OpsError, OSError, KeyError)
 
 
+def _owner_of(root: str):
+    """owner_of(path) for runtime/imported.py: the workbench skill that owns an artifact (a declared output, the artifact contract's
+    one owner, placeholders read as wildcards, in either direction), or None."""
+    facts = plan.skill_facts(root)
+
+    def owner(path: str):
+        for name, found in sorted(facts.items()):
+            if any(plan.same_artifact(path, theirs) or plan.same_artifact(theirs, path) for theirs in found["outputs"]):
+                return name
+        return None
+    return owner
+
+
 def _prepare_run(ctx: dict, task: dict, requested, keys) -> dict:
     """The slow part of a run's start, made before the claim lock: the skill's meta and manifest (a skill the runtime knows
     nothing of does not run), the routing (ops_models.route with the keys core._keys found, which the caller read from the
@@ -94,7 +108,7 @@ def _prepare_run(ctx: dict, task: dict, requested, keys) -> dict:
     if routing["key_missing"]:
         raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
     if listed:   # every condition that fails is said, before the manifest is read as the run's own (a manifest that is not whole is one of them)
-        refused = imported.refused(cfg, skill, routing["model"], folder)
+        refused = imported.refused(cfg, skill, routing["model"], folder, _owner_of(core.ROOT))
         if refused:
             raise core.OpsError(imported.PREFIX.format(name=skill) + "; ".join(refused), 1)
         known = manifest.load_dir(folder)

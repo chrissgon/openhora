@@ -22,8 +22,11 @@ document's checker is a script of the skill that runs on this machine.
   skill_dir(cfg, skill)       the folder a skill is read from: the listed folder, else skills/<skill> of the checkout
   names_in(project)           the listed names, read from runtime.json with json only (flow_files cannot import project_config)
   refusals(name, model, facts, entry)   pure: every failing condition as a sentence; [] when the skill may run
-  facts_of(cfg, name, folder)           the facts refusals reads, gathered (runtime/lab.py imported_facts and the manifest)
-  refused(cfg, name, model, folder)     refusals(name, model, facts_of(...), entry(cfg, name))
+  facts_of(cfg, name, folder, owner_of)   the facts refusals reads, gathered (runtime/lab.py imported_facts and the manifest)
+  refused(cfg, name, model, folder, owner_of)   refusals(name, model, facts_of(...), entry(cfg, name))
+
+`owner_of(path)` is given by the caller (runtime/ops_task_run.py: the workbench skill whose declared outputs are that artifact, by
+runtime/plan.py's reading of the contract, or None): this module cannot import plan, which imports flow_files, which imports this file.
 
 Standard library only. Runs on Python 3.9.
 """
@@ -36,6 +39,9 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
+import lab  # noqa: E402  (the same folder: the facts of a folder and the copy of it; the lab reads the import tool, never a file of the folder)
+import manifest  # noqa: E402
+import skill_meta  # noqa: E402
 
 PREFIX = "the imported skill {name} does not run: "
 SUPERVISED = ("an imported skill runs supervised: its cases are the person's own and unreviewed, so its output always waits "
@@ -119,13 +125,9 @@ def refusals(name: str, model: str, facts: dict, entry_: dict) -> list:
     return out
 
 
-def facts_of(cfg: dict, name: str, folder: str) -> dict:
+def facts_of(cfg: dict, name: str, folder: str, owner_of) -> dict:
     """The facts `refusals` reads: lab.imported_facts(folder), the manifest's problem and documents, the declared side effects and
-    the declared paths a skill of the workbench owns. Nothing of the folder is run."""
-    import lab
-    import manifest
-    import plan
-    import skill_meta
+    the declared paths a skill of the workbench owns (owner_of(path) names the owner or gives None). Nothing of the folder is run."""
     facts = lab.imported_facts(folder)
     facts["manifest_problem"], facts["documents"] = None, []
     try:
@@ -139,22 +141,20 @@ def facts_of(cfg: dict, name: str, folder: str) -> dict:
         facts["manifest_problem"] = facts["manifest_problem"] or str(e)
         return facts
     facts["side_effects"] = list(declared.get("side_effects") or [])
-    core = plan.skill_facts(_checkout(cfg))
     for path in list(declared.get("outputs") or []) + list(declared.get("updates") or []):
-        for owner, meta in sorted(core.items()):
-            if any(plan.same_artifact(path, theirs) or plan.same_artifact(theirs, path) for theirs in meta["outputs"]):
-                facts["owned"].append((path, owner))
-                break
+        owner = owner_of(path)
+        if owner:
+            facts["owned"].append((path, owner))
     return facts
 
 
-def refused(cfg: dict, name: str, model: str, folder: str) -> list:
+def refused(cfg: dict, name: str, model: str, folder: str, owner_of) -> list:
     """The refusals of one imported skill on one model: refusals(name, model, facts_of(...), entry(cfg, name)). An unlisted name
     is refused at once."""
     found = entry(cfg, name)
     if found is None:
         return [f"{name} is not listed in the key imported_skills of runtime.json"]
-    return refusals(name, model, facts_of(cfg, name, folder), found)
+    return refusals(name, model, facts_of(cfg, name, folder, owner_of), found)
 
 
 if __name__ == "__main__":
