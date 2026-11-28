@@ -899,6 +899,8 @@ PQ_NAME_FLOW_SEND_EMAIL: o fluxo de e-mail
 PQ_NAME_FLOW_SHORT_VIDEO: o fluxo de vídeo curto
 PQ_NAME_FLOW_WEBSITE: o fluxo do site
 PQ_NAME_MKT_PUBLISH: a etapa de publicação
+PROFILE_PROPOSED: Há uma mudança proposta no perfil de planner. Leia e aceite na página ou com este comando:
+PROFILE_TEMPLATE: # Ana Lima\n\n## Papel\nUma frase: o que este agente faz pelo projeto.\n\n## Como fala\nO tom, o tamanho das respostas, as palavras que prefere.\n\n## Nunca\nO que ele nunca deve fazer ou dizer.\n\n## Aparência\nComo o escritório o desenha.\n
 PROJECT_NONE: Esse projeto não existe. Projetos: Acme Launch, Beta Site.
 PROJECT_NOW: Suas mensagens vão para Ana Lima. Projetos: Acme Launch, Beta Site.
 PROJECT_SET: Suas mensagens agora vão para Ana Lima.

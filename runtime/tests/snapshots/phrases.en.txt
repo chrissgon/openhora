@@ -899,6 +899,8 @@ PQ_NAME_FLOW_SEND_EMAIL: the e-mail flow
 PQ_NAME_FLOW_SHORT_VIDEO: the short-video flow
 PQ_NAME_FLOW_WEBSITE: the website flow
 PQ_NAME_MKT_PUBLISH: the publishing step
+PROFILE_PROPOSED: A change to the profile of planner is proposed. Read it, then accept it on the page or with this command:
+PROFILE_TEMPLATE: # Ana Lima\n\n## Role\nOne sentence: what this agent does for the project.\n\n## How it speaks\nThe tone, the length of its replies, the words it prefers.\n\n## Never\nWhat it must never do or say.\n\n## Appearance\nHow the office draws it.\n
 PROJECT_NONE: No such project. Projects: Acme Launch, Beta Site.
 PROJECT_NOW: Your lines go to Ana Lima. Projects: Acme Launch, Beta Site.
 PROJECT_SET: Your lines now go to Ana Lima.
