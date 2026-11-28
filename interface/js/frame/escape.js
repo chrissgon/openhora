@@ -8,7 +8,7 @@
 //   4b. the Lobby's "New request" form is open (R-44): it goes back to the conversation, the draft stays (a menu over it closes first);
 //   5. a scene object is selected or hovered by the keyboard: the selection is cleared;
 //   6. else go up one level, always (M-1): the Floor and the Lobby to the Building, the Building to the City (`#/city`, with one project too),
-//      the Control room to the screen it was opened from (else the Building of the project); on the City, nothing.
+//      the Control room to the screen it was opened from (else the Building of the project), the Office to the Building; on the City, nothing.
 // Pure: no document and no window, so a test can run every step.
 
 import * as router from "../router.js";
@@ -35,6 +35,7 @@ export function escapeStep({ route, field = false, dialog = false, menu = false,
   if (route.screen === "floor" || route.screen === "lobby") return { step: "up", hash: router.buildingHash(route.project) };
   if (route.screen === "building") return { step: "up", hash: router.cityHash() };
   if (route.screen === "control") return { step: "up", hash: from || router.buildingHash(route.project) };
+  if (route.screen === "office") return { step: "up", hash: router.buildingHash(route.project) };
   return { step: "none" };
 }
 

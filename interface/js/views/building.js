@@ -105,12 +105,14 @@ export function createBuildingView(frame, env) {
   const docsCount = h("span", { class: "wb-muted" });
   const docsLink = h("a", { class: "wb-docs-link", href: "#" }, icon("file-text", 16), h("strong", { text: "Documents" }), " ", docsCount, h("span", { class: "wb-fl-chev" }, icon("chevron-right", 14)));
   const docsSection = h("section", { class: "wb-sec wb-docs", hidden: true }, docsLink);
+  const officeLink = h("a", { class: "wb-docs-link", href: "#" }, icon("building-2", 16), h("strong", { text: "Office" }), h("span", { class: "wb-fl-chev" }, icon("chevron-right", 14)));
+  const officeSection = h("section", { class: "wb-office-entry" }, officeLink);
   const listHeading = h("h3", { class: "wb-sec-head", text: "Floors" });
   const list = h("ul", { class: "wb-fl-list", "aria-label": "Floors, top to bottom" });
   const moreLine = h("p", { class: "wb-muted wb-sec-empty", hidden: true });
   const noneLine = h("p", { class: "wb-muted wb-sec-empty", text: "This project has no area agents in its configuration.", hidden: true });
   const floorSection = h("section", { id: "wb-scene-list", tabindex: "-1", class: "wb-sec", hidden: true }, listHeading, moreLine, list, noneLine);
-  const body = h("div", { class: "wb-panel-body" }, loadingLine, factsBox, requestsSection, docsSection, floorSection, stepsBrake.el, videos.el, attachments.el, instructions.el, routines.el);
+  const body = h("div", { class: "wb-panel-body" }, loadingLine, factsBox, requestsSection, docsSection, officeSection, floorSection, stepsBrake.el, videos.el, attachments.el, instructions.el, routines.el);
   const grip = createGrip();
   const panel = h("section", { class: "pui-card wb-panel wb-drawer wb-panel-building wb-bpanel", role: "region", "aria-labelledby": "wb-building-title", id: "wb-panel", tabindex: "-1" }, grip, head, body);
   const drawer = bindDrawer(panel, { screen: "building", grip });
@@ -488,6 +490,8 @@ export function createBuildingView(frame, env) {
     update(data) {
       last = data;
       projectId = data.route.project;
+      officeLink.setAttribute("href", router.officeHash(projectId));
+      officeSection.hidden = !projectId;
       if (reloaded !== null && data.reload !== reloaded) documentsAt = 0;
       reloaded = data.reload;
       const listed = (data.snapshot.projects || []).find((p) => p.id === projectId);
