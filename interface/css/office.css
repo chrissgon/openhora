@@ -1,0 +1,67 @@
+/* office.css: the Office screen (slice 1): one room drawn on a canvas that fills the scene host, the labels over it, and the panel that holds the number of
+   decisions waiting and the list of agents (the list is the picture's accessible twin). Tokens only: the canvas takes its colours from the same tokens through the
+   scene's probe, and the figures' own hsl strings are written by js/office/placeholder.js (placeholder art until the maintainer chooses).
+   Linked by index.html after control.css and before scene.css. */
+
+.wb-office-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; image-rendering: pixelated; cursor: pointer; }
+.wb-office-labels { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.wb-office-label {
+  position: absolute;
+  left: var(--wb-x, 0);
+  top: var(--wb-y, 0);
+  display: grid;
+  gap: 1px;
+  padding: 2px 6px;
+  border: 1px solid var(--pui-border);
+  border-radius: var(--pui-radius);
+  background-color: var(--wb-raised);
+  box-shadow: var(--wb-elev);
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  translate: -50% -100%;
+}
+.wb-office-label[hidden] { display: none; }
+
+/* the room is centred in what the panel leaves (the KPI tiles stand above it, at the top left): the canvas and the labels share one box, so a label's position is the canvas's */
+@media (min-width: 900px) {
+  .wb-office-canvas, .wb-office-labels { --wb-office-l: var(--wb-edge); --wb-office-r: calc(var(--wb-panel-narrow) + var(--wb-edge) * 2); inset: var(--wb-kpi-top) var(--wb-office-r) 0 var(--wb-office-l); }
+  .wb-office-canvas { width: calc(100% - var(--wb-office-l) - var(--wb-office-r)); height: calc(100% - var(--wb-kpi-top)); }
+}
+
+.wb-office-panel { display: block; overflow-y: auto; padding: 14px 16px; }
+.wb-office-panel > h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.wb-office-count { margin: 6px 0 10px; font-size: 28px; font-weight: 700; line-height: 1.15; }
+.wb-office-note { margin: 0 0 10px; font-size: 12px; }
+.wb-office-note[hidden] { display: none; }
+.wb-office-list { display: grid; gap: 2px; margin: 4px 0 0; padding: 0; list-style: none; }
+.wb-office-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name badge" "state badge";
+  align-items: center;
+  gap: 1px 8px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--pui-radius);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.12s, background-color 0.12s;
+}
+.wb-office-row:hover { background-color: var(--wb-ground); }
+.wb-office-row:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: -2px; }
+.wb-office-row > .pui-badge { grid-area: badge; }
+.wb-office-name { grid-area: name; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.wb-office-state { grid-area: state; color: var(--pui-text-muted); font-size: 12px; }
+.wb-office-entry { min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .wb-office-row { transition: none; } }
+
+/* the phone: the panel is a block at the foot of the main column over the scene, as tall as the list needs up to 45 percent of the page, with 16 px reading text and 44 px rows */
+@media (max-width: 899px) {
+  .wb-office-canvas, .wb-office-labels { inset: 0 0 46% 0; }
+  .wb-office-canvas { height: 54%; }
+  .wb-office-panel { position: static; flex: none; width: auto; max-height: 45%; margin: auto 8px 8px; padding: 12px; }
+  .wb-office-count { font-size: 24px; }
+  .wb-office-name, .wb-office-entry .wb-docs-link { font-size: 16px; }
+  .wb-office-row { min-height: 44px; }
+}

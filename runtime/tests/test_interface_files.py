@@ -249,7 +249,7 @@ def test_the_page_is_one_policy_safe_html_document_with_the_library_and_its_own_
     assert re.search(r'href="\./vendor/[a-z]+/[a-z]+\.css"', html) and 'src="./js/main.js"' in html
     assert not (INTERFACE / "package.json").exists() and not (INTERFACE / "node_modules").exists(), "no build step, no package"
     linked = [path.name for path in css_paths()]
-    assert linked == ["base.css", "frame.css", "token.css", "city.css", "building.css", "floor.css", "lobby.css", "control.css"], "the page's stylesheets are linked in the cascade's order: the shared ones, the frame, then one file per screen"
+    assert linked == ["base.css", "frame.css", "token.css", "city.css", "building.css", "floor.css", "lobby.css", "control.css", "office.css"], "the page's stylesheets are linked in the cascade's order: the shared ones, the frame, then one file per screen"
     assert sorted(path.name for path in (INTERFACE / "css").glob("*.css")) == sorted(linked), "every stylesheet of interface/css is linked, and nothing else is there"
     assert html.index('href="./css/' + linked[-1] + '"') < html.index('href="./scene.css"'), "the scene's own stylesheet loads after the page's"
     assert not (INTERFACE / "style.css").exists(), "the one stylesheet was split by screen: no file of that name is left behind"
@@ -550,7 +550,7 @@ def test_the_control_room_imports_the_client_only_as_a_namespace_and_escape_leav
 # the file is a call to nothing.
 KNOWN_GLOBALS = frozenset("""
 Array Boolean Date Error Event Map Number Object Promise RangeError RegExp Set String Symbol TypeError Uint8Array Float32Array Float64Array
-Uint16Array Uint32Array Int32Array ArrayBuffer WeakMap WeakSet BigInt Intl JSON Math Reflect Proxy
+Uint16Array Uint32Array Int32Array Int8Array ArrayBuffer WeakMap WeakSet BigInt Intl JSON Math Reflect Proxy
 AbortController CustomEvent Response KeyboardEvent MouseEvent MutationObserver ResizeObserver IntersectionObserver URL URLSearchParams Image TextEncoder TextDecoder
 fetch setTimeout clearTimeout setInterval clearInterval requestAnimationFrame cancelAnimationFrame requestIdleCallback queueMicrotask structuredClone
 parseInt parseFloat isNaN isFinite encodeURIComponent decodeURIComponent atob btoa getComputedStyle matchMedia

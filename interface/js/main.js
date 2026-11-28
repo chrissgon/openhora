@@ -1,5 +1,5 @@
 // The page: the token prompt, then the shared frame with the screen the hash names (#/city is the City, then the Building, the Floor, the
-// Lobby and the Control room; a screen with no view falls back to the placeholder; #/ is the entry: the City, or the Building of the one
+// Lobby, the Office and the Control room; a screen with no view falls back to the placeholder; #/ is the entry: the City, or the Building of the one
 // project of a service that holds one, by a rule that runs once, on the first read of the projects). The page is kept current by a watcher (watch.js): while the
 // document is visible it reads the service's change signal every second and, when a number moved (or after 30 quiet seconds, or after any
 // write the page sent), reloads everything it shows; it reads nothing while the document is hidden and reloads once when it becomes visible.
@@ -22,6 +22,7 @@ import { createCityView } from "./views/city.js";
 import { createControlView } from "./views/control.js";
 import { createFloorView } from "./views/floor.js";
 import { createLobbyView } from "./views/lobby.js";
+import { createOfficeView } from "./views/office.js";
 import { createPlaceholder } from "./views/placeholder.js";
 import { showTokenPrompt } from "./views/token-prompt.js";
 
@@ -232,6 +233,9 @@ function ensureView(route) {
   } else if (route.screen === "control") {
     const control = createControlView(frame);
     view = { key, screen: "control", control, dispose: () => control.dispose() };
+  } else if (route.screen === "office") {
+    const office = createOfficeView(frame);
+    view = { key, screen: "office", office, dispose: () => office.dispose() };
   } else if (route.screen === "lobby") {
     const lobby = createLobbyView(frame, { project: route.project, onChanged: () => reloaded() });
     view = { key, screen: "lobby", lobby, dispose: () => lobby.dispose() };
@@ -307,6 +311,7 @@ function render() {
   } else {
     if (view.screen === "building") view.building.update({ snapshot, route, now, reload: reloads });
     else if (view.screen === "floor") view.floor.update({ snapshot, route, now, reload: reloads });
+    else if (view.screen === "office") view.office.update({ snapshot, route, now, reload: reloads });
     else view.placeholder.update(snapshot, route.project, route.agent ? `Floor of ${route.agent}` : "");
     if (!known) frame.notice({ kind: "error", text: "The service has no such project." });
   }

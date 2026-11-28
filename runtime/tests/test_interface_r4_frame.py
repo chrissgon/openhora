@@ -538,7 +538,7 @@ def test_no_phone_rule_of_the_stylesheet_is_beaten_by_a_later_rule_of_the_same_s
 
 # --- no colour literal in a module of the page but the brand's own drawings --------------------------------------------------------------------
 
-PALETTE_MODULES = {"token-owl.js", "owl.js"}      # the owl's fixed palette is the brand's (R-15, R-41): the prompt's owl, and the scene's (R4-B1)
+PALETTE_MODULES = {"token-owl.js", "owl.js", "placeholder.js"}      # the owl's fixed palette is the brand's (R-15, R-41): the prompt's owl, and the scene's (R4-B1); the office's placeholder figure (office1, decision 10c: art chosen later)
 
 
 def test_no_module_of_the_page_names_a_colour_but_the_owls_palette_modules():
