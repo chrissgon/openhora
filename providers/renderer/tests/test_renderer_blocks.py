@@ -377,13 +377,14 @@ def hf_folder(tmp_path, name="hf", **over):
     return H.blocks_folder(tmp_path, H.entry(files, "b" * 64, "c" * 64, **over), name)
 
 
-def test_the_committed_allowlist_is_still_empty_and_the_ffmpeg_engine_runs_the_renderat_and_the_hf_runtimes():
+def test_the_committed_allowlist_holds_the_p2r_components_and_the_ffmpeg_engine_runs_the_renderat_and_the_hf_runtimes():
     allow = json.load(open(os.path.join(BLOCKS, "hf", "allowlist.json"), encoding="utf-8"))
-    assert allow["blocks"] == [] and allow["registry_commit"] is None
+    assert [b["name"] for b in allow["blocks"]] == ["hf:char-slam-explode", "hf:text-shimmer"] and allow["registry_commit"] == "b4cc674f7f312e77ded32e0b53006cc0bad6723b"      # P2r
     assert json.load(open(os.path.join(BLOCKS, "engines", "ffmpeg.json"), encoding="utf-8"))["runtimes"] == ["renderat", "hf", "gsap"]
     assert _blocks.RUNTIMES == ("renderat", "gsap", "hf")
     cat = _blocks.load_catalogue(BLOCKS)
-    assert not [b for b in cat["blocks"].values() if "hf" in b["implementations"]]
+    assert sorted(b["name"] for b in cat["blocks"].values() if "hf" in b["implementations"]) == ["hf:char-slam-explode", "hf:text-shimmer"]
+    assert cat["blocks"]["hf:char-slam-explode"]["params"]["text"]["max"] == 12      # the one short word of the explosion is a bound in code
 
 
 def test_a_valid_entry_of_the_second_contract_loads_runs_on_the_ffmpeg_engine_only_and_is_drawn_by_no_pinned_page(tmp_path):

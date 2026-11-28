@@ -1,0 +1,37 @@
+{
+ "name": "hf:char-slam-explode",
+ "preset": "keyword",
+ "use_when": "one short word of impact only, for example Chega!: its letters scatter and slam back; never a phrase",
+ "params": {
+  "text": {
+   "type": "text",
+   "max": 12,
+   "required": true
+  }
+ },
+ "samples": [
+  {
+   "text": "Impacto"
+  },
+  {
+   "text": "Chega!"
+  }
+ ],
+ "natural_duration": 3.5,
+ "bind": {
+  "text": "var:text"
+ },
+ "fixed": {
+  "accent": "green",
+  "spread": "tight"
+ },
+ "theme_vars": {
+  "--fg": "text",
+  "--font-display": "font:display",
+  "--brand": "accent"
+ },
+ "edits": [
+  "E1"
+ ],
+ "font_map": {}
+}

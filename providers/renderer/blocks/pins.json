@@ -1,13 +1,15 @@
 {
  "files": {
   "engines/ffmpeg.json": "60cc4e2b14de3a6522bf57ed2c385b19035da3b6bf224411fe5c8e3ec001cea1",
-  "hf/allowlist.json": "56acdd6ec44a46343c10108b58617ffeff9508f929d8956b08c974688180cddb",
+  "hf/allowlist.json": "0a1366cfbf503beb2b210a20844173005a0c7379ff7b1a477438f5e20eb1819f",
   "hf/caption-highlight/block.json": "53e8d5e481e455f9aef4bc1cac9f8e821079ec5b22f4ade455a960abf3ff85dd",
   "hf/caption-highlight/gsap.html": "f9116ba04e1be3b4bbae7ea2673db2a59021767e4b039886c6a419f40d0e7204",
   "hf/caption-pill-karaoke/block.json": "bdee708370d477e63b26ad249a7115214451f65e59d1c6e03e777d4fd01d138b",
   "hf/caption-pill-karaoke/gsap.html": "4d883f8fdf193a5e1e30f9dc7c1419acbf25e212e29e217c9e6c1e0fd5c8ba50",
   "hf/count-up/block.json": "69c7b4d48fc69132833bb3100a12dfff9e537f9376c01532c0ef7381a093cf9b",
   "hf/count-up/gsap.html": "6996010e2cfea9b62dacd32cf3f4ac090f8cc7f52c273db77584b8a60c666029",
+  "hf/lt-mask-reveal/block.json": "79eaaf6851b9f02e2c8afd528724e3fe3d35593c93828e1a5c58222c78bbe257",
+  "hf/lt-mask-reveal/gsap.html": "9e0e0936e8a6a8d30c459bd175354a2df0070f350dd0da25f08166acc4d24378",
   "hf/spring-pop/block.json": "3731aa383b87713ddf304001cf9fe73d379f12b25c52a4bb05944c54f773fecf",
   "hf/spring-pop/gsap.html": "94c86ab6fb81c942fe624879dbd84863a556d2ea09f44be2659b64bfda52ad16",
   "hf/testimonial-card/block.json": "89507261a0cbf710f7569fa8a47719ca5510153dccf01980969a5d667b91c741",

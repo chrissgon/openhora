@@ -66,6 +66,42 @@
     "Apache-2.0"
    ],
    "may_cross_face": false,
+   "name": "hf:char-slam-explode",
+   "namespace": "hf",
+   "natural_duration": 3.5,
+   "params": {
+    "text": {
+     "max": 12,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "keyword",
+   "runtimes": [
+    "hf"
+   ],
+   "samples": [
+    {
+     "text": "Impacto"
+    },
+    {
+     "text": "Chega!"
+    }
+   ],
+   "source": "hyperframes-registry",
+   "tier": "A",
+   "use_when": "one short word of impact only, for example Chega!: its letters scatter and slam back; never a phrase"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "ffmpeg"
+   ],
+   "kind": "overlay",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
    "name": "hf:count-up",
    "namespace": "hf",
    "natural_duration": 2.2,
@@ -106,6 +142,54 @@
    "source": "hyperframes-registry",
    "tier": "B",
    "use_when": "the line turns on one figure that should count up to its value, with a label under it"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "ffmpeg"
+   ],
+   "kind": "overlay",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:lt-mask-reveal",
+   "namespace": "hf",
+   "natural_duration": 3.0,
+   "params": {
+    "author": {
+     "max": 40,
+     "type": "text"
+    },
+    "color": {
+     "type": "color"
+    },
+    "text": {
+     "max": 120,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "quote",
+   "runtimes": [
+    "gsap"
+   ],
+   "samples": [
+    {
+     "text": "Ana"
+    },
+    {
+     "author": "Educadora financeira",
+     "text": "Dra. Helena Albuquerque"
+    },
+    {
+     "author": "Consultora de or\u00e7amento dom\u00e9stico",
+     "text": "M\u00f4nica Fra\u00e7on"
+    }
+   ],
+   "source": "hyperframes-registry",
+   "tier": "B",
+   "use_when": "a lower third for a person: a name (up to 28 characters) wiped in by a bar, a readable role line under it"
   },
   {
    "band": "card",
@@ -201,6 +285,42 @@
    "source": "hyperframes-registry",
    "tier": "B",
    "use_when": "the speaker repeats a sentence someone said, in a card that names the author"
+  },
+  {
+   "band": "card",
+   "engines": [
+    "ffmpeg"
+   ],
+   "kind": "overlay",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:text-shimmer",
+   "namespace": "hf",
+   "natural_duration": 3.0,
+   "params": {
+    "text": {
+     "max": 24,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "keyword",
+   "runtimes": [
+    "hf"
+   ],
+   "samples": [
+    {
+     "text": "Sem esfor\u00e7o"
+    },
+    {
+     "text": "Seu dinheiro, em ordem"
+    }
+   ],
+   "source": "hyperframes-registry",
+   "tier": "A",
+   "use_when": "a calm, short headline that gets one clean light sweep through its letters"
   },
   {
    "band": "card",
@@ -835,7 +955,7 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "99afdcc7f276e289666c6ee46fe3ec4554ff1cc10899cb544c29051fae7c50e9",
+ "blocks_sha256": "521d20ef4ec035d4dbbdb3f6222e79757c8679eb18109b624e9dc220296841da",
  "engines": {
   "ffmpeg": {
    "presets": {

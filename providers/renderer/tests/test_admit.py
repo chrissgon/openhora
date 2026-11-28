@@ -98,7 +98,10 @@ def world(tmp, html=None, name=H.NAME, entry_over=None):
     (runtime / "NOTICE.md").write_text("# Notice\n\nbase text\n")
     blocks = tmp / "blocks"
     shutil.copytree(K.BLOCKS, blocks)
-    entry = {"name": name, "preset": "keyword", "use_when": "a fictional pop for one short phrase, used by the tests only",
+    (blocks / "hf" / "allowlist.json").write_text(json.dumps({"schema_version": 1, "note": "a test world: no admitted block yet", "registry_commit": None, "blocks": []}, indent=1) + "\n")
+    _blocks.write_pins(str(blocks))               # the committed allowlist holds admitted blocks since P2r: the world starts from an empty one, pinned again
+    _blocks.write_catalogue(str(blocks))
+    entry = {"name": name, "name": name, "preset": "keyword", "use_when": "a fictional pop for one short phrase, used by the tests only",
              "params": {"text": {"type": "text", "max": 24, "required": True}, "color": {"type": "color"}},
              "samples": [{"text": "Go"}, {"text": "Name every dollar"}], "natural_duration": 2.0, "bind": {"text": "var:text", "color": "css:--brand"}, "fixed": {},
              "theme_vars": dict(H.THEME_VARS), "edits": ["E1", "E2:Inter"], "font_map": {"Inter": "oh-text"}}

@@ -31,6 +31,7 @@ PORTS = {
     "count-up": ("number", "count-up", "6b34b9873a243fedb060d23f4eb5cef1b61a5b169ec1ae064030b70b48beea66"),
     "testimonial-card": ("quote", "testimonial-card", "7edb7eaa573f8331a3f5c76c689d47989ccccbfb6027b7ac072de22df52f0510"),
     "spring-pop": ("keyword", "spring-pop", "542423b2d98bb48400280b621e7421b16ae026c2abc1ee8f64d5cca18fd8f51d"),
+    "lt-mask-reveal": ("quote", "lt-mask-reveal", "7f348ec3124e211f7ec8e7241f21220134504ab713143e3f9dc10e016892e2e3"),
 }
 NOT_ADMITTED: set = set()      # every port has a determinism record since PF-a4e (the repaint of `seek_admitted`); before it count-up, testimonial-card (PF-a4d) and spring-pop (PF-a4b) failed the reverse run
 DEFAULTS = {"aside": "oh:aside", "caption": "hf:caption-highlight", "cutaway": "oh:cutaway", "keyword": "hf:spring-pop", "list": "oh:list", "mark": "oh:mark", "nametag": "oh:nametag", "number": "hf:count-up",
@@ -54,7 +55,7 @@ def catalogue():
 
 # ---------------------------------------------------------------- the files
 
-def test_the_folder_holds_exactly_the_five_ports_and_in_each_only_two_files():
+def test_the_folder_holds_exactly_the_ports_and_in_each_only_two_files():
     assert sorted(p.name for p in HF_DIR.iterdir() if p.is_dir()) == sorted(PORTS)
     assert (HF_DIR / "allowlist.json").is_file()
     for short in PORTS:
@@ -169,12 +170,12 @@ def test_an_hf_port_is_refused_on_the_ffmpeg_engine_naming_the_blocks_it_does_dr
     preset = PORTS[short][0]
     if short not in NOT_ADMITTED:           # admitted by its determinism record: selectable by name on the ffmpeg engine, never the engine's default of its preset
         assert _blocks.resolve(catalogue, "ffmpeg", preset, "hf:" + short, "beats.b1")["name"] == "hf:" + short
-        default = "hf:" + short if short != "caption-pill-karaoke" else "hf:caption-highlight"      # M2 (PF-a4f): four ports are the ffmpeg engine's defaults; the karaoke caption is selectable by name only
+        default = DEFAULTS[preset] if short in ("caption-pill-karaoke", "lt-mask-reveal") else "hf:" + short      # M2 (PF-a4f): four ports are the ffmpeg engine's defaults; the karaoke caption is selectable by name only
         assert catalogue["engines"]["ffmpeg"]["presets"][preset] == default
         return
     with pytest.raises(Refusal) as caught:
         _blocks.resolve(catalogue, "ffmpeg", preset, "hf:" + short, "beats.b1")
-    assert caught.value.code == "block_not_on_engine" and caught.value.field == "oh:" + preset
+    assert caught.value.code == "block_not_on_engine" and caught.value.field == DEFAULTS[preset]
     assert catalogue["engines"]["ffmpeg"]["presets"] == {"aside": "oh:aside", "caption": "hf:caption-highlight", "cutaway": "oh:cutaway", "keyword": "hf:spring-pop", "list": "oh:list",
                                                          "mark": "oh:mark", "nametag": "oh:nametag", "number": "hf:count-up", "pip": "oh:pip", "quote": "hf:testimonial-card",
                                                          "split": "oh:split", "sticker": "oh:sticker"}

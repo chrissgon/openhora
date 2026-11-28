@@ -1,0 +1,37 @@
+{
+ "name": "hf:text-shimmer",
+ "preset": "keyword",
+ "use_when": "a calm, short headline that gets one clean light sweep through its letters",
+ "params": {
+  "text": {
+   "type": "text",
+   "max": 24,
+   "required": true
+  }
+ },
+ "samples": [
+  {
+   "text": "Sem esfor\u00e7o"
+  },
+  {
+   "text": "Seu dinheiro, em ordem"
+  }
+ ],
+ "natural_duration": 3.0,
+ "bind": {
+  "text": "var:text"
+ },
+ "fixed": {
+  "accent": "green",
+  "sweep_at": 1.2
+ },
+ "theme_vars": {
+  "--fg": "text",
+  "--font-display": "font:display",
+  "--brand": "accent"
+ },
+ "edits": [
+  "E1"
+ ],
+ "font_map": {}
+}
