@@ -21,7 +21,8 @@ emits an update only when ALL of these hold (each one is code):
 A message that fails is dropped with one log line by class and no reply (no backscatter); the log holds no address, subject or text.
 
 What an update is: the text/plain part, else the text of the HTML part (made by a child process with a 3 s budget; the quoted blocks dropped,
-hidden text and invisible characters removed; HTML is never rendered, a link never followed, an attachment never opened). Quoted history is cut at the first `>` line,
+hidden text and invisible characters removed; HTML is never rendered, a link never followed, an attachment is never opened on this machine outside the
+budgeted child, and its bytes leave the provider only through the fetch request). Quoted history is cut at the first `>` line,
 a `-- ` signature line, or an attribution or forward marker of a closed list (English, Portuguese, Spanish), so only the sender's own words
 reach the bridge. When the first line is a command (`/approve 12`), that line alone is the text, so a signature a phone adds cannot turn it
 into a typed hash. At most 8,000 characters. `reply_to` is the In-Reply-To of the message, only when it is a Message-ID this provider sent to
@@ -40,6 +41,14 @@ message and the bridge still needs the reply to the card for any act.
 The mailbox is never changed: IMAP EXAMINE (read only), UID SEARCH, UID FETCH with BODY.PEEK and RFC822.SIZE, NOOP, LOGOUT; no flag, move,
 copy or delete, ever. TLS is code: IMAP 993 from the first byte, SMTP 465 or 587 with a required STARTTLS, the certificate verified, no
 password before TLS (providers/_email.py); plain only to a loopback host with the test variable set.
+
+Files (AT2). A part of an admitted message is a file when it is not multipart, not under an attached message (message/rfc822), not the part taken as the
+text, and has the disposition attachment, or a name and no Content-ID; at most 10 are listed, from at most 200 parts, each as {ref, name, size, type}, with
+the ref <uidvalidity>:<uid>:<file number>. The whole message is read under the channel's limit (1 MiB), which is therefore also the largest file, and is what
+the capabilities declare as max_attachment_bytes. The listen request `fetch` ({id, op, ref, out, max_bytes}) checks the ref against a closed pattern before
+any connection, reads the message again on a connection of its own, admits it again with every check above (a message that no longer passes gives no file),
+and writes the one file, read by the budgeted child, only as <out>/content (new, never through a link, mode 0600). A forward by subject and an attached
+message bring no file.
 
 Cards. One text/plain message, no HTML, no attachment (the capabilities say `documents` false: the whole text of a decision travels in the
 body, and a card that does not fit is cut; a decision whose approval needs its whole text then cannot be approved here). `Auto-Submitted: auto-generated`, a random Message-ID that is
@@ -62,6 +71,7 @@ in place of the standard library's email package by every script run from it (ht
 import argparse
 import collections
 import fcntl
+import hashlib
 import imaplib
 import importlib.util
 import json
@@ -76,6 +86,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from datetime import datetime, timezone
 from email import message_from_bytes, policy
 from email.parser import BytesParser
@@ -91,8 +102,8 @@ STATE_ENV = "OPENHORA_STATE_DIR"
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 CAPABILITIES = {"max_text": 8000, "buttons": False, "max_buttons": 0, "max_button_label": 0, "lists": False,
                 "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": False, "listen": True,
-                "actions_need_reply": True}
-MAX_SIZE = 1 << 20                 # a message over this is skipped without being fetched
+                "actions_need_reply": True, "attachments": True, "max_attachment_bytes": 1048576}
+MAX_SIZE = 1 << 20                 # a message over this is skipped without being fetched; it is also the most one file can be (the whole message is read)
 MAX_TEXT = 8000                    # characters of an update's text
 CUT_LINE = "[The message was cut at 8,000 characters.]"
 PER_SENDER = 30                    # updates for one sender in PER_WINDOW
@@ -101,7 +112,12 @@ SENT_KEEP = 1000                   # Message-IDs remembered for each chat
 POLL_DEFAULT, POLL_MIN = 30, 15
 SUBJECT_MAX = 78
 HTML_MAX = 200_000                 # characters of an HTML part that are tried at all
-CHILD_SLOW, CHILD_UNREADABLE, CHILD_FORWARDED = 3, 4, 5  # exit codes of the child that makes the text of a message (5: the text is there, and the message holds a forward)
+CHILD_SLOW, CHILD_UNREADABLE, CHILD_NO_PART = 3, 4, 6  # exit codes of the child (6: the message has no file with that number); what the child writes is one JSON line, `forwarded` in it
+FILES_MAX = 10                     # files of a message that are listed (the bridge's ATTACHMENTS_MAX)
+PARTS_MAX = 200                    # MIME parts visited at most when the files are looked for
+FILE_NAME_MAX = 1024               # characters of a file name kept
+FILE_TYPE_MAX = 127                # characters of a part's media type kept (a longer one is null: a part's headers are not bounded by HEADER_VALUE_MAX)
+REF = re.compile(r"([1-9][0-9]{0,9}):([1-9][0-9]{0,9}):([1-9][0-9]?)")      # <uidvalidity>:<uid>:<file number>, full match
 TEXT_SECONDS = 3.0                 # the budget of the child that makes the text of a message
 TEXT_PART_MAX = 200_000            # characters of a text part that are read
 ADDRESS_HEADER_MAX = 2000          # a From, Sender, To or Cc longer than this is dropped without being parsed
@@ -120,7 +136,7 @@ AUTHSERV = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?")
 CONTROLS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")      # every control character but a tab and a line end
 EXTRA_INVISIBLE = re.compile("[\u180b-\u180d\u2800\ufe00-\ufe0f\U000e0000-\U000e007f\U000e0100-\U000e01ef]")      # tag characters, variation selectors, braille blank, Mongolian selectors
 AUTO_PRECEDENCE = ("bulk", "list", "junk", "auto_reply")
-COMMANDS_ALONE = ("/approve", "/reject", "/release", "/pending", "/project", "/help", "/start")      # a command that is its first line alone; /answer takes the rest
+COMMANDS_ALONE = ("/approve", "/reject", "/release", "/add", "/discard", "/pending", "/project", "/help", "/start")      # a command that is its first line alone; /answer takes the rest
 # A forwarded message is never a request (FWD): the subject prefix alone counts, and so does a forward marker line of the body or an attached message.
 # The reply prefixes that may come first: Re, Aw (German), Res (Portuguese), Sv (Scandinavian), R and Rif (Italian).
 # The prefixes are the forward words of the clients in English (Fwd, Fw), Portuguese (Enc), Spanish (Rv), French (Tr), German (Wg), Italian (I) and
@@ -139,6 +155,8 @@ ALLOWED_IMAP = ("CAPABILITY", "LOGIN", "EXAMINE", "UID", "NOOP", "LOGOUT")      
 
 
 class ProviderError(Exception):
+    """`kind` is the answer's kind (usage, not-configured, failed, or gone: the mailbox no longer holds the message a ref names)."""
+
     def __init__(self, message: str, code: int = EXIT_SERVICE, kind: str = "failed"):
         super().__init__(message)
         self.code = code
@@ -469,8 +487,8 @@ def text_in_child(raw: bytes) -> str:
 
 
 def text_and_forward_in_child(raw: bytes):
-    """(text, forwarded): the text of a message, and whether its body holds a forward marker line or an attached message (message/rfc822), both found by
-    the child. The text is made by a short-lived child process with a time and CPU budget: the standard library takes time that grows
+    """(text, forwarded, files): the text of a message, whether its body holds a forward marker line or an attached message (message/rfc822), and the files
+    it carries (`message_files`), all found by the child, which writes one JSON line. The text is made by a short-lived child process with a time and CPU budget: the standard library takes time that grows
     with the square of the input on unclosed HTML tags (`<a <a <a ...`) and on a part whose Content-Type or Content-Disposition has tens of
     thousands of parameters, and the sender is a stranger who passed authentication for their own domain. The parent reads only the HEADERS
     of the message (headersonly); the structure of the body, each part's headers and the HTML are all parsed in the child. A child that
@@ -482,9 +500,33 @@ def text_and_forward_in_child(raw: bytes):
         raise TooSlow() from None
     if done.returncode == CHILD_UNREADABLE:
         raise ValueError("the message could not be read")        # inspect_message: unparsable
-    if done.returncode not in (0, CHILD_FORWARDED):
+    if done.returncode != 0:
         raise TooSlow()
-    return done.stdout.decode("utf-8", "replace"), done.returncode == CHILD_FORWARDED
+    try:
+        found = json.loads(done.stdout.decode("utf-8"))
+        text, forwarded, files = found["text"], found["forwarded"], found["files"]
+        if not isinstance(text, str) or not isinstance(forwarded, bool) or not isinstance(files, list) or len(files) > FILES_MAX \
+                or not all(isinstance(f, dict) and set(f) == {"part", "name", "type", "size"} and type(f["part"]) is int and 1 <= f["part"] <= FILES_MAX
+                           and type(f["size"]) is int and f["size"] >= 0
+                           and (f["name"] is None or (isinstance(f["name"], str) and len(f["name"]) <= FILE_NAME_MAX))
+                           and (f["type"] is None or (isinstance(f["type"], str) and len(f["type"]) <= FILE_TYPE_MAX)) for f in files):
+            raise ValueError("not the shape of the child's answer")
+    except (KeyError, TypeError, UnicodeDecodeError):
+        raise ValueError("the child's answer is not the shape it writes") from None
+    return text, forwarded, files
+
+
+def part_in_child(raw: bytes, n: int) -> bytes:
+    """The decoded bytes of file number `n` of a message (`message_files` numbers them), read by a child with the same budget as the one that makes the text.
+    Any failure, a timeout, or a number that is no file of this message is a `failed` ProviderError."""
+    try:
+        done = subprocess.run([sys.executable, "-I", os.path.abspath(__file__), "message-part", str(n)], input=raw, capture_output=True,
+                              timeout=TEXT_SECONDS)
+    except subprocess.TimeoutExpired:
+        done = None
+    if done is None or done.returncode != 0:
+        raise ProviderError("the file could not be read from the message")
+    return done.stdout
 
 
 strip_quoted = _text.strip_quoted      # moved to providers/_email_text.py unchanged, to be shared with the Gmail reader (--own-words)
@@ -537,6 +579,69 @@ def message_text_and_forward(msg):
     return (text[:MAX_TEXT].rstrip() + "\n" + CUT_LINE if len(text) > MAX_TEXT else text), forward
 
 
+def message_parts(msg):
+    """The non-multipart parts of a message in order, as (part) items: a recursion over `iter_parts()` that visits at most PARTS_MAX parts and never
+    descends into an attached message (message/rfc822) or into any container that is not a `multipart/*`. Not `msg.walk()`, which descends into an
+    attached message. Runs in the child."""
+    found, visited = [], [0]
+
+    def visit(part):
+        if visited[0] >= PARTS_MAX:
+            return
+        visited[0] += 1
+        if part.get_content_maintype() == "multipart":
+            for sub in part.iter_parts():
+                visit(sub)
+        elif not part.is_multipart():
+            found.append(part)
+
+    visit(msg)
+    return found
+
+
+def clean_file_name(named):
+    """A file name as the bridge keeps one (runtime/messaging_provider.py `clean_attachment_name`, copied here: a provider imports nothing of the runtime):
+    control, format, separator, surrogate, private-use and unassigned characters become a space, so does any invisible mark of EXTRA_INVISIBLE, white space is
+    collapsed, only the last path component is kept (`/` and `\\`), at most FILE_NAME_MAX characters; None for none or for a name that leaves nothing."""
+    if not named:
+        return None
+    text = EXTRA_INVISIBLE.sub("", str(named)[:4 * FILE_NAME_MAX])
+    text = "".join(" " if unicodedata.category(c) in ("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp") else c for c in text)
+    text = " ".join(text.replace("\\", "/").split("/")[-1].split())
+    return text[:FILE_NAME_MAX] or None
+
+
+def message_file_parts(msg) -> list:
+    """[(file, part)] for the files of a message, as `message_files` lists them: the one function numbers the files for the update and for the fetch.
+    A file is `{"part": <1-based number among the files>, "name", "type", "size"}`, at most FILES_MAX, in order. A part is a file
+    when it is not multipart, is not under an attached message, is not the part taken as the text of the message (the plain or the HTML body), and either
+    has the disposition `attachment`, or has a name and no Content-ID (an inline PDF with a name is one; a signature image that the text points to with
+    `cid:` is not). `size` is that of the decoded bytes; `name` is cleaned as the bridge cleans one (clean_file_name) and cut to FILE_NAME_MAX, null when empty
+    or unreadable. Runs in the child, where a part of a hostile message can take minutes to read."""
+    bodies = [msg.get_body(preferencelist=("plain",)), msg.get_body(preferencelist=("html",))]
+    files = []
+    for part in message_parts(msg):
+        if any(part is body for body in bodies if body is not None):
+            continue
+        disposition = part.get_content_disposition()
+        try:
+            named = part.get_filename()
+        except Exception:
+            named = None
+        if not (disposition == "attachment" or (bool(named) and part.get("Content-ID") is None)):
+            continue
+        name = clean_file_name(named)
+        kind = part.get_content_type()
+        files.append(({"part": len(files) + 1, "name": name, "type": kind if len(kind) <= FILE_TYPE_MAX else None, "size": len(part.get_payload(decode=True) or b"")}, part))
+        if len(files) >= FILES_MAX:
+            break
+    return files
+
+
+def message_files(msg) -> list:
+    return [found for found, _ in message_file_parts(msg)]
+
+
 # --- one message in: the update, or why not -----------------------------------------------------------------------------------------
 
 
@@ -581,9 +686,10 @@ def automatic(msg, sender_key: str = "") -> bool:
         or sender_key.split("@", 1)[0] in ("mailer-daemon", "postmaster")
 
 
-def inspect_message(raw: bytes, own: str, authserv: str, sent_ids, mail, allow=None):
+def inspect_message(raw: bytes, own: str, authserv: str, sent_ids, mail, allow=None, ref_base=None):
     """(update, None) for a message that is admitted, else (None, the class of the refusal): size, unparsable, sender, self, not-private,
-    automatic, unauthenticated, empty, slow. `sent_ids(chat)` is the set of Message-IDs this provider sent to that chat. `allow(sender, domain)`, when given, is asked just before the
+    automatic, unauthenticated, empty, slow. `ref_base` (`<uidvalidity>:<uid>`) is what the refs of the message's files are made of, and without it no file is
+    listed (a message of files and no words is then empty). `sent_ids(chat)` is the set of Message-IDs this provider sent to that chat. `allow(sender, domain)`, when given, is asked just before the
     text is made (the expensive part) and says whether the rate allows another attempt. The cheap checks
     come first and the text last: a stranger who passed authentication for their own domain reaches nothing expensive before the sender is
     known to be the one the server vouched for."""
@@ -625,18 +731,24 @@ def inspect_message(raw: bytes, own: str, authserv: str, sent_ids, mail, allow=N
         if forwarded_subject(msg):          # the subject says it: the body is not read at all (a forward is never a request)
             return {"sender": key, "chat": key, "private": True, "text": None, "action": None, "action_ref": None, "reply_to": None,
                     "forwarded": True}, None
-        text, forward = text_and_forward_in_child(raw)
+        text, forward, files = text_and_forward_in_child(raw)
+        found = [{"ref": f"{ref_base}:{f['part']}", "name": f["name"], "size": f["size"], "type": f["type"]} for f in files] if ref_base else []
         if forward:
-            return {"sender": key, "chat": key, "private": True, "text": text or None, "action": None, "action_ref": None, "reply_to": None,
-                    "forwarded": True}, None
-        if not text:
+            update = {"sender": key, "chat": key, "private": True, "text": text or None, "action": None, "action_ref": None, "reply_to": None,
+                      "forwarded": True}
+            if found:
+                update["attachments"] = found
+            return update, None
+        if not text and not found:
             return None, "empty"
         reply_to = None
-        found = re.search(r"<[^<>\s]+>", str(msg.get("In-Reply-To") or ""))
-        if found and found.group(0) in sent_ids(key):
-            reply_to = found.group(0)
-        return {"sender": key, "chat": key, "private": True, "text": text, "action": None, "action_ref": None,
-                "reply_to": reply_to}, None
+        found_id = re.search(r"<[^<>\s]+>", str(msg.get("In-Reply-To") or ""))
+        if found_id and found_id.group(0) in sent_ids(key):
+            reply_to = found_id.group(0)
+        update = {"sender": key, "chat": key, "private": True, "text": text or None, "action": None, "action_ref": None, "reply_to": reply_to}
+        if found:
+            update["attachments"] = found
+        return update, None
     except TooSlow:
         return None, "slow"
     except Exception:       # a message the parser cannot read admits nothing, and never ends the process
@@ -945,6 +1057,55 @@ def send_card(settings: dict, password: str, mail, chat: str, message: dict, led
     return message_id
 
 
+# --- one file into the folder the bridge made ---------------------------------------------------------------------------------------------
+
+
+def open_content(out_dir: str) -> tuple:
+    """(directory descriptor, file descriptor) of `<out_dir>/content`, new: created with O_EXCL and O_NOFOLLOW, mode 0600. The folder is opened
+    without following a link, and the file is made inside it by descriptor, so a name in the folder can never lead the write elsewhere."""
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    try:
+        dfd = os.open(out_dir, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow | getattr(os, "O_CLOEXEC", 0))
+    except OSError:
+        raise ProviderError("out is not a folder this provider can write to", EXIT_USAGE, "usage") from None
+    try:
+        fd = os.open("content", os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow | getattr(os, "O_CLOEXEC", 0), 0o600, dir_fd=dfd)
+    except FileExistsError:
+        os.close(dfd)
+        raise ProviderError("the output file exists already; the folder must be new") from None
+    except OSError:
+        os.close(dfd)
+        raise ProviderError("the output file could not be created") from None
+    try:
+        os.fchmod(fd, 0o600)
+    except OSError:
+        pass
+    return dfd, fd
+
+
+def write_content(out_dir: str, data: bytes) -> dict:
+    """Write `data` as `<out_dir>/content` and say what was written: {"bytes", "sha256"}. A write that does not finish removes the file it made."""
+    dfd, fd = open_content(out_dir)
+    done = False
+    try:
+        digest = hashlib.sha256()
+        view = memoryview(data)
+        while view:
+            written = os.write(fd, view)
+            digest.update(view[:written])
+            view = view[written:]
+        done = True
+    finally:
+        os.close(fd)
+        if not done:
+            try:
+                os.unlink("content", dir_fd=dfd)
+            except OSError:
+                pass
+        os.close(dfd)
+    return {"bytes": len(data), "sha256": digest.hexdigest()}
+
+
 # --- the listen process -------------------------------------------------------------------------------------------------------------
 
 
@@ -979,6 +1140,8 @@ class Listener:
         self.code = None
         self.lock = threading.Lock()
         self.requests = queue.Queue()
+        self.fetches = queue.Queue()        # the fetch requests wait here, apart from the sends: a file is read on a connection of its own and may take a while
+        self.validity = None            # the UIDVALIDITY of the mailbox as the mailbox thread examined it: the first number of a file's ref
         self.base = folder()
         self.sent = SentLedger(self.base)
         self.cursor_path = os.path.join(self.base, CURSOR)
@@ -1011,7 +1174,8 @@ class Listener:
                     log("dropped a request line over 1 MiB")
                     continue
                 try:
-                    self.requests.put(json.loads(line.decode("utf-8")))
+                    request = json.loads(line.decode("utf-8"))
+                    (self.fetches if isinstance(request, dict) and request.get("op") == "fetch" else self.requests).put(request)
                 except ValueError:
                     log("dropped a request line that is not JSON")
         except (OSError, ValueError):
@@ -1033,6 +1197,73 @@ class Listener:
                 log(f"a send failed unexpectedly ({e.__class__.__name__})")
                 if isinstance(request, dict) and isinstance(request.get("id"), int):
                     self.answer(request["id"], False, kind="failed", reason="the send failed unexpectedly")
+
+    def work_fetch(self) -> None:
+        while not self.stop.is_set():
+            try:
+                request = self.fetches.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            try:
+                self.handle_fetch(request)
+            except Exception as e:
+                log(f"a fetch failed unexpectedly ({e.__class__.__name__})")
+                if isinstance(request, dict) and isinstance(request.get("id"), int) and not isinstance(request.get("id"), bool):
+                    self.answer(request["id"], False, kind="failed", reason="the fetch failed unexpectedly")
+
+    def handle_fetch(self, request) -> None:
+        """The listen request `fetch` ({"id", "op": "fetch", "ref", "out", "max_bytes"}): the one file the ref names, written as `<out>/content`. The
+        arguments are checked before any connection; the message is read again on a connection of its own, admitted again, and only then is the file read."""
+        rid = request.get("id") if isinstance(request, dict) else None
+        if not isinstance(rid, int) or isinstance(rid, bool):
+            log("dropped a request with no integer id")
+            return
+        try:
+            ref, out, max_bytes = request.get("ref"), request.get("out"), request.get("max_bytes")
+            found = REF.fullmatch(ref) if isinstance(ref, str) else None
+            if not found or int(found.group(3)) > FILES_MAX:
+                raise ProviderError("ref is <uidvalidity>:<uid>:<part>, whole numbers", EXIT_USAGE, "usage")
+            if not isinstance(out, str) or not out:
+                raise ProviderError("out is the folder to write into", EXIT_USAGE, "usage")
+            if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1:
+                raise ProviderError("max_bytes is a positive whole number", EXIT_USAGE, "usage")
+            written = self.fetch_file(int(found.group(1)), int(found.group(2)), int(found.group(3)), out, max_bytes)
+        except ProviderError as e:
+            self.answer(rid, False, kind=e.kind, reason=redact(e, self.password))
+            if e.kind == "not-configured":
+                self.fatal(EXIT_NOT_CONFIGURED, "not-configured", str(e))
+        except (imaplib.IMAP4.error, OSError, ssl.SSLError, EOFError) as e:
+            self.answer(rid, False, kind="failed", reason=f"the mailbox could not be read now ({e.__class__.__name__}); try again")
+        else:
+            self.answer(rid, True, bytes=written["bytes"], sha256=written["sha256"])
+
+    def fetch_file(self, validity: int, uid: int, part: int, out: str, max_bytes: int) -> dict:
+        """Read message `uid` again on a NEW connection (the mailbox thread's belongs to that thread), admit it again as if it had just arrived (a
+        message that no longer passes gives no file; the rate is not counted), take file `part` of it by the same function that numbered the files in the
+        update, and write it as `<out>/content`. Only LOGIN, EXAMINE, UID FETCH (RFC822.SIZE), UID FETCH (BODY.PEEK[]) and LOGOUT are sent."""
+        box = Mailbox(connect_imap(self.settings, self.mail, self.password))
+        try:
+            now, _ = box.examine()
+            if now != validity:
+                raise ProviderError("the mailbox no longer has this message", kind="gone")
+            size = box.size(uid)
+            if size is None:
+                raise ProviderError("the mailbox no longer has this message", kind="gone")
+            if size > MAX_SIZE:
+                raise ProviderError("the message is larger than the channel reads")
+            raw = box.fetch(uid)
+            if raw is None:
+                raise ProviderError("the mailbox no longer has this message", kind="gone")
+        finally:
+            box.logout()
+        ref = f"{validity}:{uid}:{part}"
+        update, _ = inspect_message(raw, self.own, self.authserv, self.sent.ids, self.mail, ref_base=f"{validity}:{uid}")
+        if update is None or ref not in [item["ref"] for item in update.get("attachments", ())]:
+            raise ProviderError("the message no longer passes the channel's checks, so its file is not taken")
+        data = part_in_child(raw, part)
+        if len(data) > max_bytes:
+            raise ProviderError(f"the file is {len(data)} bytes; at most {max_bytes} are taken", EXIT_USAGE, "usage")
+        return write_content(out, data)
 
     def handle_request(self, request) -> None:
         rid = request.get("id") if isinstance(request, dict) else None
@@ -1128,7 +1359,7 @@ class Listener:
         if raw is None:
             log("dropped a message: unreadable")
             return
-        update, why = inspect_message(raw, self.own, self.authserv, self.sent.ids, self.mail, allow=self.permit)
+        update, why = inspect_message(raw, self.own, self.authserv, self.sent.ids, self.mail, allow=self.permit, ref_base=f"{self.validity}:{uid}")
         if update is None:
             log(f"dropped a message: {why}")
         else:
@@ -1140,6 +1371,7 @@ class Listener:
             box = Mailbox(connect_imap(self.settings, self.mail, self.password))
             close_smtp(connect_smtp(self.settings, self.mail, self.password))      # a refused SMTP login stops here, not at the first card
             validity, highest = box.examine()
+            self.validity = validity
             last = self.cursor(validity, highest)
             self.out.write({"event": "ready"})
             while not self.stop.is_set():
@@ -1187,7 +1419,8 @@ class Listener:
         try:
             self.threads = threads = [threading.Thread(target=self.run_mailbox, daemon=True),
                                       threading.Thread(target=self.work, daemon=True),
-                                      threading.Thread(target=self.read_stdin, daemon=True)]
+                                      threading.Thread(target=self.read_stdin, daemon=True),
+                                      threading.Thread(target=self.work_fetch, daemon=True)]
             for thread in threads:
                 thread.start()
             self.stop.wait()
@@ -1355,20 +1588,31 @@ def run(argv) -> int:
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if argv == ["message-text"]:       # the child that makes the text of a message (text_in_child): the message on stdin, its text on stdout
+    if argv == ["message-text"] or (len(argv) == 2 and argv[0] == "message-part" and re.fullmatch(r"[0-9]{1,2}", argv[1])
+                                    and 1 <= int(argv[1]) <= FILES_MAX):
+        # the child that reads a message (text_and_forward_in_child, part_in_child): the message on stdin, the answer on stdout
         try:
             import resource
             resource.setrlimit(resource.RLIMIT_CPU, (int(TEXT_SECONDS) + 2, int(TEXT_SECONDS) + 2))      # the parent's timeout is the first bound
         except (ImportError, ValueError, OSError):
             pass
         try:
-            found, forward = message_text_and_forward(message_from_bytes(sys.stdin.buffer.read(MAX_SIZE + 1), policy=policy.default))
+            msg = message_from_bytes(sys.stdin.buffer.read(MAX_SIZE + 1), policy=policy.default)
+            if argv[0] == "message-part":
+                # the same function numbers the files here and in the update
+                chosen = [part for found, part in message_file_parts(msg) if found["part"] == int(argv[1])]
+                if not chosen:
+                    return CHILD_NO_PART
+                sys.stdout.buffer.write(chosen[0].get_payload(decode=True) or b"")
+                return EXIT_OK
+            found, forward = message_text_and_forward(msg)
+            files = message_files(msg)
         except TooSlow:
             return CHILD_SLOW
         except Exception:
             return CHILD_UNREADABLE
-        sys.stdout.buffer.write(found.encode("utf-8"))
-        return CHILD_FORWARDED if forward else EXIT_OK
+        sys.stdout.buffer.write(json.dumps({"text": found, "forwarded": forward, "files": files}).encode("ascii"))
+        return EXIT_OK
     try:
         return run(argv)
     except ProviderError as e:

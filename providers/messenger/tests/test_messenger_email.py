@@ -584,10 +584,10 @@ def run_cli(capsys, *argv):
     return code, out, err
 
 
-def test_the_capabilities_declare_no_attachment_and_that_an_action_needs_a_reply():
+def test_the_capabilities_declare_files_up_to_one_mebibyte_and_that_an_action_needs_a_reply():
     assert provider.CAPABILITIES == {"max_text": 8000, "buttons": False, "max_buttons": 0, "max_button_label": 0, "lists": False,
                                      "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": False, "listen": True,
-                                     "actions_need_reply": True}
+                                     "actions_need_reply": True, "attachments": True, "max_attachment_bytes": 1048576}
 
 
 STDLIB_FALLBACK = {"email", "json", "http", "smtplib", "imaplib", "ssl", "socket", "select", "queue", "logging", "string", "types", "signal",
