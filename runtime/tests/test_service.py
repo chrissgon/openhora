@@ -188,7 +188,7 @@ def path_of(world, route):
 
 OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"] and not r["stream"] and not r["download"]]   # the two are tested in test_service_media.py
 VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands")  # the reads of the views
-READ_OPS = ("status", "pending", "flows", "flow-check", "routines", "task", "progress", "sources", "instructions", "attachments", "reminders", "items", "agenda",
+READ_OPS = ("status", "pending", "flows", "flow-check", "routines", "task", "progress", "sources", "instructions", "profile", "attachments", "reminders", "items", "agenda",
             "media-list", "captions-read", "video-download", "video-still", "video-catalogue", "video-storyboard-file", "video-watch", "video-media-sheet-file", "video-credits") + VIEW_READS
 
 

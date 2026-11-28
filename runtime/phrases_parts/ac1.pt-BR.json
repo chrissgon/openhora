@@ -1,0 +1,8 @@
+{
+ "package": "ac1",
+ "table": {
+  "PROFILE_PROPOSED": "Há uma mudança proposta no perfil de {agent}. Leia e aceite na página ou com este comando:",
+  "PROFILE_TEMPLATE": "# {name}\n\n## Papel\nUma frase: o que este agente faz pelo projeto.\n\n## Como fala\nO tom, o tamanho das respostas, as palavras que prefere.\n\n## Nunca\nO que ele nunca deve fazer ou dizer.\n\n## Aparência\nComo o escritório o desenha.\n"
+ },
+ "same_as_english": []
+}

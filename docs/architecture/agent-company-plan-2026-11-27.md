@@ -148,12 +148,13 @@ The record is `docs/decisions/2026-11-27-ac-0-agent-company.md`. In short:
 - **Written by the person only, as the standing instructions are (L40).**
   - The path rule refuses the file as a run's output under every spelling, as L40 does.
   - Code checks it as the instructions are checked: UTF-8, a regular file inside the project, a size cap, the credential scan, no invisible character, no prompt-separator line.
-  - An agent may propose a change, and the person accepts it on the page or in the terminal (OPEN-2).
+  - An agent may propose a change, and the person accepts it on the page or in the terminal (OPEN-2, decided: AC-D18).
 - **Where it enters: the conversation lane only (section 4.4)**, as a nonce-marked data block.
   - It never enters a skill run, so the skills' bands still describe the runs (principles 9 and 10).
   - Its wording says it never overrides a stop rule, a gate or a refusal.
   - In the lane the persona writes the whole message (AC-D8); what code checked is attached (section 4.4). Artifacts a skill run writes keep no persona voice: they are documents, not conversation.
 - The profile is project data (principle 8); the workbench holds only its template.
+- **Status (2026-11-28): AC1 is built** on the wave-2 branch (`runtime/profiles.py`, `runtime/ops_profiles.py`; `docs/decisions/2026-11-28-ac1-agent-profiles.md`). The cap is 2,000 characters; a proposal is kept in the data folder, outside the project, and accepted by its sha256; the block (`ops_profiles.lane_block`) has no caller until AC3, and its `area` fact is none until AC8.
 
 ### 4.2 Agents that manage themselves, and governance without managers
 

@@ -72,5 +72,10 @@
  {"op": "video-credits", "kind": "internal", "group": "media", "why": "prints the credits record of a new video's approved media set, which answers a takedown request; read in the terminal or on the page, not served in words"},
  {"op": "video-media-websearch", "kind": "internal", "group": "media", "why": "runs a model with web search on the search words of a new video's slots after the person's confirm of the exact words, then downloads a preview of each picture (up to 16 MiB each) from the sites found; the words leave this computer and no licence is checked; never served in words"},
  {"op": "video-media-approve-asset", "kind": "internal", "group": "media", "why": "approves one file found on the open web, bound to this video and its sha256, after a copyright warning and the first 12 digits of the sha256 typed by the person; never served in words"},
- {"op": "video-media-scan-explain", "kind": "internal", "group": "media", "why": "runs a model on the text a scan read from a new video's stock and web pictures, after the person pressed the button and confirmed the exact text to send; that text and the model's explanation stay on this computer's page and terminal; never served in words"}
+ {"op": "video-media-scan-explain", "kind": "internal", "group": "media", "why": "runs a model on the text a scan read from a new video's stock and web pictures, after the person pressed the button and confirmed the exact text to send; that text and the model's explanation stay on this computer's page and terminal; never served in words"},
+ {"op": "profile", "kind": "internal", "group": "read", "why": "shows an agent's profile; never served in words in v1"},
+ {"op": "profile-set", "kind": "internal", "group": "profile-edit", "why": "replaces an agent's profile, written only by the person; never served in words in v1"},
+ {"op": "profile-propose", "kind": "internal", "group": "profile-edit", "why": "keeps a proposed change to an agent's profile outside the project; never served in words in v1"},
+ {"op": "profile-accept", "kind": "internal", "group": "profile-edit", "why": "writes an accepted proposal into an agent's profile, by its sha256; never served in words in v1"},
+ {"op": "profile-reject", "kind": "internal", "group": "profile-edit", "why": "drops a proposed change to an agent's profile; never served in words in v1"}
 ]}
