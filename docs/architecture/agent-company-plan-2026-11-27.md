@@ -42,6 +42,9 @@ How to read it:
 - Open questions are `OPEN-<n>` in section 7, each with a recommended answer; the ones the maintainer has decided say so.
 - **v1** and **v2** name the two phases of this plan: v1 is what the packages of section 6 build; v2 is listed so that v1 does not close the door to it, and each v2 item needs its own decision.
 
+**Status.** Each package adds its line when it is merged.
+- AC0 (#989): the dated entries of AC-D10, AC-D11, AC-D12 and AC-D16 (with AC-D17) are in `contracts/runtime.md`: L26, L49 and L63 amended, R3 of the contained run amended, and the autonomous work mode's consent under "The choice of the model"; principle 9 of `AGENTS.md` states plan release and peer review. Nothing is built.
+
 ## 1. The target
 
 The maintainer's words, 2026-11-27, translated:
