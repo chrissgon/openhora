@@ -123,7 +123,7 @@ def set_everything(monkeypatch):
         monkeypatch.setenv(name, f"value-of-{name}")
 
 
-def test_limit_59_the_real_drive_call_hands_the_provider_the_google_account_token_and_nothing_else(cfg, monkeypatch):
+def test_limit_59_the_real_drive_call_hands_the_provider_the_google_account_token_and_its_legacy_record_and_nothing_else(cfg, monkeypatch):
     set_everything(monkeypatch)
     seen = capture_resolver(monkeypatch)
     sources.drive_call(cfg, "stat", ["--id", "x", "--as-source"])
