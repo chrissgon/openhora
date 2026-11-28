@@ -45,14 +45,14 @@
  "commit": "b4cc674f7f312e77ded32e0b53006cc0bad6723b",
  "notice": "Apache-2.0; adapted from the HyperFrames registry at b4cc674f; notices in providers/renderer/hf-runtime/NOTICE.md",
  "determinism": {
-  "served_sha256": "c51ada8dd2acbfad138f12d0e4dfe05ad6a0666d0a4f9ea0ededcd5a6a0d0659",
+  "served_sha256": "808293ba1eb91a786b60fb619ae61f3b74547de0061a8c3614eaf4343b3f5a13",
   "runtime_sha256": "491a22ffea0bf65cedc4389ddda9c31e2906c7adac05726333e4d4f422bf42ea",
   "samples": 3,
   "frames": 189,
   "runs": 4,
   "blocked": 0,
-  "date": "2026-11-26",
-  "image": "openhora-renderer:b8702517828f",
-  "seconds": 54.52
+  "date": "2026-11-27",
+  "image": "openhora-renderer:149b9d220fce",
+  "seconds": 53.4
  }
 }
