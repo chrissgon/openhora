@@ -11,12 +11,12 @@ their names; no shell imports this file.
 
   profile          (read, with the terminal, the page and the MCP mode) the state of the file, what code adds (`added`), the open proposal
                    and, for a file that is not there, the template. It writes nothing.
-  profile-set / profile-accept / profile-reject   (group `profile-write`, the terminal and the page only: operations.PROFILE_CHANNELS, by
+  profile-set / profile-accept / profile-reject   (group `profile-edit`, the terminal and the page only: operations.PROFILE_CHANNELS, by
                    default, and no policy of today widens it; limit L40) the only writers of the file. `profile-set` replaces the whole
                    text; `profile-accept` writes the open proposal of the agent, named by its sha256; `profile-reject` drops it. No model
                    call, an atomic write under the project's write lock and a compare-and-set on the sha256 of the file the person read
                    (`none` for a file that was not there).
-  profile-propose  (group `profile-propose`, the terminal, the page and an MCP client) keeps one proposed text per agent, outside the
+  profile-propose  (group `profile-edit` too, the terminal, the page and an MCP client) keeps one proposed text per agent, outside the
                    project, in `<data_dir>/profile-proposals/<agent>.json`; the file of the project is not touched. `propose` is the
                    library call an agent's own turn will use (`by` is `agent:<key>`). The checks run when the text is proposed and again
                    when it is accepted: it reaches the file only through the person's hash.

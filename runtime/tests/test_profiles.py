@@ -424,8 +424,8 @@ def test_the_cli_the_table_the_registry_and_the_routes_describe_the_five_operati
     assert operations.by_name("profile-propose")["channels"] == ("terminal", "page", "mcp")
     assert operations.by_name("profile-propose").get("channel_arg") is True
     assert "profile" in operations.GROUPS["read"]["operations"]
-    assert operations.GROUPS["profile-write"]["operations"] == ("profile-set", "profile-accept", "profile-reject")
-    assert operations.GROUPS["profile-propose"]["operations"] == ("profile-propose",)
+    assert operations.GROUPS["profile-edit"]["operations"] == ("profile-set", "profile-accept", "profile-reject", "profile-propose")
+    assert "profile-write" not in operations.GROUPS and "profile-propose" not in operations.GROUPS
     for verb in names:
         row = operations.by_name(verb)
         assert row["args"][0] == {"name": "agent", "kind": "str", "required": True, "flag": "agent"}

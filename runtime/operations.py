@@ -1310,8 +1310,7 @@ GROUPS = {
     "routine-edit": {"operations": ("routine-create", "routine-change"), "kind": None},
     "routine-approve": {"operations": ("routine-approve", "routine-resume"), "kind": None},   # the approval of a routine's exact content by its hash, and the lifting of a pause
     "instructions-write": {"operations": ("instructions-set", "instructions-add"), "kind": None},   # writing the person's standing instructions (L40): the terminal and the page alone BY DEFAULT, whatever a policy lists today (a later package makes it a grant); not `instructions`, the read operation of the group `read`
-    "profile-write": {"operations": ("profile-set", "profile-accept", "profile-reject"), "kind": None},   # writing an agent's profile (L40, AC1): the terminal and the page alone BY DEFAULT; not `profile`, the read operation of the group `read`
-    "profile-propose": {"operations": ("profile-propose",), "kind": None},   # proposing a change to an agent's profile: nothing is written until the person accepts it
+    "profile-edit": {"operations": ("profile-set", "profile-accept", "profile-reject", "profile-propose"), "kind": None},   # writing an agent's profile, or proposing a change to it (L40, AC1): set, accept and reject are the terminal's and the page's alone BY DEFAULT, whatever a policy lists, and a proposal writes nothing; not `profile`, the read operation of the group `read` (one group, not two: the policy record has room for a few groups more, runtime/tests/test_policy_widening_mask.py)
     "verdict": {"operations": ("verdict",), "kind": None},
     "sources": {"operations": ("source-add", "source-import", "source-refresh", "source-describe", "sources"), "kind": None},
     # ATT-1: files sent through a messaging app. `add-sources` is the group of everything about them (a messaging app takes a file only when its policy lists it,
@@ -1494,8 +1493,7 @@ GROUP_TEXT = {
     "routine-edit": "makes and changes a routine (it stays a draft until it is approved)",
     "routine-approve": "approves a routine by its hash and resumes it",
     "instructions-write": "writes the person's standing instructions",
-    "profile-write": "writes an agent's profile, and accepts or drops a proposed change to it",
-    "profile-propose": "proposes a change to an agent's profile (nothing is written until the person accepts it)",
+    "profile-edit": "writes an agent's profile, proposes a change to it, and accepts or drops a proposed change (only the terminal and the page write)",
     "verdict": "records a verdict on a skill's use",
     "sources": "adds, imports, refreshes and describes the project's sources",
     "add-sources": "takes the files a listed sender sends through a messaging app (held, then added or discarded on a card or on the page), and lists and decides the held files",
