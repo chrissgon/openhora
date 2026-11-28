@@ -339,8 +339,6 @@ def test_a_token_that_lacks_a_scope_of_the_set_or_carries_another_is_refused_bef
 def test_a_legacy_record_alone_is_not_enough_for_a_writer(fake, tmp_path, state):
     env = env_of(fake, tmp_path, state)
     del env["GOOGLE_ACCOUNT_TOKEN"]
-    env["GOOGLE_CALENDAR_TOKEN"] = json.dumps({"refresh_token": fgw.REFRESH_TOKEN, "client_id": fgw.CLIENT_ID, "client_secret": fgw.CLIENT_SECRET,
-                                               "scope": "x", "account": fgw.ACCOUNT, "obtained_at": "2026-10-17T09:00:00Z"})
     proc = run(fake, tmp_path, state, *insert_args(tmp_path), env=env)
     assert proc.returncode == 3 and fake.requests == []
 

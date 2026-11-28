@@ -46,7 +46,7 @@ One JSON record in the secret `GOOGLE_ACCOUNT_TOKEN` (OS secret store: service `
 {"slot": "main", "refresh_token": ..., "client_id": ..., "client_secret": ..., "scope": "<the four, space separated>", "account": "<address>", "obtained_at": "<UTC time>"}
 ```
 
-The Desktop app client travels with the token, so this is the only entry (the pattern of the Drive and Calendar records before it): `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET` are not needed by the account path. The `slot` is always `main` in this version. A second account later would take the rows `GOOGLE_ACCOUNT_<S>_TOKEN` and `google-account-<s>` (a registry row added by a person's change, never at run time) and a `--account <slot>` on every provider (the authorize command takes it already; the providers do not yet); nothing about the record would move (backlog ACCT-SLOT, not built).
+The Desktop app client travels with the token, so this is the only entry (the pattern of the Drive and Calendar records before it, which are gone): no separate client id or secret is stored. The `slot` is always `main` in this version. A second account later would take the rows `GOOGLE_ACCOUNT_<S>_TOKEN` and `google-account-<s>` (a registry row added by a person's change, never at run time) and a `--account <slot>` on every provider (the authorize command takes it already; the providers do not yet); nothing about the record would move (backlog ACCT-SLOT, not built).
 
 ### What each provider checks
 

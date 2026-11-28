@@ -190,7 +190,7 @@ def check_slot(slot, error=AccountError) -> str:
 def find_account_record(resolver, test_mode, slot=MAIN_SLOT, error=AccountError):
     """(the record's JSON text, where it was found) through the secret resolver, or None when the record is ABSENT. The slot main is
     GOOGLE_ACCOUNT_TOKEN. A record that is there and cannot be read now (the OS secret store is locked or unavailable, the credentials
-    directory or its file is not safe: any state but "missing") is not absent: `error` (exit 3) with the lookup's own detail,."""
+    directory or its file is not safe: any state but "missing") is not absent: `error` (exit 3) with the lookup's own detail."""
     check_slot(slot, error)
     found = resolver.resolve_state(SECRET, allow_store=not test_mode)
     if found.state == "found":
