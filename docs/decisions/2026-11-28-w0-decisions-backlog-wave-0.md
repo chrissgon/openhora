@@ -68,7 +68,7 @@ With these, every `OPEN-<n>` of the plan's section 7 is decided.
 
 The decision is the sum of four answers: AC10 (release the spike), the repository given for it, the redirection after the alternatives research, and O1 to O4.
 
-- **First answers.** On AC10 he answered `A` (validate: allow english-only -- the maintainer's verbatim answer): release the spike of a fork of Habblaud now. He then gave the fork repository, https://github.com/chrissgon/habblaud (2026-11-28), and asked for research on the alternatives before the spike.
+- **First answers.** On AC10 he answered `A` (validate: allow english-only -- the maintainer's verbatim answer): release the spike of a fork of Habblaud now. He then created a fork repository of Habblaud (2026-11-28) and asked for research on the alternatives before the spike.
 - **What was decided, replacing the AC10 spike.**
   1. Map five open projects (done, outside this repository, with `eng-codebase-map`).
   2. Choose the parts per need (done, outside this repository, with `eng-tradeoffs`).
