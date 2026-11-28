@@ -633,7 +633,7 @@ Each package is a backlog item, sized S, M or L. A package's spec is written bef
 | AC7 | Messages between agents: the table under L13, the four kinds, the `sources` key and the access sets that messages, memories and answers use, the access set per message, the agent channel's ceiling, the capability group `agent-chains` with its defaults, the closed list of starters recorded on each chain and `chain_autonomy`, the provenance field of agent-written requests, the credential scan, the brakes, the visibility | L | AC1, AC2 |
 | AC8 | Self-managing agents: the `area` key, open tasks and assignment by code, the change of `agent_of` and all its callers, the owning agent per artifact, an agent's own plan as a route (`core-orchestrator` limited to one pack, Y change with cases), the reception (`core-orchestrator`, Y change, tested), one responsible agent per request, the priorities file | L | AC7 |
 | AC9 | Proof of the lane: its evidence kind, cases and bands per route, including attachments, injected passages and routes | L | AC3 (starts with it) |
-| AC10 | The office, if R23 chooses a fork: the spike, then its source fed by AC4 | L | spike: none; wiring: AC4 |
+| AC10 | The office: our own, in `interface/` as static files, with no fork, the fork repository kept as a reference only (R23 decided, `docs/decisions/2026-11-28-w0-decisions-backlog-wave-0.md`); built in slices behind a painter interface, the art chosen later with the maintainer, fed by AC4 | L | spike: none; wiring: AC4 |
 | AC11 | Questions between agents by level: N1, N3 and N4 by code; `answered-by-agent` and the colleagues' block; the no-loop rule; delegations in the accepted configuration; the inbox cap; the cases of reruns with colleagues' answers. For chains whose starter holds `agent-chains`: the measured downgrades to N0 and N2 and the delegation match, with their cases | L | AC6, AC7, AC8; the downgrades and the match: AC3, AC9 (their cases are cases of the lane's evidence kind) |
 | AC12 | Peer review and the autonomous work mode: the choice of the review skill by the kind of work; `eng-code-review` and `core-critique` as reviewers, with the smallest change each needs to address the author's criteria (Y changes, tested); the new skill `core-work-review` with its cases and first full test; `design-review` left planned until a real design task; the review mode of the contained run (a closed list of review skills checked in code in place of the pack check, the task's tracked files and the diff as a patch file, the model from the review choice); `eng-code-review` changed to review from a patch with no git history and to read the checks already run from the context (Y change, tested); cases of each review skill in the assembled-prompt shape, held by a byte-for-byte test; the step kind that runs the project's checks before the review; temporary reviewer and tiebreaker runs, the context assembled by code, bounded discussion, the ranking of models and the person's choice, the consent kind with its stored warning hash, the cost estimate recorded with the consent, plan release, the opt-in for proven runs, the inbox summary | L | AC0, AC8, AC11 |
 
@@ -647,7 +647,7 @@ Each package is a backlog item, sized S, M or L. A package's spec is written bef
 7. AC11.
 8. AC12.
 
-The AC10 spike and CARD-READ (#987) run whenever there is room; neither needs another package.
+The AC10 first slice and CARD-READ (#987) run whenever there is room; neither needs another package.
 
 **Existing items:**
 - AGENT-DIRECT (#977) is AC2 and AC3, and was closed into them on 2026-11-27. What the planner sees of a direct task is answered by assignment by code (AC8) and by the reception.
@@ -692,7 +692,7 @@ Decided by the maintainer on 2026-11-27 (section 11) and 2026-11-28 (`docs/decis
 
 ## 8. Not in this plan
 
-- Choosing the office (R23 decides it).
+- Choosing the office: R23 decided it, an own office in `interface/` with no fork (`docs/decisions/2026-11-28-w0-decisions-backlog-wave-0.md`). The art is chosen later with the maintainer.
 - Voice (VOICE-MODE, #978), built on the lane later.
 - Agents of another project talking to this one.
 - Messaging lines reaching the lane as a conversation (a later decision under L63). A chain started from messaging by a sender who holds `agent-chains` does send its run replies, which may quote the line, to the lane's route (AC-D16).
@@ -732,7 +732,7 @@ An independent reviewer on another model read version 1 against the code. It rai
 | F12. Who writes memory and profile files, and where | 4.1 (a slot row provided by `user`), 4.6 (memories in the store) |
 | F13. Lane turns not under caps or costs | 4.4 (cost, bounds) |
 | F14. Wrong dependencies; missing work (migration, messaging and MCP, `agent_of`, L63) | Section 6 |
-| F15. R23 decided and not decided; a fork's approvals | 4.9, section 8 |
+| F15. R23 decided and not decided; a fork's approvals (R23 is decided, with no fork: the office's approvals are the page's) | 4.9, section 8 |
 | F16. The D11 reversal not named; "three choices" inexact | Section 3 (AC-D3, AC-D6), the decision record |
 | F17. Imprecise citations | Section 2, 4.2 |
 | F18. Principle 8 for AC6's real case | Section 3 (AC-D6) |
