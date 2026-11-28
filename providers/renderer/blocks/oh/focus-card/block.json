@@ -1,0 +1,61 @@
+{
+ "schema_version": 1,
+ "name": "oh:focus-card",
+ "kind": "layout",
+ "preset": "focus_card",
+ "band": "frame",
+ "may_cross_face": true,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "a picture of the speaker's is shown as a card while the speaker's own shot stays behind it, blurred",
+ "params": {
+  "asset": {
+   "type": "image",
+   "required": true
+  },
+  "label": {
+   "type": "text",
+   "max": 40
+  },
+  "stamp": {
+   "type": "choice",
+   "values": [
+    "none",
+    "x",
+    "check"
+   ],
+   "default": "none"
+  },
+  "backdrop": {
+   "type": "choice",
+   "values": [
+    "blur",
+    "solid",
+    "none"
+   ],
+   "default": "blur"
+  }
+ },
+ "samples": [
+  {
+   "asset": "slot-1"
+  },
+  {
+   "asset": "slot-1",
+   "label": "The wrong way",
+   "stamp": "x"
+  },
+  {
+   "asset": "slot-1",
+   "label": "A small picture",
+   "stamp": "check",
+   "backdrop": "solid"
+  }
+ ],
+ "natural_duration": 1.5,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

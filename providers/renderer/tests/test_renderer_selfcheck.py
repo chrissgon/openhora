@@ -166,3 +166,14 @@ def test_the_languages_the_image_must_hold_are_english_portuguese_and_spanish():
     assert _scan.DEFAULT_LANG == "eng+por+spa"
     import _host
     assert _host.SCAN_LANG == _scan.DEFAULT_LANG
+
+
+def test_the_blurred_shots_colour_matrix_is_a_required_filter_and_a_missing_one_is_not_ready(monkeypatch):
+    """P4b: `colorchannelmixer` is in the list the image check requires (the mono grade already used it), so an ffmpeg without it is `not_ready` naming it."""
+    assert "colorchannelmixer" in _inner.REQUIRED_FILTERS
+    import _media
+    args = selfcheck_world(monkeypatch, container=False)
+    monkeypatch.setattr(_media, "has_filter", lambda ffmpeg, name: name != "colorchannelmixer")
+    with pytest.raises(NotConfigured) as caught:
+        _inner.verb_selfcheck(args)
+    assert (caught.value.code, caught.value.field) == ("not_ready", "colorchannelmixer")

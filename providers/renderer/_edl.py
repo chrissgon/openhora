@@ -55,6 +55,7 @@ PAGE_TRANSITIONS = ("slide", "zoom")                                 # drawn by 
 TRANSITION_KINDS = FFMPEG_TRANSITIONS + PAGE_TRANSITIONS
 TRANSITION_ID = re.compile(r"t[1-9][0-9]?")
 TRANSITIONS_MAX = 99            # validity: a closed document, the id format t1-t99 (runtime/step_media.py)
+BACKDROPS = ("blur", "solid", "none")      # the `backdrop` choice of a layout (P4b): `blur` is drawn by ffmpeg at [base]; `solid` and `none` are the page's own
 ENTRY_REQUIRED = {"id", "beat", "preset", "params", "word_from", "word_to", "score"}
 ENTRY_KEYS = ENTRY_REQUIRED | {"role", "emphasis", "block"}      # the beat's role and emphasis from the script, and the block that draws it, all optional
 SCRIPT_KEYS = {"title", "loop"}
@@ -665,6 +666,31 @@ def check_transition_config(data: dict) -> None:
                 raise bad("darken")
 
 
+def check_backdrop_config(data: dict) -> None:
+    """The defaults of `backdrop.blur` in the data file: only what a filter needs (validity). A breach is `bad_backdrop_config` naming `backdrop.blur.<key>`.
+    `sigma` is gblur's range (0 to 1024), `darken` a share (0 to 1), `saturation` 0 to 2 (every coefficient of the colour matrix then stays inside
+    colorchannelmixer's range of -2 to 2). Nothing here limits how many blurred spans a video has, or how long, or what is in them."""
+    cfg = data.get("backdrop") if isinstance(data, dict) else None
+    blur = cfg.get("blur") if isinstance(cfg, dict) else None
+    if not isinstance(blur, dict):
+        raise Refusal("bad_backdrop_config", "backdrop.blur")
+    for key, top in (("sigma", 1024), ("darken", 1), ("saturation", 2)):
+        if not _num(blur.get(key)) or not 0 <= blur[key] <= top:
+            raise Refusal("bad_backdrop_config", "backdrop.blur.%s" % key)
+
+
+def resolve_blurs(entries: list, vocab: dict) -> list:
+    """The blurred spans of the timeline (P4b): one row {id, start_frame, end_frame} for each kept beat (after the picture-wins and overlap passes, with its
+    final frames) whose vocabulary preset declares a `backdrop` parameter and whose value, the beat's own or the preset's default, is `blur`. The speaker's
+    shot is blurred, greyed and darkened over exactly those frames, at [base] (`_media.blur_stage`). Rows never overlap: there is one beat track."""
+    rows = []
+    for e in entries:
+        spec = vocab["presets"][e["preset"]]["params"].get("backdrop")
+        if spec is not None and e["params"].get("backdrop", spec.get("default")) == "blur":
+            rows.append({"id": e["id"], "start_frame": e["start_frame"], "end_frame": e["end_frame"]})
+    return rows
+
+
 def check_transitions(rows, index_set: set, presets: dict) -> None:
     """The transitions in beats.json: at most TRANSITIONS_MAX, each a closed row of an id (`t1` to `t99`, once), a kind and exactly one anchor, a `word` (an
     index of the edit list's words) or a `beat` (the id of an overlay or layout entry). One transition to an anchor. A page kind (slide, zoom) is drawn
@@ -1031,6 +1057,9 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
     if aside_grades:
         grades = sorted(grades + aside_grades, key=lambda r: (r["start_frame"], r["end_frame"], r["id"]))
     transitions, transitions_dropped = resolve_transitions(edl, beats, entries, data)
+    blurs = resolve_blurs(entries, vocab)
+    if blurs:
+        check_backdrop_config(data)
     for e in entries:
         e["face"] = span_face(edl, data, e["start_frame"], e["end_frame"], punches)
     cap = data["caption"]
@@ -1053,6 +1082,8 @@ def resolve_timeline(edl: dict, beats: dict, vocab: dict, data: dict) -> dict:
            "effects_dropped": sorted(punches_dropped + grades_dropped + transitions_dropped, key=lambda r: r["id"])}
     if transitions:  # only a timeline with a transition has the key: any other is what it always was (S2)
         out["transitions"] = transitions
+    if blurs:        # only a timeline with a blurred span has the key (P4b): any other is what it always was (S2)
+        out["blurs"] = blurs
     if advice:       # only a timeline with a choice past a default has the key: any other is what it always was
         out["advice"] = _advice.rows(advice)
     if dropped:      # every id of `dropped` has one reason row (V9b-3f); the layout passes add theirs (`pip_no_room`, `split_no_room`)
