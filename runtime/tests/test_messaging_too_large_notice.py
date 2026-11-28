@@ -223,3 +223,4 @@ def test_the_sentences_name_the_limit_of_the_provider_and_the_size_of_a_file_tha
         for key in ("TOO_LARGE_ONE", "TOO_LARGE_MANY"):
             text = phrases.text(key, {"language": lang}, n=2)
             assert "1 MB" in text and f"{file_kb} KB" in text, (lang, key)
+            assert ("in all" if lang == "en" else "no total") in text, "the limit is that of the whole message, not of each file"

@@ -65,7 +65,7 @@ subject, at most once an hour to a chat, and only to a sender who still hears th
 a chat has not been told lives in memory, so a restart forgets it (the provider's log line stays). A line that failed to send is tried again an hour later.
 A message the provider set aside for its size (the e-mail provider, over 1 MiB) is the same with an error event of kind `too-large`, counted by the session
 apart from `skipped` (`take_too_large`), with its own sentence (`TOO_LARGE_ONE`, `TOO_LARGE_MANY`), its own count and its own hour per chat (AT2b): a
-chat may be told one line of each kind in the same hour. Nothing is known of who sent such a message, so the line goes to the listed senders, never to the address that wrote.
+chat may be told one line of each kind in the same hour. Nothing is known of who sent such a message, so the line goes to the listed senders, never addressed to the writer as such: the writer gets the line only as a listed sender who hears the count.
 
 Files (ATT-1b). A file a listed sender sends is fetched only when THAT sender's profile permits `attachment-hold` (the group `add-sources`, or the grant
 `add-sources-direct`); runtime/messaging_attach.py does the work, from the update to the fetch, the hold, the card or the add, and from the card's answer to the
@@ -871,7 +871,7 @@ class Bridge(shell_kit.Jobs):
         self.notify_unread()
 
     def hearers(self) -> set:
-        """The chats that may be told about a skipped message NOW: for every served project, the senders `hears_count` returns under the accepted
+        """The chats that may be told about a skipped or too-large message NOW: for every served project, the senders `hears_count` returns under the accepted
         settings read at this moment. A project whose settings cannot be read adds none."""
         heard = set()
         for project in self.projects:
