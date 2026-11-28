@@ -182,9 +182,14 @@ def agent_of(skill: str, agents: dict) -> str:
 def agent_for(task: dict, agents: dict):
     """The agent that owns a plan task. A step task (a key `step`: the name of a kind of runtime/steps.py) belongs to the runtime's own
     pseudo-agent, steps.OWNER, whatever the project's area agents are: it runs no skill and no model, so no pack holds it and none
-    needs to. Any other task: agent_of its skill when area agents are configured, else None (stages 1 to 4)."""
+    needs to. A task of an imported skill (key `imported`): the planning agent, or None without area agents. Any other task: agent_of its skill when area agents are configured, else None (stages 1 to 4)."""
     if task.get("step"):
         return steps.OWNER
+    if task.get("imported"):   # a skill from outside is in no pack: the planning agent, the reception, owns its task (decision I2)
+        if agents and PLANNING not in agents:
+            raise ValueError(f"the imported skill {task['skill']} runs under the planning agent, and runtime.json has no enabled "
+                             "planning agent")
+        return PLANNING if agents else None
     return agent_of(task["skill"], agents) if agents else None
 
 
@@ -265,6 +270,11 @@ def scope_refusal(flow_name: str, outside: list, root: str) -> str:
     return "; and ".join(parts)
 
 
+def _is_core(skill: str, root: str) -> bool:
+    """Whether the skill is a folder of <root>/skills/."""
+    return os.path.isfile(os.path.join(root, "skills", skill, "SKILL.md"))
+
+
 def from_flow(flow: dict, root: str, pack) -> list:
     """The tasks of a flow file (flow_files.load()) as plan tasks, in its order. A task whose skill is not in pack
     raises PlanError saying which pack of packs/ holds the skills and what to add to runtime.json (scope_refusal). A flow that still
@@ -275,7 +285,8 @@ def from_flow(flow: dict, root: str, pack) -> list:
     if unfilled:
         raise PlanError(f"the flow {flow['flow']} has parameters or dates to fill ({', '.join(sorted(unfilled))}): name it, with its "
                         f"parameters, to plan it (route --request <id> --flow {flow['flow']} --param name=value)")
-    outside = [t["skill"] for t in flow["tasks"] if not t.get("step") and t["skill"] not in list(pack)]
+    foreign = {t["skill"] for t in flow["tasks"] if not t.get("step") and not _is_core(t["skill"], root)}   # a skill from outside: flow_files let it through
+    outside = [t["skill"] for t in flow["tasks"] if not t.get("step") and t["skill"] not in foreign and t["skill"] not in list(pack)]
     if outside:
         raise PlanError(scope_refusal(flow["flow"], outside, root))
     tasks = []
@@ -288,14 +299,19 @@ def from_flow(flow: dict, root: str, pack) -> list:
             except steps.StepFailure as e:
                 raise PlanError(f"the step {t['key']} of the flow {flow['flow']}: {e}") from None
             continue
-        try:
-            facts = _task_facts(t["skill"], root)
-        except (skill_meta.SkillError, manifest.ManifestError) as e:
-            raise PlanError(str(e)) from None
+        if t["skill"] in foreign:   # an imported task: its manifest is read, whole, when it runs; no web, no milestone of its own
+            facts = {"mandatory_milestone": False, "web": False}
+        else:
+            try:
+                facts = _task_facts(t["skill"], root)
+            except (skill_meta.SkillError, manifest.ManifestError) as e:
+                raise PlanError(str(e)) from None
         one = {"key": t["key"], "skill": t["skill"], "title": t["title"], "text": t["text"],
                "depends_on": list(t["depends_on"]), "milestone": bool(t["milestone"]) or facts["mandatory_milestone"], **facts}
         if received.get(t["key"]):
             one["sources"] = list(received[t["key"]])
+        if t["skill"] in foreign:
+            one["imported"] = True
         if t.get("web") is False and facts["web"]:   # the flow runs this skill without the web it requires: the run is routed so (store: web_off)
             one["web"], one["web_off"] = False, True
         tasks.append(one)

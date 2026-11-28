@@ -48,6 +48,7 @@ import ops_waits
 import autonomy
 import dispatcher
 import documents
+import imported
 import lab
 import parallel
 import skill_meta
@@ -277,14 +278,16 @@ def _use_start(ctx: dict, run_id: int, skill: str, routing: dict):
 # --- what a task is, for the rules of the slots -------------------------------------------------------------------------
 
 
-def skill_facts(skill, cache: dict) -> tuple:
+def skill_facts(skill, cache: dict, cfg=None) -> tuple:
     """(footprint, code) of a skill: the files its tasks may write (runtime/parallel.py footprint) and whether its tasks are
     code tasks (code_task). A skill that cannot be read has an empty footprint and is no code task; the run fails to
-    start with its reason later. Kept in `cache` for one call."""
+    start with its reason later. Kept in `cache` for one call. With `cfg`, a skill the project lists as imported is read
+    from its folder outside the checkout (runtime/imported.py skill_dir): without it an imported task would have an empty
+    footprint and could run beside a task that writes the same file."""
     if skill not in cache:
         found = (frozenset(), False)
         if skill:
-            folder = os.path.join(core.ROOT, "skills", skill)
+            folder = imported.skill_dir(cfg, skill) if cfg is not None else os.path.join(core.ROOT, "skills", skill)
             try:
                 found = (parallel.footprint(folder), bool(code_task(skill_meta.declared(folder))))
             except skill_meta.SkillError:
@@ -293,25 +296,25 @@ def skill_facts(skill, cache: dict) -> tuple:
     return cache[skill]
 
 
-def task_facts(task: dict, cache: dict) -> tuple:
+def task_facts(task: dict, cache: dict, cfg=None) -> tuple:
     """(footprint, code) of a task. A step task's footprint is the one its kind declared when the task was made (the column
     `step_footprint`, never read from the task's text), and it is never a code task: the one-code-task-per-request rule is the
     skill tasks' of the code areas. Any other task's are its skill's (skill_facts)."""
     if task.get("step_kind"):
         return frozenset(task.get("step_footprint") or ()), False
-    return skill_facts(task.get("skill"), cache)
+    return skill_facts(task.get("skill"), cache, cfg)
 
 
-def item_of(task: dict, cache: dict) -> dict:
+def item_of(task: dict, cache: dict, cfg=None) -> dict:
     """The task as runtime/parallel.py reads it: {"id", "agent", "request_id", "code", "footprint"}."""
-    footprint, code = task_facts(task, cache)
+    footprint, code = task_facts(task, cache, cfg)
     return {"id": task["id"], "agent": task.get("agent"), "request_id": task.get("parent_id"), "code": code,
             "footprint": footprint}
 
 
 def running_items(ctx: dict, cache: dict) -> list:
     """Every task in state `running`, as item_of gives it."""
-    return [item_of(row["task"], cache) for row in core._stored(ctx, ctx["store"].task_running_list)]
+    return [item_of(row["task"], cache, ctx["cfg"]) for row in core._stored(ctx, ctx["store"].task_running_list)]
 
 
 def effect_items(ctx: dict) -> list:
@@ -456,7 +459,7 @@ def _start(ctx: dict, task_id: int, requested, checked: bool) -> dict:
     with core._claim_lock(cfg):
         if task is not None and task.get("skill") and documents.enabled(cfg):
             try:
-                stopped = documents.blocked(ctx, skill_meta.declared(os.path.join(core.ROOT, "skills", task["skill"])))
+                stopped = documents.blocked(ctx, skill_meta.declared(imported.skill_dir(cfg, task["skill"])))
             except skill_meta.SkillError:
                 stopped = []  # the run fails to start below, with its reason
             if stopped:
@@ -473,7 +476,7 @@ def _start(ctx: dict, task_id: int, requested, checked: bool) -> dict:
                                                  prepared["routing"]["billing"])
                     if not ok:
                         return {"ran": None, "reason": why, "held": True, "task": task_id}
-            ok, why = parallel.admit(item_of(task, cache), running, holders, cfg["area_agents"], cfg["max_running"])
+            ok, why = parallel.admit(item_of(task, cache, cfg), running, holders, cfg["area_agents"], cfg["max_running"])
             if not ok:
                 return {"ran": None, "reason": why, "held": True, "task": task_id}
         claimed = core._stored(ctx, store.task_claim, task_id)
@@ -519,7 +522,7 @@ def run_next(project: str, requested=None) -> dict:
         running = running_and_effects(ctx, cache)
         holders = core._stored(ctx, store.task_slot_holders)
         for task in sorted(ready, key=lambda t: t["id"]):
-            ok, word = parallel.admit(item_of(task, cache), running, holders, cfg["area_agents"], cfg["max_running"])
+            ok, word = parallel.admit(item_of(task, cache, cfg), running, holders, cfg["area_agents"], cfg["max_running"])
             if ok:
                 chosen = task["id"]
                 break
@@ -670,7 +673,7 @@ def parallel_state(ctx: dict, tasks: list, cache: dict) -> dict:
         task = by_id.get(task_id)
         if task is not None and task["state"] == "ready":
             starting.add(task_id)
-            running.append(item_of(task, cache))
+            running.append(item_of(task, cache, ctx["cfg"]))
             if not any(h["id"] == task_id for h in holding):
                 holding.append({"id": task_id, "agent": task.get("agent")})
     return {"running": running, "holding": holding, "refused": refused_now(ctx), "starting": starting}

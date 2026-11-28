@@ -385,6 +385,8 @@ def run_budget(entry: dict, spent: dict, per_run_usd: float):
 def review_action(task: dict, pending: dict, f: dict, proven: bool, mandatory: bool, consent: bool = False) -> str:
     """"release" or "hold" for one open pending decision, the first rule that matches:
     1. not a review: hold (a question, a plan, an effect, an acceptance always reach the person);
+    1b. the run was of an imported skill (its routing says so): hold, whatever the proof, the consent or the mode: the cases of a
+       skill from outside are the person's own and nobody else read them (decision I2). No later mode releases it;
     2. its run's ending is not `done` (a draft with questions, an unclassified reply, a gate): hold;
     3. a `done` whose reason says no file changed: hold;
     4. its change set is blocked: hold;
@@ -398,6 +400,8 @@ def review_action(task: dict, pending: dict, f: dict, proven: bool, mandatory: b
     if pending.get("kind") != "review":
         return "hold"
     payload = pending.get("payload") or {}
+    if (payload.get("routing") or {}).get("imported"):
+        return "hold"
     if payload.get("ending") != "done":
         return "hold"
     if str(payload.get("why") or "").startswith(NO_CHANGE):

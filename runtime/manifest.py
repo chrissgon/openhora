@@ -25,6 +25,8 @@ Usage (a library):
   python3 runtime/manifest.py --check     check the manifests of the skills of the packs in use (whole) and any
                                           other manifest (partial allowed); print one JSON
                                           object {"skills": n, "problems": {skill: [...]}}; exit 1 when any
+  python3 runtime/manifest.py --check --skill-dir <folder>
+                                          check that one folder's manifest whole (an imported skill's); same output
 
 Standard library only. Runs on Python 3.9.
 """
@@ -165,11 +167,22 @@ def problems(data, declared: dict, skill_dir: str, in_use: bool = True) -> list:
     return out
 
 
+def path_in(skill_dir: str) -> str:
+    """<skill_dir>/evals/runtime-manifest.json"""
+    return os.path.join(skill_dir, *REL.split("/"))
+
+
 def load(root: str, skill: str, whole: bool = True) -> dict:
-    """The manifest of a skill, checked. Raises ManifestError when the file is missing, is not JSON, or
+    """The manifest of a skill of <root>/skills/, checked: load_dir() on its folder, with the same messages."""
+    return load_dir(os.path.join(root, "skills", skill), whole)
+
+
+def load_dir(skill_dir: str, whole: bool = True) -> dict:
+    """The manifest of the skill in a folder, checked. Raises ManifestError when the file is missing, is not JSON, or
     problems() is not empty. `whole` is true for a run: every key is required, whatever the skill's pack (a skill with
     a partial manifest does not run). The classifier of endings reads a manifest with whole=in_use(root, skill)."""
-    file = path(root, skill)
+    skill = os.path.basename(os.path.normpath(skill_dir))
+    file = path_in(skill_dir)
     try:
         with open(file, encoding="utf-8") as f:
             data = json.load(f)
@@ -177,7 +190,6 @@ def load(root: str, skill: str, whole: bool = True) -> dict:
         raise ManifestError(f"{skill} has no runtime manifest ({file}): the runtime knows nothing of the skill") from None
     except ValueError as e:
         raise ManifestError(f"{file} is not valid JSON: {e}") from None
-    skill_dir = os.path.join(root, "skills", skill)
     try:
         declared = skill_meta.declared(skill_dir)
     except skill_meta.SkillError as e:
@@ -244,7 +256,7 @@ def asking_openings_of(skill_md: str) -> list:
     return out
 
 
-def ending_facts(root: str, skill: str) -> dict:
+def ending_facts(root: str, skill: str, skill_dir: str = None) -> dict:
     """The facts of a skill the classifier of endings reads (runtime/endings.py, classify(..., facts=)), the one
     source for runtime/ops.py and for the corpus test alike: {"skill", "asking_openings", "fixed_output",
     "side_effects", "gate_payload", "skills", "reply_phrases"}.
@@ -258,13 +270,17 @@ def ending_facts(root: str, skill: str) -> dict:
                      empty list for each key it does not give
 
     A skill whose manifest file exists but is not well formed raises ManifestError, as load() does; a skill outside
-    the packs in use may have a partial manifest (see the module text)."""
-    skill_dir = os.path.join(root, "skills", skill)
+    the packs in use may have a partial manifest (see the module text). With `skill_dir` (an imported skill's folder),
+    the meta, the manifest and the SKILL.md come from that folder and the manifest is whole; `skills` still lists
+    <root>/skills/."""
+    imported = skill_dir is not None
+    skill_dir = skill_dir or os.path.join(root, "skills", skill)
     try:
         declared = skill_meta.declared(skill_dir)
     except skill_meta.SkillError as e:
         raise ManifestError(str(e)) from None
-    data = load(root, skill, whole=in_use(root, skill)) if os.path.isfile(path(root, skill)) else None
+    whole = True if imported else in_use(root, skill)
+    data = load_dir(skill_dir, whole=whole) if os.path.isfile(path_in(skill_dir)) else None
     if data is not None and "asking_openings" in data:
         openings = list(data["asking_openings"] or [])
     else:
@@ -290,6 +306,15 @@ def bound_among(manifest: dict, paths) -> list:
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if len(argv) == 3 and argv[:2] == ["--check", "--skill-dir"]:
+        folder = os.path.abspath(argv[2])
+        try:
+            load_dir(folder)
+            found = {}
+        except ManifestError as e:
+            found = {os.path.basename(folder): [str(e)]}
+        print(json.dumps({"skills": 1, "problems": found}))
+        return 1 if found else 0
     if argv != ["--check"]:
         print(__doc__.strip(), file=sys.stdout if argv in (["--help"], ["-h"]) else sys.stderr)
         return 0 if argv in (["--help"], ["-h"]) else 2

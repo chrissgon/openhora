@@ -150,7 +150,7 @@ def _start(ctx: dict, task_id: int, unattended: bool = False) -> dict:
             cache = {}
             running = [r for r in ops_runs.running_and_effects(ctx, cache) if r["id"] != task_id]
             holders = core._stored(ctx, store.task_slot_holders)
-            ok, why = parallel.admit(ops_runs.item_of(task, cache), running, holders, cfg["area_agents"], cfg["max_running"])
+            ok, why = parallel.admit(ops_runs.item_of(task, cache, cfg), running, holders, cfg["area_agents"], cfg["max_running"])
             if not ok:
                 return {"ran": None, "reason": why, "held": True, "task": task_id}
         claimed = core._stored(ctx, store.task_claim, task_id)
