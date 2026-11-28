@@ -214,6 +214,15 @@ def test_the_maker_is_named_nowhere_in_the_blocks_folder():
             assert MAKER not in path.read_text(encoding="utf-8").lower(), path
 
 
+def test_the_testimonial_card_enters_with_the_quote_and_the_author_together():
+    """P2c, P2-8 (b) for the testimonial card only: the 'rise' (quote and author appear together, 0.3 s, power3.out). The other ports keep their
+    pages; the record of this port is the supervisor's (L4)."""
+    page = text_of("testimonial-card")
+    assert 'tl.fromTo(quote, { y: "10%", opacity: 0 }, { y: "0%", opacity: 1, duration: Math.min(0.3, 0.3 * scale / 0.9), ease: "power3.out" }, 0);' in page
+    assert 'Math.min(0.12, 0.12 * scale / 0.9)' in page and '"power2.out"' not in page
+    assert "0.82 * scale" not in page and "0.7 * scale" not in page
+
+
 @pytest.mark.parametrize("short", sorted(PORTS))
 def test_each_ports_gsap_page_is_pinned_with_the_sha256_of_its_bytes(short):
     import _frames

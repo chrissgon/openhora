@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-preset" content="keyword">
+<meta name="pv-params" content="text,color">
+<meta name="pv-looks" content="">
+<style>
+:root { --c-bg:#0B0F14; --c-text:#FFFFFF; --c-muted:#A8B0BC; --c-accent:#FFC93C; --c-chip_fill:#1B1F2A; --c-chip_text:#FFE08A; --c-chip_border:#FFC93C;
+        --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
+        --weight-display:800; --weight-text:500; --weight-mono:500; }
+html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
+#pos { position:absolute; left:65px; width:950px; display:flex; justify-content:center; align-items:center; }
+#card { position:relative; display:block; font-family:var(--font-display); font-weight:var(--weight-display); text-align:center; white-space:pre; line-height:1.05; letter-spacing:-0.01em; }
+#card { padding:0.14em 0.5em 0.2em; text-transform:uppercase; }
+#bar { display:none; }
+#txt { display:block; }
+</style>
+</head>
+<body>
+<div id="pos"><div id="card"><div id="bar"></div><div id="txt"></div></div></div>
+<script>
+'use strict';
+// oh:keyword-slab (the maintainer's variant A: a solid accent slab, capitals, the slab wipes in from the left, then the dark text rises in).
+// A slab in the card band the face box leaves above it (data.zones.card = [top, bottom]): the largest type whose slab fits the band's
+// height and the frame's width. A text with a space is drawn on one line or on two (split at the space nearest the middle), whichever gives
+// the larger type; one word stays one line. The wipe and the rise are the same for both layouts. Pure function of (t, data): every style is set here, so a frame never depends on the one before.
+function col(v) { return v.charAt(0) === '#' ? v : 'var(--c-' + v + ')'; }
+function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+function easeInCubic(x) { return x * x * x; }
+function clamp(x) { return Math.max(0, Math.min(1, x)); }
+function seg(t, a, b) { return clamp((t - a) / (b - a)); }      // 0 before a, 1 after b
+const FIT = 0.86;
+// The text on two lines, split at the space nearest the middle (the first one on a tie); null when the text has no space.
+function twoLines(text) {
+  const mid = text.length / 2;
+  let best = -1;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charAt(i) === ' ' && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
+  }
+  if (best < 0) return null;
+  return text.slice(0, best) + '\n' + text.slice(best + 1);
+}
+// The largest type, from the band's start size down by 6 percent a step, at which the slab fits the band's height and the frame's width.
+function fit(card, txt, text, bandH) {
+  txt.textContent = text;
+  let fs = Math.min(140, bandH * 0.5);
+  card.style.fontSize = fs + 'px';
+  while ((card.offsetWidth > 930 || card.offsetHeight > bandH * FIT) && fs > 30) { fs = fs * 0.94; card.style.fontSize = fs.toFixed(1) + 'px'; }
+  return fs;
+}
+window.renderAt = function (t, data) {
+  const P = data.params;
+  const z = data.zones.card;
+  const bandH = z[1] - z[0];
+  const pos = document.getElementById('pos');
+  pos.style.top = z[0] + 'px';
+  pos.style.height = bandH + 'px';
+  const card = document.getElementById('card');
+  const txt = document.getElementById('txt');
+  const bar = document.getElementById('bar');
+  card.dataset.zone = 'card';
+  const color = col(P.color || 'accent');
+  card.style.transform = 'none'; card.style.opacity = '1'; card.style.clipPath = 'none';
+  txt.style.opacity = '1'; txt.style.transform = 'none';
+  card.style.background = color;
+  card.style.color = 'var(--c-bg)';
+  card.style.borderRadius = '0.06em';
+  card.style.boxShadow = '0 0.08em 0 rgba(0,0,0,.35)';
+  const one = P.text;
+  const two = twoLines(P.text);
+  const fs1 = fit(card, txt, one, bandH);
+  const fs2 = two === null ? 0 : fit(card, txt, two, bandH);
+  const useTwo = fs2 > fs1;                                    // the one line wins a tie
+  const fs = useTwo ? fs2 : fs1;
+  txt.textContent = useTwo ? two : one;
+  card.style.fontSize = fs.toFixed(1) + 'px';
+  const tout = clamp((data.duration - t) / 0.2);
+  const wipe = easeOutCubic(seg(t, 0.0, 0.2));            // the slab: 0.2 s, left to right
+  card.style.clipPath = 'inset(0 ' + ((1 - wipe) * 100).toFixed(2) + '% 0 0)';
+  const tin = easeOutCubic(seg(t, 0.12, 0.38));           // the text: starts 0.12 s in, rises 0.18 em over 0.26 s
+  txt.style.opacity = tin.toFixed(3);
+  txt.style.transform = 'translateY(' + ((1 - tin) * 0.18).toFixed(3) + 'em)';
+  card.style.opacity = tout.toFixed(3);
+};
+</script>
+</body>
+</html>

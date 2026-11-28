@@ -73,6 +73,12 @@ def test_every_file_under_blocks_is_pinned_and_every_pin_names_a_file():
     assert found - set(_blocks.UNPINNED) == set(_blocks.read_pins()[1])
 
 
+def test_the_pins_and_the_catalogue_hold_the_keyword_slab_and_the_keyword_default_stays_the_port():
+    cat = _blocks.load_catalogue()
+    assert cat["blocks"]["oh:keyword-slab"]["preset"] == "keyword" and "oh/keyword-slab/renderat.html" in _blocks.read_pins()[1]
+    assert cat["engines"]["ffmpeg"]["presets"]["keyword"] == "hf:spring-pop"      # P2c: the slab is one more choice, never the default
+
+
 # M2 (PF-a4f): the ffmpeg engine's defaults that are ports; every other preset defaults to its oh: page
 PORT_DEFAULTS = {"caption": "hf:caption-highlight", "keyword": "hf:spring-pop", "number": "hf:count-up", "quote": "hf:testimonial-card"}
 
