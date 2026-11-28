@@ -1,0 +1,8 @@
+{
+  "package": "at2b",
+  "table": {
+    "TOO_LARGE_ONE": "Uma mensagem enviada a este canal era grande demais para ser lida (mais de 1 MB com os anexos) e foi deixada de lado: nada foi feito com ela. Se era sua, envie arquivos menores, de até cerca de 700 KB.",
+    "TOO_LARGE_MANY": "{n} mensagens enviadas a este canal eram grandes demais para serem lidas (mais de 1 MB com os anexos) e foram deixadas de lado: nada foi feito com elas. Se alguma era sua, envie arquivos menores, de até cerca de 700 KB."
+  },
+  "same_as_english": []
+}
