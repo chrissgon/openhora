@@ -508,16 +508,32 @@ def _base(ctx: steps.Context, state: dict) -> dict:
 SLOT_FALLBACK = "a picture"      # the description when the person gave neither `show` nor search words that fit the renderer's limits (`slot_description_min`, `slot_description_max`, read from the vocabulary file)
 
 
-def _slot_row(store, entry: dict, a: dict) -> dict:
+def _catalogue_blocks(store) -> dict:
+    """The blocks of the project's catalogue, read as data through the media store seam (`store.catalogue()`; a step module imports no module that calls a provider, limit L30): the
+    one source of an added animation's kind and picture kinds, review-only presets included (the shared vocabulary file holds none of them). A catalogue that cannot be read
+    (`catalogue_unreadable`, `catalogue_stale`) is `step_output_invalid` with the field `catalogue`."""
+    try:
+        return store.catalogue()["blocks"]
+    except Exception as e:      # media_animation.CatalogueError, by its code: the class cannot be imported here
+        if getattr(e, "code", "") in ("catalogue_unreadable", "catalogue_stale"):
+            raise steps.StepFailure("step_output_invalid", "catalogue") from None
+        raise
+
+
+def _slot_row(store, entry: dict, a: dict, blocks: dict) -> dict:
     """The row of beats.json `slots` for an added layout or picture overlay drawn with its approved picture, made as the renderer's aligner makes its own
-    (providers/renderer/_align.py build_beats): `slot` is the entry's id, `beat` its beat, `param` the picture parameter, `type` the preset's picture kinds read from the
-    vocabulary file joined with `|`, `description` what the person said the picture shows (`show`), else the search words, else SLOT_FALLBACK, inside the vocabulary's limits."""
+    (providers/renderer/_align.py build_beats): `slot` is the entry's id, `beat` its beat, `param` the picture parameter, `type` the picture kinds of the added animation's block read
+    from `blocks` (the catalogue's entries) joined with `|`, `description` what the person said the picture shows (`show`), else the search words, else SLOT_FALLBACK, inside the
+    vocabulary file's limits (`slot_description_min`, `slot_description_max`). A block the catalogue does not hold is `step_output_invalid` with the field `catalogue`."""
+    try:
+        spec = blocks[a["block"]]["params"][a["asset_param"]]
+        kinds = spec["type"] if isinstance(spec["type"], list) else [spec["type"]]
+    except (KeyError, TypeError):
+        raise steps.StepFailure("step_output_invalid", "catalogue") from None
     where = _asked(store.reference, VOCABULARY)
     try:
         with open(where, "rb") as f:
             vocab = json.loads(f.read())
-        spec = vocab["presets"][entry["preset"]]["params"][a["asset_param"]]
-        kinds = spec["type"] if isinstance(spec["type"], list) else [spec["type"]]
         low, high = vocab["limits"]["slot_description_min"], vocab["limits"]["slot_description_max"]
     except (OSError, ValueError, KeyError, TypeError, RecursionError):
         raise steps.StepFailure("step_output_invalid", "vocabulary") from None
@@ -526,10 +542,10 @@ def _slot_row(store, entry: dict, a: dict) -> dict:
     return {"slot": entry["id"], "beat": entry["beat"], "param": a["asset_param"], "type": "|".join(kinds), "description": words}
 
 
-def _add_slot_row(store, beats: dict, entry: dict, a: dict) -> None:
+def _add_slot_row(store, beats: dict, entry: dict, a: dict, blocks: dict) -> None:
     rows = beats.setdefault("slots", [])
     if not any(isinstance(r, dict) and r.get("slot") == entry["id"] for r in rows):
-        rows.append(_slot_row(store, entry, a))
+        rows.append(_slot_row(store, entry, a, blocks))
 
 
 def fit_clip_entries(beats: dict, edl: dict, clips: dict) -> list:
@@ -600,6 +616,7 @@ def _align(ctx: steps.Context, state: dict) -> dict:
         beats["overlays"] = [e for e in beats.get("overlays") or [] if e.get("beat") not in dropped]
         beats["layouts"] = [e for e in beats.get("layouts") or [] if e.get("beat") not in dropped]
     if placed:
+        blocks = _catalogue_blocks(store)
         added = beats.setdefault("overlays", [])
         for a in placed:
             entry = {"id": a["id"], "beat": captions.ANIMATION_BEAT_BASE + int(a["id"][1:]), "preset": a["preset"], "params": a["params"],
@@ -608,10 +625,15 @@ def _align(ctx: steps.Context, state: dict) -> dict:
                 if a["id"] not in stock:
                     continue
                 entry["params"] = dict(a["params"], **{a["asset_param"]: a["id"]})
-                _add_slot_row(store, beats, entry, a)
+                _add_slot_row(store, beats, entry, a, blocks)
                 beats.setdefault("overlays" if a.get("pic_kind") == "overlay" else "layouts", []).append(entry)
                 continue
-            added.append(entry)
+            if (blocks.get(a["block"]) or {}).get("kind") == "layout":      # a text-only layout (no picture parameter) is a layout, not an overlay: the renderer refuses a layout preset in `overlays`
+                beats.setdefault("layouts", []).append(entry)
+            elif a["block"] in blocks:
+                added.append(entry)
+            else:
+                raise steps.StepFailure("step_output_invalid", "catalogue")
     skipped = set(review["dropped_punches"])      # the script's punches the person dropped stay dropped, whatever the alignment finds
     kept_punches = [p for p in beats.get("punches") or [] if p.get("beat") not in skipped]
     changed = len(kept_punches) != len(beats.get("punches") or [])

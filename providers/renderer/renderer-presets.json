@@ -178,6 +178,31 @@
    "tail": 0.3,
    "settled": 0.4,
    "looks": {}
+  },
+  "focus_card": {
+   "anchor": "window",
+   "min_duration": 1.5,
+   "max_duration": null,
+   "tail": 0.2,
+   "settled": 0.65,
+   "page_images": true,
+   "looks": {
+    "width_frac": 0.6,
+    "radius_px": 28,
+    "max_height": 1300,
+    "push": 0.04,
+    "enter_seconds": 0.22,
+    "enter_from": 0.06,
+    "exit_seconds": 0.18,
+    "stamp_delay": 0.55,
+    "stamp_seconds": 0.4,
+    "stamp_from": 1.8,
+    "stamp_size": 0.26,
+    "stamp_stroke": 64,
+    "stamp_tilt": -8,
+    "stamp_x_color": "#FF3B30",
+    "stamp_check_color": "#34C759"
+   }
   }
  },
  "review_presets": {
@@ -261,6 +286,39 @@
      "type": "color"
     }
    }
+  },
+  "focus_card": {
+   "kind": "layout",
+   "summary": "a picture of yours as a card in the middle, over your own shot blurred and greyed",
+   "main": "label",
+   "params": {
+    "asset": {
+     "type": "image",
+     "required": true
+    },
+    "label": {
+     "type": "text",
+     "max": 40
+    },
+    "stamp": {
+     "type": "choice",
+     "values": [
+      "none",
+      "x",
+      "check"
+     ],
+     "default": "none"
+    },
+    "backdrop": {
+     "type": "choice",
+     "values": [
+      "blur",
+      "solid",
+      "none"
+     ],
+     "default": "blur"
+    }
+   }
   }
  },
  "zones": {
@@ -306,6 +364,10 @@
    "blur_to_card": {"lead": 2, "intensity": [0.5, 1.0, 0.5], "sigma": 24, "darken": 0.5},
    "dip": {"lead": 1, "intensity": [0.6, 1.0, 0.6]}
   }
+ },
+ "backdrop": {
+  "note": "The blurred shot under a beat whose `backdrop` is `blur` (video P4b): ffmpeg blurs, greys and darkens the speaker's own picture over the beat's frames, under every card, picture and caption. Defaults only: the bounds are validity (_edl.check_backdrop_config). No limit on the face (P4-1, 2026-11-28). `saturation` 1 keeps the colour and 0 is fully grey; `darken` mixes toward the theme's bg.",
+  "blur": {"sigma": 40, "darken": 0.5, "saturation": 0.5}
  },
  "cuts": {
   "min_cut": 0.12,

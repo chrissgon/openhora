@@ -57,7 +57,8 @@ EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 REQUIRED_ENCODERS = ("libx264", "aac", "png")
 REQUIRED_FILTERS = ("overlay", "alphamerge", "geq", "setparams", "concat", "trim", "atrim", "split", "scale", "crop", "fps",
                     "silencedetect", "aformat", "asplit", "aecho", "volume", "amix",
-                    "lutrgb", "gblur", "blend", "mix", "rgbashift")      # asides' echo (the four before); the transitions' chains (the last five)
+                    "lutrgb", "gblur", "blend", "mix", "rgbashift",
+                    "colorchannelmixer")      # asides' echo (the four before); the transitions' chains (the five before the last); the blurred shot's colour matrix (the last, P4b)
 
 
 class Usage(Exception):

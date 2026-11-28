@@ -449,6 +449,48 @@ def test_f12_the_transitions_are_drawn_twice_identically_and_the_speaker_changes
     assert cruns[0].out["sha256"] == cruns[1].out["sha256"], [r.out["sha256"] for r in cruns]
 
 
+# ---------------------------------------------------------------- F14 the picture card over the blurred shot (P4b, C5)
+
+def with_focus_card(lab, beats_file: Path, name: str) -> Path:
+    """A copy of the cutaway case's beats file whose one layout is a `focus_card` (backdrop blur, stamp x) on the same slot and words."""
+    doc = json.loads(Path(beats_file).read_text())
+    (layout,) = [e for e in doc["layouts"] if e["preset"] == "cutaway"]
+    layout["preset"], layout["params"] = "focus_card", {"asset": layout["params"]["asset"], "stamp": "x", "backdrop": "blur"}
+    return K.write_json(lab.folder / name, doc)
+
+
+@legs("F14", ("ffmpeg",))
+def test_f14_the_card_over_the_blurred_shot_is_one_sha256_at_four_and_at_two_cpus_and_the_speaker_changes_only_where_the_edit_list_says(engine, lab):
+    """P4b, C5. The cutaway case with its layout turned into a `focus_card` (backdrop blur, stamp x, the contract kit's picture), rendered at 4 and at 2 cpus: one
+    sha256 (C9). The answer's `blurs_drawn` is what `_edl.resolve_timeline` makes of the beats, the card is in `beats_drawn` with its block, and the band of every output
+    frame outside the blurred span is the source frame the kept ranges name (the frames inside are drawn on). The offline test of `test_backdrop_compose.py` proves the same
+    on every frame's md5 on the host's ffmpeg; this leg is the image's ffmpeg 5.1."""
+    lab.need(engine)
+    transcript = K.build_transcript(CUTAWAY_SENTENCES)
+    rec = lab.recording("cutaway", transcript)
+    edl_file, beats_file, doc = lab.documents("cutaway-nozoom", rec, transcript, CUTAWAY_POST, ("--zoom", "none", "--push-in", "0"))      # no zoom: a zoomed range scales the band, so frames outside the span could not be read exactly
+    assert C.unzoomed_ranges(doc) == list(range(len(doc["kept"])))
+    beats = with_focus_card(lab, beats_file, "beats-f14.json")
+    picture = cutaway_picture(lab.folder)
+    runs = [lab.render(engine, "f14-a-" + engine, rec, edl_file, beats, 4, "0-3", assets={"beat2": picture}),
+            lab.render(engine, "f14-b-" + engine, rec, edl_file, beats, 2, "0-1", assets={"beat2": picture})]
+    for run in runs:
+        assert run.rc == 0, (run.out, run.err[-2000:])
+    if runs[0].out["sha256"] != runs[1].out["sha256"]:
+        listed = [("cpus %s" % s, r.out_dir, Path(r.out["path"]).name, r.out["sha256"]) for s, r in zip(("4", "2"), runs)]
+        pytest.fail("the card over the blurred shot is not independent of the cpu count: %s" % json.dumps(C.mismatch_report(lab.runner(), listed), indent=1))
+    from _vocab import load_data, load_vocabulary
+    timeline = _edl.resolve_timeline(doc, json.loads(Path(beats).read_text()), load_vocabulary(str(K.VOCABULARY)), load_data())
+    want_rows = [(r["id"], r["start_frame"], r["end_frame"]) for r in timeline["blurs"]]
+    assert want_rows and [(r["id"], r["start_frame"], r["end_frame"]) for r in runs[0].out["blurs_drawn"]] == want_rows == \
+        [(r["id"], r["start_frame"], r["end_frame"]) for r in runs[1].out["blurs_drawn"]]
+    assert [(b["preset"], b["block"]) for b in runs[0].out["beats_drawn"] if b["preset"] == "focus_card"] == [("focus_card", "oh:focus-card")]
+    inside = {f for _, a, b in want_rows for f in range(a, b)}
+    got, want = lab.band(Path(runs[0].out["path"])), C.expected_sources(doc["kept"])
+    assert len(got) == doc["out_frames"] and inside
+    assert [f for f in range(len(got)) if f not in inside and got[f] != want[f]] == []
+
+
 # ---------------------------------------------------------------- F13 the caption block a video chooses (P2a)
 
 @legs("F13", ("ffmpeg",))

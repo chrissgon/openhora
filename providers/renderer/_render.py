@@ -114,6 +114,8 @@ def compose_plan(data, edl, timeline, assets, platform, src, frames_rel="frames"
     drawn = [t for t in timeline.get("transitions") or [] if t["kind"] in _edl.FFMPEG_TRANSITIONS]
     if drawn:       # the ffmpeg transitions (P1a), each with its kind's numbers: the plan of a render with none has no such key
         plan["transitions"] = [dict(t, params=data["transitions"]["kinds"][t["kind"]]) for t in drawn]
+    if timeline.get("blurs"):      # the blurred shot under a beat (P4b), with the data file's numbers and the theme's bg: the plan of a render with none has no such key
+        plan["blurs"] = [dict(r, params=data["backdrop"]["blur"], color=edl["theme"]["colors"]["bg"]) for r in timeline["blurs"]]
     if timeline.get("echoes") and plan["has_audio"]:
         plan["echoes"] = timeline["echoes"]          # an aside's echo, on the joined sound: the plan of a render with none has no such key
     return plan
@@ -289,7 +291,7 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     summary = {"ok": True, "dry_run": bool(dry_run), "out_dir": outdir, "out_seconds": round(out_seconds, 3), "out_frames": edl["out_frames"],
                "frame_jobs": len(jobs_list), "jobs": jobs, "time_limit_seconds": limit, "layers": plan["layers"],
                "beats_drawn": [{"id": e["id"], "preset": e["preset"], "block": e["block"], "start_frame": e["start_frame"], "end_frame": e["end_frame"]} for e in timeline["beats"]],
-               "beats_dropped": timeline["dropped"], **({"assets_dropped": sorted(dropped_only)} if dropped_only else {}), **({"beats_dropped_reasons": timeline["dropped_reasons"]} if timeline.get("dropped_reasons") else {}), "effects_dropped": timeline["effects_dropped"], **_transition_summary(timeline), "unmatched_beats": beats["unmatched"], "mentions": docs["mentions"],
+               "beats_dropped": timeline["dropped"], **({"assets_dropped": sorted(dropped_only)} if dropped_only else {}), **({"beats_dropped_reasons": timeline["dropped_reasons"]} if timeline.get("dropped_reasons") else {}), "effects_dropped": timeline["effects_dropped"], **_transition_summary(timeline), **_blur_summary(timeline), "unmatched_beats": beats["unmatched"], "mentions": docs["mentions"],
                "fonts": fonts_used, "blocks": {**tpl_hashes, **{n: p["served_sha256"] for n, p in admitted["proofs"].items()}}, "blocks_sha256": catalogue["sha256"],
                "ffmpeg_argv": argv, "estimated_bytes": estimate, **({"hf_proofs": admitted["proofs"]} if admitted["proofs"] else {})}
     if advice:
@@ -346,6 +348,13 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
     if advice:       # only a render that went past a default has the key: any other answer is what it always was
         summary["advice"] = advice
     return summary
+
+
+def _blur_summary(timeline: dict) -> dict:
+    """`blurs_drawn` for the render's answer (P4b): each span of the speaker's shot drawn blurred; only a render with one has the key (any other answer is what it always was)."""
+    if not timeline.get("blurs"):
+        return {}
+    return {"blurs_drawn": [{"id": b["id"], "start_frame": b["start_frame"], "end_frame": b["end_frame"]} for b in timeline["blurs"]]}
 
 
 def _transition_summary(timeline: dict) -> dict:

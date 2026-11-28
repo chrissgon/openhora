@@ -50,8 +50,8 @@ def test_the_vocabulary_merges_the_three_review_presets_marked():
         assert not review_only(VOCAB, name) and "review_only" not in VOCAB["presets"][name], name
     assert not review_only(VOCAB, "explode") and not review_only(VOCAB, None)
     shared = json.loads(K.VOCABULARY.read_text(encoding="utf-8"))
-    assert not set(NAMES) & set(shared["presets"])             # the shared vocabulary file, and so the skill's checker, never holds them
-    assert set(DATA["review_presets"]) == set(NAMES) and set(NAMES) <= set(DATA["presets"])      # each has its timing beside the others
+    assert not (set(NAMES) | {"focus_card"}) & set(shared["presets"])             # the shared vocabulary file, and so the skill's checker, never holds them
+    assert set(DATA["review_presets"]) == set(NAMES) | {"focus_card"} and set(DATA["review_presets"]) <= set(DATA["presets"])      # each has its timing beside the others
 
 
 def test_a_clash_with_a_vocabulary_preset_is_refused(monkeypatch):
@@ -328,3 +328,35 @@ def test_a_review_entry_already_in_the_vocabulary_must_equal_the_merged_one(tmp_
     del unmarked["presets"]["sticker"]["review_only"]
     path.write_text(json.dumps(unmarked), encoding="utf-8")
     assert refused(load_vocabulary, str(path)).code == "vocabulary_clash"                       # the vocabulary's own preset of that name
+
+
+# ---------------------------------------------------------------- focus_card (video P4b): a review-only layout, drawn in the frame band
+
+def test_focus_card_is_merged_review_only_a_layout_with_a_picture_slot_and_the_choices_of_the_pick(catalogue):
+    spec = VOCAB["presets"]["focus_card"]
+    assert spec["review_only"] is True and review_only(VOCAB, "focus_card") and spec["kind"] == "layout" and spec["main"] == "label"
+    assert _vocab.slot_params(VOCAB, "focus_card") == ["asset"] and spec["params"]["asset"] == {"type": "image", "required": True}
+    assert spec["params"]["stamp"] == {"type": "choice", "values": ["none", "x", "check"], "default": "none"}
+    assert spec["params"]["backdrop"] == {"type": "choice", "values": ["blur", "solid", "none"], "default": "blur"}
+    shared = json.loads(K.VOCABULARY.read_text(encoding="utf-8"))
+    assert "focus_card" not in shared["presets"]
+    block = catalogue["blocks"]["oh:focus-card"]
+    assert block["kind"] == "layout" and block["band"] == "frame" and block["may_cross_face"] is True and block["preset"] == "focus_card"
+    assert block["params"] == DATA["review_presets"]["focus_card"]["params"] == spec["params"]
+    assert catalogue["engines"]["ffmpeg"]["presets"]["focus_card"] == "oh:focus-card"
+    assert _blocks.resolve(catalogue, "ffmpeg", "focus_card", None, "beats.b1")["name"] == "oh:focus-card"
+
+
+def test_a_script_naming_focus_card_is_refused_and_the_skills_checker_does_not_know_it():
+    err = refused(_align.read_script, SCRIPT_TEMPLATE % ("Name every dollar", "focus_card", "stamp: x"), VOCAB)
+    assert err.code == "preset_review_only" and err.field == "beat1"
+    shared = load_vocabulary(str(K.VOCABULARY))
+    assert shared["presets"]["focus_card"]["review_only"] is True           # merged here; the shared file itself, which the skill's checker reads, has no such name
+    assert "focus_card" not in json.loads(K.VOCABULARY.read_text(encoding="utf-8"))["presets"]
+
+
+def test_the_focus_cards_choices_are_checked_by_the_vocabulary():
+    assert _vocab.check_params(VOCAB, "focus_card", {"asset": "a1", "stamp": "check", "backdrop": "solid", "label": "Before"})["stamp"] == "check"
+    assert refused(_vocab.check_params, VOCAB, "focus_card", {"asset": "a1", "stamp": "cross"}).code == "bad_choice"
+    assert refused(_vocab.check_params, VOCAB, "focus_card", {"asset": "a1", "backdrop": "glass"}).code == "bad_choice"
+    assert refused(_vocab.check_params, VOCAB, "focus_card", {"stamp": "x"}).code == "missing_param"
