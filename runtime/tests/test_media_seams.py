@@ -162,3 +162,30 @@ def test_services_of_a_task_holds_both_media_keys(tmp_path, monkeypatch):
     ctx = {"cfg": {"data_dir": str(tmp_path), "project": str(tmp_path)}, "store": None, "conn": None, "root": str(tmp_path)}
     found = seams.services(ctx)
     assert isinstance(found["media_store"], seams.MediaStore) and isinstance(found["media_engine"], seams.MediaEngine)
+
+
+def test_the_store_reads_the_catalogue_and_only_reads_it(store, tmp_path, monkeypatch):
+    store, _ = store
+    """`catalogue()` is a read of two files of the checkout: it works from a read-only folder, writes nothing, resolves no provider, and a stale catalogue is the module's own error."""
+    import os
+    import shutil
+    folder = tmp_path / "root" / "providers" / "renderer" / "blocks"
+    folder.mkdir(parents=True)
+    for name in ("catalogue.json", "pins.json"):
+        shutil.copy(st.REPO / "providers" / "renderer" / "blocks" / name, folder / name)
+    before = sorted(str(p) for p in (tmp_path / "root").rglob("*"))
+    monkeypatch.setattr(project_config, "resolver", lambda root: (_ for _ in ()).throw(AssertionError("a provider was reached")))
+    for path in [folder, *folder.parents[:3]]:
+        os.chmod(path, 0o500)
+    try:
+        monkeypatch.setattr(store, "root", lambda: str(tmp_path / "root"))
+        found = store.catalogue()
+        assert "oh:cutaway" in found["blocks"] and found["blocks"]["oh:cutaway"]["kind"] == "layout"
+        assert sorted(str(p) for p in (tmp_path / "root").rglob("*")) == before
+    finally:
+        for path in [folder, *folder.parents[:3]]:
+            os.chmod(path, 0o700)
+    (folder / "pins.json").write_text("{}")
+    with pytest.raises(Exception) as caught:
+        store.catalogue()
+    assert getattr(caught.value, "code", "") == "catalogue_stale"
