@@ -34,14 +34,15 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
+import autonomy  # noqa: E402
 import instructions  # noqa: E402
 import path_rule  # noqa: E402
 import phrases  # noqa: E402
 import workcopy  # noqa: E402
 
 DIR = path_rule.AGENTS_DIR
-NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
-NAME_MAX = 64
+NAME = autonomy.AGENT_KEY      # the form of an area agent's key, checked where area_agents is checked
+NAME_MAX = autonomy.AGENT_KEY_MAX
 CAP = 2000
 READ_BYTES = 8 * 1024
 PHRASE = "the profile of the agent"
@@ -88,6 +89,16 @@ def check(agent: str, text: str):
         return sentence(agent, "holds a line of the form `--- ... ---`, which imitates a separator of the prompt", count)
     if any(PHRASE in seen.casefold() or instructions.PHRASE in seen.casefold() for seen in lines):
         return sentence(agent, "holds the words of a block's own marker (the profile of the agent, or the person's standing instructions)", count)
+    return None
+
+
+def folder_link(project: str, agent: str):
+    """The refusal sentence when the profile's folder, or the folder above it under docs/workbench, is a link (a dangling one included), else None.
+    A write never goes through a link there."""
+    folder = os.path.join(project, *DIR.split("/"))
+    for place in (folder, os.path.dirname(folder)):
+        if os.path.islink(place):
+            return sentence(agent, "is a link")
     return None
 
 

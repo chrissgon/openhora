@@ -439,3 +439,81 @@ def test_the_cli_the_table_the_registry_and_the_routes_describe_the_five_operati
     for (method, route), op in expected.items():
         found = service.match(method, route)
         assert found is not None and found[0]["op"] == op, (method, route)
+
+
+# --- review fixes: the race, the agent key, a link at the folder, the stale-base error ------------------------------------------------
+
+
+def test_accept_and_reject_hold_one_lock_and_never_delete_a_newer_proposal(tree, monkeypatch):
+    path, project = str(tree["project"]), tree["project"]
+    base = ops.profile_set(path, "writer", TEXT, "none", channel="terminal")["sha256"]
+    one, other = TEXT + "One.\n", TEXT + "Other.\n"
+    ops.profile_propose(path, "writer", one, base, channel="page")
+    real = ops_profiles._write
+
+    def writes_then_another_proposal_arrives(ctx, agent, base_sha, text):
+        out = real(ctx, agent, base_sha, text)
+        ops_profiles.propose(ctx, agent, other, out["sha256"], "mcp")       # a new proposal B, made between the write and the removal
+        return out
+
+    monkeypatch.setattr(ops_profiles, "_write", writes_then_another_proposal_arrives)
+    done = ops.profile_accept(path, "writer", sha(one), channel="terminal")
+    assert done["accepted"] == sha(one) and (project / PATH).read_text() == one
+    assert json.loads(proposal_file(tree).read_text())["sha256"] == sha(other), "B was not deleted unseen"
+    # the same for a reject: the file removed is the one whose hash was named
+    ctx = ops_core.context(path)
+    seen = []
+    real_forget = ops_profiles._forget
+    monkeypatch.setattr(ops_profiles, "_forget", lambda cfg, agent, digest: (seen.append(digest), real_forget(cfg, agent, digest))[1])
+    monkeypatch.setattr(ops_profiles, "_write", real)
+    assert ops.profile_reject(path, "writer", sha(other), channel="page")["rejected"] == sha(other) and seen == [sha(other)]
+    assert not proposal_file(tree).exists()
+    # _forget unlinks only a proposal whose hash is the one named
+    ops_profiles.propose(ctx, "writer", TEXT + "Third.\n", sha(one), "page")
+    real_forget(ctx["cfg"], "writer", "0" * 64)
+    assert proposal_file(tree).exists()
+    real_forget(ctx["cfg"], "writer", sha(TEXT + "Third.\n"))
+    assert not proposal_file(tree).exists()
+
+
+def test_a_stale_base_is_its_own_error_and_accept_does_not_read_a_message(tree):
+    path = str(tree["project"])
+    assert issubclass(ops_profiles.StaleBase, ops.OpsError)
+    base = ops.profile_set(path, "writer", TEXT, "none", channel="terminal")["sha256"]
+    with pytest.raises(ops_profiles.StaleBase):
+        ops.profile_set(path, "writer", "x\n", "none", channel="terminal")
+    ops.profile_propose(path, "writer", TEXT + "More.\n", base, channel="page")
+    (tree["project"] / PATH).write_text("Changed.\n")
+    with pytest.raises(ops_profiles.StaleBase, match="changed after this proposal was made"):
+        ops.profile_accept(path, "writer", sha(TEXT + "More.\n"), channel="terminal")
+
+
+@pytest.mark.parametrize("key", ["Writer", "a_b", "a--b", "-a", "a.md", "x" * 65, "a b"])
+def test_an_area_agent_key_that_cannot_name_a_profile_is_refused_where_area_agents_is_checked(key):
+    autonomy = st.load("autonomy")
+    with pytest.raises(ValueError, match="lower-case letters, digits and single hyphens"):
+        autonomy.agents({key: {"pack": "default"}})
+    assert set(autonomy.agents({"social-manager": {"pack": "default"}, "x" * 64: {"pack": "default"}})) == {"social-manager", "x" * 64}
+    assert profiles.NAME.pattern == autonomy.AGENT_KEY.pattern
+
+
+def test_a_link_at_the_agents_folder_or_above_it_is_refused_never_followed_and_never_a_crash(tree, tmp_path):
+    path, project = str(tree["project"]), tree["project"]
+    agents = project / FOLDER
+    (project / "docs" / "elsewhere").mkdir(parents=True)
+    for target in (tmp_path / "nowhere", project / "docs" / "nowhere", project / "docs" / "elsewhere"):   # dangling, dangling inside, a folder inside
+        agents.symlink_to(target)
+        with pytest.raises(ops.OpsError, match="is a link") as refused:
+            ops.profile_set(path, "writer", "x\n", "none", channel="terminal")
+        assert not isinstance(refused.value, FileExistsError) and not (project / "docs" / "elsewhere" / "writer.md").exists()
+        assert not os.path.lexists(target) or target.is_dir() and not list(target.iterdir())
+        agents.unlink()
+    workbench = project / "docs" / "workbench"
+    moved = project / "docs" / "moved"
+    workbench.rename(moved)
+    workbench.symlink_to("moved")
+    with pytest.raises(ops.OpsError, match="is a link"):
+        ops.profile_set(path, "writer", "x\n", "none", channel="terminal")
+    workbench.unlink()
+    moved.rename(workbench)
+    assert ops.profile_set(path, "writer", "x\n", "none", channel="terminal")["written"] is True

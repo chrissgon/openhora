@@ -51,6 +51,13 @@ UNREADABLE = "the stored proposal for {agent} cannot be read: make a new one wit
 CHANGED = ("{path} changed since you read it (its sha256 is now {now}, not {base}): read it again and repeat the change; nothing was written")
 
 
+class StaleBase(core.OpsError):
+    """The file is not the one whose hash was given (code 1): it changed since it was read."""
+
+    def __init__(self, message: str):
+        super().__init__(message, 1)
+
+
 # --- what code adds ----------------------------------------------------------------------------------------------------------
 
 
@@ -151,11 +158,15 @@ def _keep(cfg: dict, agent: str, found: dict) -> None:
         raise
 
 
-def _forget(cfg: dict, agent: str) -> None:
-    try:
-        os.unlink(_store_path(cfg, agent))
-    except FileNotFoundError:
-        pass
+def _forget(cfg: dict, agent: str, digest: str) -> None:
+    """Remove the stored proposal only when it is the one whose hash is `digest`: a newer one, made meanwhile, stays."""
+    with core._write_lock(cfg):
+        found = _kept(cfg, agent)
+        if found is not None and found.get("sha256") == digest:
+            try:
+                os.unlink(_store_path(cfg, agent))
+            except FileNotFoundError:
+                pass
 
 
 # --- the operations ----------------------------------------------------------------------------------------------------------
@@ -211,7 +222,10 @@ def _write(ctx: dict, agent: str, base: str, text: str) -> dict:
         data = _current(project, agent)
         now = profiles.sha256(data) if data is not None else None
         if (now or "none") != base:
-            raise core.OpsError(CHANGED.format(path=rel, now=now or "none", base=base), 1)
+            raise StaleBase(CHANGED.format(path=rel, now=now or "none", base=base))
+        linked = profiles.folder_link(project, agent)
+        if linked:
+            raise core.OpsError(linked, 1)
         folder, root = os.path.dirname(target), os.path.realpath(project)
         nearest = folder
         while not os.path.exists(nearest):
@@ -270,7 +284,7 @@ def propose(ctx: dict, agent: str, text: str, base_sha256: str, by: str) -> dict
         raise core.OpsError(f"nothing to propose: the text is the profile of {agent} as it is", 2)
     now = profiles.sha256(data) if data is not None else None
     if (now or "none") != base:
-        raise core.OpsError(CHANGED.format(path=profiles.path_of(agent), now=now or "none", base=base), 1)
+        raise StaleBase(CHANGED.format(path=profiles.path_of(agent), now=now or "none", base=base))
     digest = profiles.sha256(clean.encode("utf-8"))
     with core._write_lock(ctx["cfg"]):
         replaced = _kept(ctx["cfg"], agent) is not None
@@ -308,16 +322,14 @@ def profile_accept(project: str, agent: str, sha256: str, channel=None) -> dict:
     checks run again; a profile that changed after the proposal was made keeps the proposal and is not overwritten."""
     _person(channel)
     ctx = core.context(project)
-    found = _open(ctx, agent, sha256)
-    try:
-        out = _write(ctx, agent, found["base_sha256"], found["text"])
-    except core.OpsError as e:
-        if str(e).startswith(profiles.path_of(agent)) and "changed since you read it" in str(e):
-            raise core.OpsError(f"the profile of {agent} changed after this proposal was made: read both again; nothing was written and "
-                                "the proposal is kept", 1) from None
-        raise
-    with core._write_lock(ctx["cfg"]):
-        _forget(ctx["cfg"], agent)
+    with core._write_lock(ctx["cfg"]):       # one lock around the read of the proposal, the write and the removal: a proposal made meanwhile waits
+        found = _open(ctx, agent, sha256)
+        try:
+            out = _write(ctx, agent, found["base_sha256"], found["text"])
+        except StaleBase:
+            raise StaleBase(f"the profile of {agent} changed after this proposal was made: read both again; nothing was written and "
+                            "the proposal is kept") from None
+        _forget(ctx["cfg"], agent, found["sha256"])
     return dict(out, accepted=found["sha256"], by=found["by"])
 
 
@@ -325,9 +337,9 @@ def profile_reject(project: str, agent: str, sha256: str, channel=None) -> dict:
     """The operation `profile-reject`: drop the open proposal of the agent, named by its sha256. Only from the terminal and the page."""
     _person(channel)
     ctx = core.context(project)
-    found = _open(ctx, agent, sha256)
     with core._write_lock(ctx["cfg"]):
-        _forget(ctx["cfg"], agent)
+        found = _open(ctx, agent, sha256)
+        _forget(ctx["cfg"], agent, found["sha256"])
     return {"agent": agent, "rejected": found["sha256"]}
 
 
