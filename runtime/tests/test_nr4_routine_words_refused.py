@@ -9,23 +9,17 @@ from __future__ import annotations
 
 import pytest
 
-from test_commands_in_words import BARE, OWNER, PAGE, docs, is_said, op, ops, rig, says, say, with_senders, world  # noqa: F401
+from test_ask import accept
+from test_commands_in_words import PROFILES2, SENDERS2, BARE, OWNER, PAGE, docs, is_said, op, ops, rig, says, say, with_senders, world  # noqa: F401
 
 LINES = {
     "routine-create": (("create a routine that runs the weekly report every monday", "cria uma rotina que roda o relatorio semanal toda segunda"),
-                       {"name": "weekly report", "flow": "flow-demo", "every": "monday"}, "PHONE_ROUTINES", "routine_create"),
+                       {}, "PHONE_ROUTINES", "routine_create"),
     "routine-change": (("change routine 4 to run every friday", "muda a rotina 4 para rodar toda sexta"),
-                       {"id": "4", "every": "friday"}, "PHONE_ROUTINES", "routine_change"),
+                       {"id": "4"}, "PHONE_ROUTINES", "routine_change"),
     "routine-cancel": (("cancel routine 4 for good", "cancela a rotina 4 de vez"),
                        {"id": "4"}, "PHONE_ROUTINE_CANCEL", "routine_cancel"),
 }
-
-
-def _says(rig, text, key):
-    try:
-        return is_said(rig, text, key, where=PAGE[rig.language])
-    except AssertionError:
-        return False
 
 
 @pytest.mark.parametrize("name", sorted(LINES))
@@ -37,7 +31,10 @@ def test_a_routine_create_change_or_cancel_in_words_is_refused_or_sent_elsewhere
     text = words[0] if rig.language == "en" else words[1]
     out = rig.line(OWNER, text, op(name, slots))
     assert calls == [], (name, calls)      # the operation of the routine is never reached, whatever the reply
-    # the owner of this rig has no `routine-edit` grant, so a create or a change is turned back by the policy before the table's own sentence; both are a refusal that runs nothing
-    allowed = ("PHONE_NOT_ALLOWED", key) if name != "routine-cancel" else (key,)
-    assert len(out) == 1 and any(_says(rig, out[0], k) for k in allowed), (name, out)
+    assert len(out) == 1 and (is_said(rig, out[0], "PHONE_NOT_ALLOWED", where=PAGE[rig.language]) if name != "routine-cancel" else is_said(rig, out[0], key, where=PAGE[rig.language])), (name, out)      # the rig's owner may not edit routines: the policy turns create and change back
+    if name != "routine-cancel":      # a sender who MAY edit routines (the grant on the channel and in the sender's profile) still cannot do it from words
+        accept(rig.world["path"], policies={**PROFILES2, "owner": [*PROFILES2["owner"], "routine-edit"]}, messaging={"senders": SENDERS2},
+               channels={"messaging": ["read", "talk", "answer", "routine-brakes", "routine-edit"]}, **({} if rig.language == "en" else {"language": "pt-BR"}))
+        out = rig.line(OWNER, text, op(name, slots))
+        assert says(rig, out, key, where=PAGE[rig.language]) and calls == [], (name, out, calls)
     assert rig.line(BARE, text, op(name, slots)) == [say(rig, "refusal")] and calls == []
