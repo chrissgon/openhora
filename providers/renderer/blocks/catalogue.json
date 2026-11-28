@@ -109,6 +109,52 @@
   },
   {
    "band": "card",
+   "engines": [],
+   "kind": "overlay",
+   "license": [
+    "Apache-2.0"
+   ],
+   "may_cross_face": false,
+   "name": "hf:lt-mask-reveal",
+   "namespace": "hf",
+   "natural_duration": 3.0,
+   "params": {
+    "author": {
+     "max": 40,
+     "type": "text"
+    },
+    "color": {
+     "type": "color"
+    },
+    "text": {
+     "max": 120,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "quote",
+   "runtimes": [
+    "gsap"
+   ],
+   "samples": [
+    {
+     "text": "Ana"
+    },
+    {
+     "author": "Educadora financeira",
+     "text": "Dra. Helena Albuquerque"
+    },
+    {
+     "author": "Consultora de or\u00e7amento dom\u00e9stico",
+     "text": "M\u00f4nica Fra\u00e7on"
+    }
+   ],
+   "source": "hyperframes-registry",
+   "tier": "B",
+   "use_when": "a lower third for a person: a name (up to 28 characters) wiped in by a bar, a readable role line under it"
+  },
+  {
+   "band": "card",
    "engines": [
     "ffmpeg"
    ],
@@ -794,7 +840,7 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "d019ae5e707360975da8f0c2b10de6281c0937db711954b1acf30fb3d20c56ee",
+ "blocks_sha256": "4a3bb5a9b7f83a30662dc8de412cdd7d253d35c18dde64951158eb67e618602d",
  "engines": {
   "ffmpeg": {
    "presets": {
