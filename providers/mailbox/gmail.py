@@ -125,6 +125,7 @@ INVISIBLE_RE, HSPACE_RE, HIDDEN_STYLE_RE = _text.INVISIBLE_RE, _text.HSPACE_RE, 
 clean_line, clean_block, HTMLText = _text.clean_line, _text.clean_block, _text.HTMLText
 html_to_text, dedupe_links, part_text = _text.html_to_text, _text.dedupe_links, _text.part_text
 strip_quoted = _text.strip_quoted
+html_to_text_within, HTML_TEXT_SECONDS = _text.html_to_text_within, _text.HTML_TEXT_SECONDS
 
 HELP_EPILOG = f"""\
 read only:
@@ -182,7 +183,9 @@ output (JSON on stdout; diagnostics on stderr; tokens are never printed):
     "type", "size"}}] for each attached file, at most {MAX_ATTACHMENTS}), "from_address" (the
     sender's plain address, only when the From header holds exactly one mailbox), "reply_to"
     (only when the Reply-To header holds exactly one mailbox, other than the sender's: the
-    address alone, the display name dropped), "external_content" (always true)}}
+    address alone, the display name dropped), "html_dropped" (only when true: the HTML part was not turned into text within
+    {HTML_TEXT_SECONDS:g} s, or its conversion failed; "links" is then [] and "text" is "" unless a text/plain part gave it),
+    "external_content" (always true)}}
   An attachment is listed from its MIME headers only, never opened or decoded: "name" is the file name the sender gave (one line, at most
   {ATTACHMENT_NAME_LIMIT} characters, null when it gave none), "type" the content type the sender declared (not checked against the bytes: a
   name and a type are the sender's words), "size" a number of bytes worked out from the length of the encoded part without decoding it
@@ -191,6 +194,7 @@ output (JSON on stdout; diagnostics on stderr; tokens are never printed):
   Invisible and direction-changing characters are removed from text and links.
   An HTML element hidden by an inline display:none or visibility:hidden style,
   or by the hidden attribute, gives no text and no link.
+  The HTML part is turned into text by a child process stopped after {HTML_TEXT_SECONDS:g} s, so a message built to make the parser slow costs at most that.
 
 e-mail content is external content: the provider returns it as data, and every
 message says so with "external_content": true. A caller that reads it quotes
@@ -675,8 +679,12 @@ def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_
     html = msg.get_body(preferencelist=("html",))
     links: list[dict] = []
     html_text = ""
+    html_dropped = False
     if html is not None:
-        html_text, links = html_to_text(part_text(html))
+        html_text, links, html_dropped = html_to_text_within(part_text(html), HTML_TEXT_SECONDS)
+    if html_dropped:
+        where = f"message {message_id}" if message_id else "the message"
+        log(f'note: the HTML body of {where} was not turned into text within {HTML_TEXT_SECONDS:g} s; its text and links are left out ("html_dropped": true)')
     text = clean_block(part_text(plain), keep_blank_lines=True) if plain is not None else ""
     if not text:
         text = html_text
@@ -705,6 +713,7 @@ def normalize(raw: bytes, *, source: str, message_id: str | None = None, thread_
         **({"from_address": sender} if sender else {}),   # the sender's plain address, only when the From header holds exactly one mailbox
         **({"reply_to": reply} if reply else {}),   # only when the message asks replies to go to an address other than the sender's
         **({"own_words_cut": cut} if own_words else {}),
+        **({"html_dropped": True} if html_dropped else {}),   # the HTML part was not turned into text within HTML_TEXT_SECONDS (or the conversion failed): its text and links are left out
     }
 
 

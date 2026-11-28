@@ -3,8 +3,8 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""What the e-mail readers of the workbench share to turn a message into text: the reader of providers/mailbox/gmail.py (class
-reader:email) and the e-mail channel of the messaging bridge (providers/messenger/email-imap.py) both load it by path. A name with an underscore
+"""What the e-mail readers of the workbench share to turn a message into text: the readers of providers/mailbox/gmail.py and
+providers/mailbox/outlook.py (class reader:email) and the e-mail channel of the messaging bridge (providers/messenger/email-imap.py) both load it by path. A name with an underscore
 is never listed as an implementation by providers/resolve.py, so this file is a module, not a provider. The helpers were moved here from gmail.py
 unchanged; gmail.py binds the same names, so `gmail.html_to_text` and the others are still there. `strip_quoted` and its marker lists were moved
 here from providers/messenger/email-imap.py unchanged (the same text, the same behaviour), so that the Gmail reader's --own-words and the e-mail
@@ -17,6 +17,7 @@ channel cut the quoted history of a reply in one way.
   clean_line, clean_block    a line, and a block, with the invisible characters removed and the space folded
   HTMLText, html_to_text     the text and the links of an HTML body with the standard library parser (no script is run, no link is
                              followed, nothing is fetched); an element hidden by an inline style or the hidden attribute gives nothing
+  HTML_TEXT_SECONDS, html_to_text_within   html_to_text in a short-lived child process stopped after 3 s (the readers' budget); run as a script, html-to-text is that child
   dedupe_links               the links of a body, one for each address
   part_text                  the text of one MIME part, decoded; a wrong charset is read as UTF-8 with replacement
   strip_quoted               the sender's own words: the text before the first quoted line, signature delimiter, attribution ("On ... wrote:"
@@ -26,7 +27,11 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
+import sys
 from html.parser import HTMLParser
 
 # Invisible and direction-changing characters: e-mail preheaders pad with them, and they can hide
@@ -103,7 +108,8 @@ class HTMLText(HTMLParser):
     elements is not text.
 
     The open elements are a stack, kept like a browser keeps them in a few places that matter to what is shown, and the cost is linear in
-    the size of the body: (1) an end tag with no open element of its name is ignored; (2) an end tag of an inline element is ignored when
+    the size of the body (the cost of the open-element stack; the standard library parser under it is quadratic on some malformed input on
+    interpreters without its fix, which is why the readers call html_to_text_within): (1) an end tag with no open element of its name is ignored; (2) an end tag of an inline element is ignored when
     a block (a `special` element: p, div, li, td, button ...) lies open inside the element it names, and no end tag closes past an open
     table, td, th, caption, button, object, marquee, applet or select (a table's own end tags close past a cell); (3) a start tag that a
     browser reads as ending an element ends it: a block ends an open p, an li an open li, a dd or dt an open dd or dt, a td or th an open
@@ -262,6 +268,44 @@ def html_to_text(html: str) -> tuple[str, list[dict]]:
     return parser.result()
 
 
+HTML_TEXT_SECONDS = 3.0      # the budget of the child that turns one HTML body into text (the e-mail channel's TEXT_SECONDS is the same figure)
+CHILD_VERB = "html-to-text"  # the one command of this file run as a script: HTML on stdin, {"text", "links"} as JSON on stdout
+
+
+def _child_command() -> list:
+    """The child that turns one HTML body into text. `-I` is required: without it this file's folder (providers/) would be first on the child's
+    sys.path, and its folders `calendar` and `secrets` would be imported in place of the standard library's modules of those names."""
+    return [sys.executable, "-I", os.path.abspath(__file__), CHILD_VERB]
+
+
+def html_to_text_within(html: str, seconds: float = HTML_TEXT_SECONDS) -> tuple:
+    """(text, links, dropped): html_to_text run in a short-lived child process that is stopped after `seconds`. The standard library's HTML
+    parser takes time that grows with the square of the input on some malformed HTML (`<a` or `</` repeated) on interpreters without its fix,
+    and the sender of a message can build one. A child that runs over the budget, fails, or answers anything but the expected JSON gives
+    ("", [], True); the caller keeps the message and says the HTML was dropped. Works from any thread (no signal is used)."""
+    if not html:
+        return "", [], False
+    if not sys.executable:
+        return "", [], True
+    try:
+        done = subprocess.run(_child_command(), input=html.encode("utf-8", "surrogatepass"), capture_output=True, timeout=seconds)
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return "", [], True
+    if done.returncode != 0:
+        return "", [], True
+    try:
+        answer = json.loads(done.stdout.decode("ascii"))
+    except (ValueError, UnicodeDecodeError):
+        return "", [], True
+    if not isinstance(answer, dict) or not isinstance(answer.get("text"), str) or not isinstance(answer.get("links"), list):
+        return "", [], True
+    for link in answer["links"]:
+        if not isinstance(link, dict) or set(link) != {"href", "text"} or not isinstance(link["href"], str) \
+                or not isinstance(link["text"], str):
+            return "", [], True
+    return answer["text"], answer["links"], False
+
+
 def dedupe_links(links: list[dict]) -> list[dict]:
     seen: dict[str, dict] = {}
     for link in links:
@@ -328,3 +372,26 @@ def strip_quoted(text: str) -> str:
                 or (HEADER_START.match(bare) and any(HEADER_FOLLOW.match(n.strip()) for n in lines[i + 1:i + 5])):
             return "\n".join(lines[:i]).strip("\n")
     return text.strip("\n")
+
+
+def _child_main(argv: list) -> int:
+    if argv in (["-h"], ["--help"]):
+        print(f"usage: python3 -I {os.path.basename(__file__)} {CHILD_VERB}  (HTML on stdin; prints {{\"text\", \"links\"}} as JSON). "
+              "This file is a module the e-mail readers load by path; this command is the child of html_to_text_within.")
+        return 0
+    if argv != [CHILD_VERB]:
+        print(f"error: the one command is {CHILD_VERB} (see --help)", file=sys.stderr)
+        return 2
+    try:
+        import resource
+        limit = int(HTML_TEXT_SECONDS) + 2          # the parent's timeout is the first bound
+        resource.setrlimit(resource.RLIMIT_CPU, (limit, limit))
+    except (ImportError, ValueError, OSError):
+        pass
+    text, links = html_to_text(sys.stdin.buffer.read().decode("utf-8", "surrogatepass"))
+    sys.stdout.write(json.dumps({"text": text, "links": links}))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(_child_main(sys.argv[1:]))
