@@ -53,6 +53,11 @@ Usage:
   python3 runtime/cli.py instructions --project <dir>
   python3 runtime/cli.py instructions-set --project <dir> (--text <text> | --text-file <file>) --base-sha256 <sha256 | none>
   python3 runtime/cli.py instructions-add --project <dir> --line <text> --base-sha256 <sha256 | none>
+  python3 runtime/cli.py profile --project <dir> --agent <agent>
+  python3 runtime/cli.py profile-set --project <dir> --agent <agent> (--text <text> | --text-file <file>) --base-sha256 <sha256 | none>
+  python3 runtime/cli.py profile-propose --project <dir> --agent <agent> (--text <text> | --text-file <file>) --base-sha256 <sha256 | none>
+  python3 runtime/cli.py profile-accept --project <dir> --agent <agent> --sha256 <sha256 of the proposal>
+  python3 runtime/cli.py profile-reject --project <dir> --agent <agent> --sha256 <sha256 of the proposal>
   python3 runtime/cli.py routines --project <dir> [--id <routine id>]
   python3 runtime/cli.py routine-create --project <dir> --name <name> --flow <flow> [--param <name>=<value>]... (--every day --at HH:MM | --every week --weekday 1-7 --at HH:MM | --every minutes --minutes N) [--model <id>|auto] [--provider <name>]... [--window-seconds <n>] [--consent]
   python3 runtime/cli.py routine-change --project <dir> --id <routine id> [the fields of routine-create, except --name]
@@ -310,6 +315,18 @@ instructions-set  replaces the whole text of the file (--text or --text-file; an
           current hash. By default only the terminal and the page write the file (limit L40). A change of the file changes the hash of every routine
           of the project, which then stops at its next fire and asks you to approve it again.
 instructions-add  appends one line `- <text>` to the file, with the same base hash and the same rules.
+profile   an agent's profile: docs/workbench/agents/<agent>.md, a Markdown file only you write, where <agent> is a key of area_agents. It
+          is read into the conversation with that agent as a block of data, and no skill run sees it. It prints the path, whether the file
+          is there, its sha256, its characters against the cap of 2,000, the problem that would refuse it, the text, what code adds (the
+          agent's skills and its colleagues), the open proposal and, for a file that is not there, a template to start from.
+profile-set  replaces the whole text of the profile (--text or --text-file; an empty text clears it). --base-sha256 is the sha256 that
+          `profile` printed (none when the file is not there): a file changed since is never overwritten. By default only the terminal and
+          the page write a profile (limit L40).
+profile-propose  keeps a proposed text for the profile outside the project, with the same base hash and the same checks; the profile is not
+          touched. It prints the command that accepts it.
+profile-accept  writes the open proposal of the agent, named by its sha256 (as `profile` and `profile-propose` print it); the checks run again, and
+          a profile that changed since the proposal was made is not overwritten and the proposal is kept.
+profile-reject  drops the open proposal, named by its sha256; the profile is not touched.
 routines  the routines: a flow started by a schedule. Each with its state (draft, active, paused, stopped, cancelled), schedule,
           the hash of its content now against the hash you approved, and its last fire; with --id, its fires (a slot is fired once; a slot
           missed is skipped and noted, and only the newest missed slot younger than the window is made up) and, for a routine not approved,

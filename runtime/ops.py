@@ -1528,6 +1528,8 @@ import ops_flows  # noqa: E402
 from ops_flows import check_flow, flow_save, flows, stage_file  # noqa: E402,F401
 import ops_instructions  # noqa: E402  (the standing instructions: three operations, the block of a prompt, the answer's proposal)
 from ops_instructions import answer_proposing, instructions_add, instructions_read, instructions_set  # noqa: E402,F401
+import ops_profiles  # noqa: E402  (an agent's profile: five operations, the proposal and its acceptance by hash, the lane's block)
+from ops_profiles import profile_accept, profile_propose, profile_read, profile_reject, profile_set  # noqa: E402,F401
 import ops_ask  # noqa: E402  (the answer from sources: `ask`, and the owners of the runs of a request)
 from ops_ask import ask  # noqa: E402,F401
 from ops_contained import (  # noqa: E402,F401  (the contained run: a handler's agent run; moved out of this file, no change of logic)
