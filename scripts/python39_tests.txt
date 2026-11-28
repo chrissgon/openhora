@@ -7,6 +7,7 @@
 scripts/tests/test_runtime_python39.py
 scripts/tests/test_provider_resolve.py
 scripts/tests/test_stage_skills.py
+scripts/tests/test_rename_move.py
 skills/mkt-engage/scripts/tests
 skills/mkt-publish/scripts/tests
 skills/mkt-vote-round/scripts/tests
