@@ -1801,7 +1801,8 @@ def shown_in(cwd, rel):
 def run_record_hash(run_dir):
     """sha256 over what a run left that a later re-grading reads: prompt.md, facts.md, outputs/response.md and every
     regular file under cwd/ (sorted relative paths and their bytes; a symbolic link is skipped). The gradings, the
-    timing, the event stream and anything added later (regrade-<k>/) are outside it."""
+    timing, the event stream and anything added later (regrade-<k>/) are outside it. A file named index inside a .git
+    folder (the git index, which a plain `git status` rewrites; what it records is in facts.md) is left out (T26)."""
     paths = [p for p in ("prompt.md", "facts.md", os.path.join("outputs", "response.md"))
              if os.path.isfile(os.path.join(run_dir, p)) and not os.path.islink(os.path.join(run_dir, p))]
     cwd = os.path.join(run_dir, "cwd")
@@ -1809,6 +1810,8 @@ def run_record_hash(run_dir):
         dns[:] = sorted(d for d in dns if not os.path.islink(os.path.join(dp, d)))
         for fn in fns:
             path = os.path.join(dp, fn)
+            if fn == "index" and ".git" in os.path.relpath(dp, cwd).split(os.sep):
+                continue
             if os.path.isfile(path) and not os.path.islink(path):
                 paths.append(os.path.relpath(path, run_dir))
     h = hashlib.sha256()
