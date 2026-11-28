@@ -388,8 +388,11 @@ def test_a_one_shot_run_records_its_outcome_under_the_lock(s, monkeypatch):
 
 def test_a_missed_or_refused_one_shot_is_recorded_under_the_lock(s, monkeypatch):
     assert s.schedule(s.command_file(grace_minutes=0))[0].returncode == 0
-    s.set_job(at=(datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat())
     module = s.module(monkeypatch)
+    late = {**json.loads((s.folder() / "job.json").read_text()),
+            "at": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()}
+    # A job approved for that earlier time holds its digest: re-sign the edited record (an unsigned edit is refused).
+    s.set_job(at=late["at"], approved=module.approval_digest(late))
     seen = watch_writes(s, module, monkeypatch)
     assert module.main(["run", "--id", "post-1"]) == 1
     assert seen == [("missed", True)]

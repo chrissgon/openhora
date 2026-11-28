@@ -29,6 +29,10 @@ What a job guarantees:
 - The hashes are fixed at approval: the dry run prints a digest of everything that will run,
   and the confirmed call must pass it back with --approved. At run time the copies, the
   program and the runner are hashed again and the command is refused if any differs.
+  Every firing also recomputes the approval digest from job.json, exactly as the dry run
+  computed it, and refuses when it differs from the recorded approved, when approved is
+  missing, or when a copy is not where it was scheduled: an edited job record never runs as it
+  now reads.
 - When UV_PYTHON names an absolute interpreter, the job records its real path and hash (part of the
   digest, checked at every firing) and the command starts with UV_PYTHON set to it, so every
   uv run in the job uses the interpreter that was approved.
@@ -44,7 +48,7 @@ What a job guarantees:
 - Job folders are 0700 and the files written in them 0600 (copies 0400).
 
 What a recurring job (--every) adds:
-- Every firing re-verifies the copies, the program and the runner; a mismatch records the
+- Every firing re-verifies the job record's digest, the copies, the program and the runner; a mismatch records the
   firing as refused, marks the job refused and unloads it, so it stops firing.
 - A firing while the previous one still runs records skipped-overlap and exits: run.lock in
   the job folder holds an flock and the holder's PID; the kernel drops the flock when the
@@ -814,8 +818,36 @@ def differs(path: Path, expected: str) -> bool:
         return True
 
 
+def record_changed_since_approval(job: dict) -> str | None:
+    """Name how the job record differs from what was approved, or None when it is the approved record.
+
+    The digest is recomputed from the record exactly as the dry run computed it (approval_digest) and compared with
+    the recorded "approved": argv, cwd, outputs, the times, the program, the interpreter and every file hash are in
+    it. A copy's path is not, so each copy must be where plan_job put it. A record without a digest, or one that no
+    longer holds the fields it was approved with, is refused. The digest is a hash, not a signature: it catches a
+    record edited after approval, not an author who also rewrites "approved"."""
+    again = "; schedule it again through the dry run and the gate"
+    approved = job.get("approved")
+    if not isinstance(approved, str) or not DIGEST_PATTERN.fullmatch(approved):
+        return "the job record holds no approved digest" + again
+    try:
+        if approval_digest(job) != approved:
+            return "the job record changed after approval: its digest no longer matches the approved one" + again
+        folder = job_dir(job["id"]) / "files"
+        for source, entry in job["files"].items():
+            if entry.get("copy") != str(folder / Path(source).name):
+                return f"the copy of {Path(source).name} is not where it was approved" + again
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return "the job record no longer holds the fields it was approved with" + again
+    return None
+
+
 def changed_since_approval(job: dict) -> str | None:
-    """Name what no longer matches its approved hash, or None when everything matches."""
+    """Name what no longer matches its approval (the job record first, then the hashes of the copies, the program,
+    the interpreter and the runner), or None when everything matches."""
+    reason = record_changed_since_approval(job)
+    if reason:
+        return reason
     for source, entry in job["files"].items():
         copy = Path(entry["copy"])
         if differs(copy, entry["sha256"]):
@@ -1098,6 +1130,9 @@ def cmd_run(args) -> int:
             log(f"job {job['id']} is {job['status']}; nothing to run")
             unload(job["id"])
             return EXIT_OK
+        reason = record_changed_since_approval(job)
+        if reason:  # before the record's time is read: an edited at or grace_minutes is refused, never acted on
+            return finish(job, "refused", reason=reason)
         at = parse_iso(job["at"])
         current = now()
         if current < at - EARLY_TOLERANCE:
