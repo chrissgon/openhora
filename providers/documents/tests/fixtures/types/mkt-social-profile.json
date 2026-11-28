@@ -1,0 +1,12 @@
+{
+ "source": "skills/mkt-social-profile/scripts/tests/fixtures/profiles_ok.md (a fictional person, Ana Costa, on a fictional network), copied whole: a social-profiles artifact in the shape of mkt-social-profile's output template; its checker needs the platforms' data files beside it, so the manifest names none and the trip is tested for lost words",
+ "cases": [
+  {
+   "skill": "mkt-social-profile",
+   "document": "docs/marketing/social-profiles.md",
+   "files": {
+    "docs/marketing/social-profiles.md": "# Social profiles: Ana Costa\n\n- Owner: mkt-social-profile\n- Language: en\n- Status: draft\n- Ready: no\n- Date: 2030-01-02\n\n## Photonet (@anacosta)\n\n- Platform: photonet\n- Seen: pasted, 2030-01-02\n- Limits: checked\n\n### Bio (`bio`)\n- Now: \"Software person\" (pasted)\n- Verdict: change\n- Why: the label changed [docs/brand/strategy.md, 2030-01-01]\n```proposed\nSoftware that works for people.\nLume and Pico, by Ana.\n```\n- Length: 54 of 150 (code points)\n- Approved: no\n- Applied: no\n\n### Links (`links`)\n- Now: \"old.example\" (pasted)\n- Verdict: change\n- Why: one link everywhere [state file, 2030-01-01]\n```proposed\nlinks.example/anacosta\n```\n- Approved: yes, 2030-01-02, \"yes, that one\"\n- Applied: no\n\n## Clipnet (@anacosta)\n\n- Platform: clipnet\n- Seen: pasted, 2030-01-02\n- Limits: checked\n\n### Bio (`bio`)\n- Now: \"Hello\" (pasted)\n- Verdict: change\n- Why: the label changed [docs/brand/strategy.md, 2030-01-01]\n```proposed\nSoftware that works for people.\n```\n- Approved: no\n- Applied: yes, 2030-01-03 (screenshot 2)\n\n## Across networks\n- label: same everywhere\n\n## Superseded\n- none\n\n## To apply by hand\n1. photonet, bio: paste the new text\n\n## Open questions\n- none\n\n## Assumptions\n- none\n\n## Sources\n- docs/brand/strategy.md\n\n## Method\n- Checks: lint_social_profiles.py --file docs/marketing/social-profiles.md\n"
+   }
+  }
+ ]
+}
