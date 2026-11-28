@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 import standin_tree as st
-from media_kit import flag, media, open_items, ops, ops_core, ops_step_seams, run_task, step_media, steps, task_row, to_gate, work_file, world  # noqa: F401
+from media_kit import to_review, flag, media, open_items, ops, ops_core, ops_step_seams, run_task, step_media, steps, task_row, to_gate, work_file, world  # noqa: F401
 from media_stock_kit import SLOT_SOURCE, configure, media_stock, ops_media_stock, png, review_of, sha, to_found, FakeSheets, FakeSources, pick
 
 deliver_document = st.load("deliver_document")
@@ -472,6 +472,89 @@ def beats_of(world):
     return json.loads(work_file(world, "beats.json").read_text(encoding="utf-8"))
 
 
+CUTAWAY_BLOCKS = {"oh:cutaway": {"kind": "layout", "params": {"asset": {"type": ["image", "clip"]}}}}
+
+
+def plant_blocks(monkeypatch, **named):
+    """The catalogue the step and the review read, with extra blocks copied from the committed `oh:keyword` and `oh:cutaway` entries (`named` maps a new name to
+    (source name, changes)); the review-only presets of a later package are blocks of this shape."""
+    media_animation = st.load("media_animation")
+    real = media_animation.read_catalogue
+
+    def read(root):
+        found = real(root)
+        for name, (source, changes) in named.items():
+            found["blocks"][name] = dict(found["blocks"][source], name=name, **changes)
+        return found
+    monkeypatch.setattr(media_animation, "read_catalogue", read)
+    return read
+
+
+def review_with(world, monkeypatch, edit):
+    """A video at the review with `edit` (an added animation) stored, the checker the fake's; the fake renderer's final beats are empty. Returns the task."""
+    engine = world["engine"]
+    engine._align = lambda a: (Path(flag(a, "--out")).write_text(json.dumps(dict(COMPLETE_BEATS, slots=[]))), {"ok": True, "beats": 0, "overlays": 0, "layouts": 0, "unmatched": []})[1]
+    monkeypatch.setattr(st.load("media_animation"), "engine_of", lambda ctx: Checks(engine.call))
+    task = to_review(world)
+    st.load("ops_media").captions_edit(world["path"], task, 0, edits=json.dumps([edit]))
+    return task
+
+
+TEXT = {"op": "animation", "params": {"text": "Every step"}, "word_from": 3, "word_to": 5}
+
+
+def test_an_added_text_layout_lands_in_layouts(world, monkeypatch):
+    plant_blocks(monkeypatch, **{"oh:title-test": ("oh:keyword", {"kind": "layout"})})
+    task = review_with(world, monkeypatch, dict(TEXT, block="oh:title-test"))
+    assert go_on(world, task)["ok"] is True
+    beats = beats_of(world)
+    assert [e["id"] for e in beats["layouts"]] == ["a1"] and beats["overlays"] == [] and beats["layouts"][0]["block"] == "oh:title-test"
+
+
+def test_an_added_overlay_stays_in_overlays(world, monkeypatch):
+    task = review_with(world, monkeypatch, dict(TEXT, block="oh:keyword"))
+    assert go_on(world, task)["ok"] is True
+    beats = beats_of(world)
+    assert [e["id"] for e in beats["overlays"]] == ["a1"] and beats["layouts"] == []      # an overlay is bucketed as before (S2)
+
+
+def test_an_added_animation_whose_block_the_catalogue_no_longer_holds_stops_the_step(world, monkeypatch):
+    plant_blocks(monkeypatch, **{"oh:title-test": ("oh:keyword", {"kind": "layout"})})
+    task = review_with(world, monkeypatch, dict(TEXT, block="oh:title-test"))
+    real = st.load("media_animation").read_catalogue
+    monkeypatch.setattr(st.load("media_animation"), "read_catalogue", lambda root: dict(real(root), blocks={k: v for k, v in real(root)["blocks"].items() if k != "oh:title-test"}))
+    out = go_on(world, task)
+    assert out["ok"] is False or out.get("stopped") != "deliver"
+    row = task_row(world, task)
+    assert row["state"] == "failed" and "step_output_invalid" in json.dumps(dict(row), default=str) and "catalogue" in json.dumps(dict(row), default=str)
+
+
+def test_a_picture_layout_of_a_review_only_block_gets_a_slot_row_typed_by_the_block(world, monkeypatch):
+    only_image = {"params": {"asset": {"type": ["image"], "required": True}, "fit": {"type": "enum", "values": ["cover"]}}}
+    plant_blocks(monkeypatch, **{"oh:card-test": ("oh:cutaway", only_image)})
+    task = added_layout_video(world, monkeypatch, block="oh:card-test", show=SHOW)
+    assert go_on(world, task)["ok"] is True
+    beats = beats_of(world)
+    [layout] = beats["layouts"]
+    assert layout["block"] == "oh:card-test" and beats["slots"] == [{"slot": "a1", "beat": layout["beat"], "param": "asset", "type": "image", "description": SHOW}]
+
+
+def test_the_catalogue_and_the_raw_vocabulary_agree_on_the_picture_kinds_of_the_cutaway():
+    vocab = json.loads((st.REPO / "shared" / "references" / "video-presets.json").read_text())
+    raw = vocab["presets"]["cutaway"]["params"]["asset"]["type"]
+    store = type("S", (), {"reference": staticmethod(lambda rel: str(st.REPO / rel))})
+    blocks = st.load("media_animation").read_catalogue(str(st.REPO))["blocks"]
+    row = step_media._slot_row(store, {"id": "a1", "beat": 1001, "preset": "cutaway"}, {"block": "oh:cutaway", "asset_param": "asset", "words": []}, blocks)
+    assert row["type"] == "|".join(raw if isinstance(raw, list) else [raw])
+
+
+def test_a_slot_row_of_a_block_the_catalogue_does_not_hold_is_step_output_invalid():
+    store = type("S", (), {"reference": staticmethod(lambda rel: str(st.REPO / rel))})
+    with pytest.raises(steps.StepFailure) as caught:
+        step_media._slot_row(store, {"id": "a1", "beat": 1001, "preset": "cutaway"}, {"block": "oh:gone", "asset_param": "asset", "words": []}, CUTAWAY_BLOCKS)
+    assert (caught.value.code, caught.value.field) == ("step_output_invalid", "catalogue")
+
+
 def test_align_writes_the_slot_row_of_an_added_layout_drawn_with_its_approved_picture(world, monkeypatch):
     task = added_layout_video(world, monkeypatch, show=SHOW)
     out = go_on(world, task)
@@ -495,15 +578,16 @@ def test_the_slot_description_is_what_the_person_said_the_picture_shows_else_the
 def test_a_description_outside_the_renderers_limits_falls_back_to_a_plain_word(world):
     vocab = json.loads((st.REPO / "shared" / "references" / "video-presets.json").read_text())
     store = type("S", (), {"reference": staticmethod(lambda rel: str(st.REPO / rel))})
+    blocks = CUTAWAY_BLOCKS
     for words in ([], ["ab"], ["x" * (vocab["limits"]["slot_description_max"] + 1)], [None, 4]):
-        row = step_media._slot_row(store, {"id": "a1", "beat": 1001, "preset": "cutaway"}, {"asset_param": "asset", "words": words})
+        row = step_media._slot_row(store, {"id": "a1", "beat": 1001, "preset": "cutaway"}, {"block": "oh:cutaway", "asset_param": "asset", "words": words}, blocks)
         assert row["description"] == step_media.SLOT_FALLBACK and vocab["limits"]["slot_description_min"] <= len(row["description"]) <= vocab["limits"]["slot_description_max"]
 
 
 def test_a_slot_row_that_exists_is_not_written_twice(world):
     beats = {"slots": [{"slot": "a1", "beat": 1, "param": "asset", "type": "image", "description": "kept"}]}
     store = type("S", (), {"reference": staticmethod(lambda rel: str(st.REPO / rel))})
-    step_media._add_slot_row(store, beats, {"id": "a1", "beat": 1001, "preset": "cutaway"}, {"asset_param": "asset", "words": ["new words"]})
+    step_media._add_slot_row(store, beats, {"id": "a1", "beat": 1001, "preset": "cutaway"}, {"block": "oh:cutaway", "asset_param": "asset", "words": ["new words"]}, CUTAWAY_BLOCKS)
     assert beats["slots"] == [{"slot": "a1", "beat": 1, "param": "asset", "type": "image", "description": "kept"}]
 
 
@@ -543,11 +627,10 @@ def test_the_beats_written_for_an_added_picture_overlay_pass_the_renderers_own_c
     check, vocab = renderer_checker()
     planted = json.loads(json.dumps(vocab))
     planted["presets"]["pic_overlay"] = {"kind": "overlay", "params": {"asset": {"type": ["image"], "required": True}}}
-    path = tmp_path / "planted-vocabulary.json"
-    path.write_text(json.dumps(planted))
-    store = type("S", (), {"reference": staticmethod(lambda rel: str(path))})
+    store = type("S", (), {"reference": staticmethod(lambda rel: str(st.REPO / rel))})
+    blocks = {"oh:pic": {"kind": "overlay", "params": {"asset": {"type": ["image"]}}}}      # the kinds come from the catalogue's entry, not from the vocabulary file
     entry = {"id": "a1", "beat": 1001, "preset": "pic_overlay", "params": {"asset": "a1"}, "word_from": 3, "word_to": 5, "score": 1.0}
-    row = step_media._slot_row(store, entry, {"asset_param": "asset", "pic_kind": "overlay", "words": [SHOW]})
+    row = step_media._slot_row(store, entry, {"block": "oh:pic", "asset_param": "asset", "pic_kind": "overlay", "words": [SHOW]}, blocks)
     assert row == {"slot": "a1", "beat": 1001, "param": "asset", "type": "image", "description": SHOW}
     assert check(dict(COMPLETE_BEATS, overlays=[entry], slots=[row]), planted)["mentions"] == []
 
