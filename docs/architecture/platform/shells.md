@@ -354,6 +354,11 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `instructions` | - | `instructions_read` |
 | `instructions-set` | `--text \| --text-file` `--base-sha256` | `instructions_set` |
 | `instructions-add` | `--line` `--base-sha256` | `instructions_add` |
+| `profile` | `--agent` | `profile_read` |
+| `profile-set` | `--agent` `--text \| --text-file` `--base-sha256` | `profile_set` |
+| `profile-propose` | `--agent` `--text \| --text-file` `--base-sha256` | `profile_propose` |
+| `profile-accept` | `--agent` `--sha256` | `profile_accept` |
+| `profile-reject` | `--agent` `--sha256` | `profile_reject` |
 | `routines` | `[--id]` | `routines_read` |
 | `routine-create` | `--name` `--flow` `[--param]` `[--every]` `[--at]` `[--weekday]` `[--minutes]` `[--model]` `[--provider]` `[--window-seconds]` `[--consent]` `[--warning-sha256]` | `routine_create` |
 | `routine-change` | `--id` `[--flow]` `[--param]` `[--every]` `[--at]` `[--weekday]` `[--minutes]` `[--model]` `[--provider]` `[--window-seconds]` `[--consent]` `[--warning-sha256]` | `routine_change` |
@@ -475,6 +480,11 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/instructions` | `instructions` | - | none | - | - |
 | POST | `/projects/{p}/instructions` | `instructions-set` | - | every other argument | - | - |
 | POST | `/projects/{p}/instructions/add` | `instructions-add` | - | every other argument | - | - |
+| GET | `/projects/{p}/agents/{name}/profile` | `profile` | `agent` from `{name}` | none | - | - |
+| POST | `/projects/{p}/agents/{name}/profile` | `profile-set` | `agent` from `{name}` | every other argument | - | - |
+| POST | `/projects/{p}/agents/{name}/profile/propose` | `profile-propose` | `agent` from `{name}` | every other argument | - | - |
+| POST | `/projects/{p}/agents/{name}/profile/accept` | `profile-accept` | `agent` from `{name}` | every other argument | - | - |
+| POST | `/projects/{p}/agents/{name}/profile/reject` | `profile-reject` | `agent` from `{name}` | every other argument | - | - |
 | POST | `/projects/{p}/requests/{id}/files` | `stage-file` | `request_id` from `{id}` | every other argument | `file` | file upload |
 | POST | `/projects/{p}/requests` | `request` | - | every other argument | - | - |
 | POST | `/projects/{p}/requests/{id}/route` | `route` | `request_id` from `{id}` | every other argument | - | - |

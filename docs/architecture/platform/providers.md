@@ -70,7 +70,7 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `integration:vcs` | `vcs/` | `github.py` | `--check`, `alerts`, `dismiss-alert`, `read-file`, `commit-files`, `open-pr`, `resolve` |
 | `integration:issue-tracker` | `issue-tracker/` | `local.py` | `--check`, `list`, `get`, `comments`, `upsert`, `resolve` |
 | `integration:issue-tracker` | `issue-tracker/` | `notion.py` | `--check`, `list`, `get`, `comments`, `upsert`, `resolve` |
-| `integration:documents` | `documents/` | `gdrive.py` | `--check`, `stat`, `read`, `children`, `resolve-path`, `pick`, `comments`, `write`, `notice`, `resolve` |
+| `integration:documents` | `documents/` | `gdrive.py` | `--check`, `stat`, `read`, `children`, `resolve-path`, `comments`, `write`, `notice`, `resolve` |
 | `integration:documents` | `documents/` | `local.py` | `--check`, `stat`, `read`, `comments`, `write`, `notice`, `resolve` |
 | `integration:documents` | `documents/` | `notion.py` | `--check`, `stat`, `read`, `comments`, `write`, `notice`, `resolve`, `page-create`, `table-read`, `table-create`, `rows-append`, `rows-state` |
 | `integration:documents` | `documents/` | `onedrive.py` | `--check`, `stat`, `read`, `search`, `children`, `comments`, `write`, `notice`, `resolve` |
@@ -124,7 +124,7 @@ A candidate is an implementation shipped in the class's folder and, for `publish
 | Platform | Provider | `max_text` | `buttons` | `max_buttons` | `max_button_label` | `lists` | `max_list_rows` | `url_buttons` | `reply_context` | `documents` | `listen` | `actions_need_reply` | `attachments` | `max_attachment_bytes` | `typing` | `send_files` | `max_send_bytes` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `discord` | `discord.py` | 1900 | yes | 5 | 80 | no | 0 | yes | yes | yes | yes | no | yes | 26214400 | no | no | no |
-| `email` | `email-imap.py` | 8000 | no | 0 | 0 | no | 0 | no | yes | no | yes | yes | no | no | no | no | no |
+| `email` | `email-imap.py` | 8000 | no | 0 | 0 | no | 0 | no | yes | no | yes | yes | yes | 1048576 | no | no | no |
 | `telegram` | `telegram.py` | 4096 | yes | 6 | 40 | no | 0 | yes | yes | yes | no | no | yes | 20971520 | yes | yes | 20971520 |
 | `whatsapp` | `whatsapp.py` | 4096 | no | 0 | 0 | no | 0 | no | yes | yes | yes | no | yes | 104857600 | no | no | no |
 | `whatsapp-cloud` | `whatsapp-cloud.py` | 4096 | yes | 3 | 20 | no | 0 | no | yes | yes | yes | no | yes | 104857600 | no | no | no |

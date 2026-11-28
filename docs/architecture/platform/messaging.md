@@ -245,7 +245,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 
 | Group | Operations | Decision kind | Valid on | In the default policy of | What it gives |
 |---|---|---|---|---|---|
-| `read` | `status`, `progress`, `pending`, `task`, `agents`, `costs`, `skills`, `artifacts`, `artifact`, `flows`, `flow-check`, `routines`, `instructions`, `conversation`, `connections`, `version`, `config`, `commands`, `artifact-raw`, `items`, `agenda` | - | `page`, `mcp`, `messaging` | `messaging` | reads everything the channel shows: the state of the work, what waits, the spend, the agents' caps and the connections |
+| `read` | `status`, `progress`, `pending`, `task`, `agents`, `costs`, `skills`, `artifacts`, `artifact`, `flows`, `flow-check`, `routines`, `instructions`, `profile`, `conversation`, `connections`, `version`, `config`, `commands`, `artifact-raw`, `items`, `agenda` | - | `page`, `mcp`, `messaging` | `messaging` | reads everything the channel shows: the state of the work, what waits, the spend, the agents' caps and the connections |
 | `read-limited` | `status`, `pending`, `skills`, `artifacts`, `artifact`, `flows`, `flow-check`, `routines`, `instructions`, `conversation`, `version`, `commands`, `artifact-raw` | - | `messaging` | - | reads what the work is and what waits for the person, never the spend (costs, agents, a run's cost in task and progress), the connections or the config operation |
 | `talk` | `say` | - | `page`, `mcp`, `messaging` | `messaging` | writes a line to the planning agent (a new request, or the answer to its question) |
 | `answer` | `answer` | - | `page`, `mcp`, `messaging` | `messaging` | answers a question a task asked |
@@ -275,6 +275,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `routine-edit` | `routine-create`, `routine-change` | - | `page`, `messaging` | - | makes and changes a routine (it stays a draft until it is approved) |
 | `routine-approve` | `routine-approve`, `routine-resume` | - | `page` | - | approves a routine by its hash and resumes it |
 | `instructions-write` | `instructions-set`, `instructions-add` | - | `page` | - | writes the person's standing instructions |
+| `profile-edit` | `profile-set`, `profile-accept`, `profile-reject`, `profile-propose` | - | `page`, `mcp` | - | writes an agent's profile, proposes a change to it, and accepts or drops a proposed change (only the terminal and the page write) |
 | `verdict` | `verdict` | - | `page` | - | records a verdict on a skill's use |
 | `sources` | `source-add`, `source-import`, `source-refresh`, `source-describe`, `sources` | - | `page`, `mcp`, `messaging` | - | adds, imports, refreshes and describes the project's sources |
 | `add-sources` | `attachments`, `attachment-hold`, `attachment-add`, `attachment-discard` | - | `page`, `messaging` | - | takes the files a listed sender sends through a messaging app (held, then added or discarded on a card or on the page), and lists and decides the held files |
@@ -530,7 +531,7 @@ A forwarded message is never a request, a command, an answer or an approval, wha
 | Platform | Provider | `max_text` | `buttons` | `max_buttons` | `max_button_label` | `lists` | `max_list_rows` | `url_buttons` | `reply_context` | `documents` | `listen` | `actions_need_reply` | `attachments` | `max_attachment_bytes` | `typing` | `send_files` | `max_send_bytes` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `discord` | `discord.py` | 1900 | yes | 5 | 80 | no | 0 | yes | yes | yes | yes | no | yes | 26214400 | no | no | no |
-| `email` | `email-imap.py` | 8000 | no | 0 | 0 | no | 0 | no | yes | no | yes | yes | no | no | no | no | no |
+| `email` | `email-imap.py` | 8000 | no | 0 | 0 | no | 0 | no | yes | no | yes | yes | yes | 1048576 | no | no | no |
 | `telegram` | `telegram.py` | 4096 | yes | 6 | 40 | no | 0 | yes | yes | yes | no | no | yes | 20971520 | yes | yes | 20971520 |
 | `whatsapp` | `whatsapp.py` | 4096 | no | 0 | 0 | no | 0 | no | yes | yes | yes | no | yes | 104857600 | no | no | no |
 | `whatsapp-cloud` | `whatsapp-cloud.py` | 4096 | yes | 3 | 20 | no | 0 | no | yes | yes | yes | no | yes | 104857600 | no | no | no |
