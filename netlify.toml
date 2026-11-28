@@ -18,3 +18,16 @@
     Content-Security-Policy = "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data:; frame-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "same-origin"
+
+# /demo/ is the Interface page's embedded demo on fictional data: kept out of search results (W6). It is not disallowed in
+# site/robots.txt, so that a crawler can read this header. Netlify applies this table and the "/*" one together.
+[[headers]]
+  for = "/demo/*"
+  [headers.values]
+    X-Robots-Tag = "noindex"
+
+# The file for language models (W3) is UTF-8 text.
+[[headers]]
+  for = "/llms.txt"
+  [headers.values]
+    Content-Type = "text/plain; charset=utf-8"
