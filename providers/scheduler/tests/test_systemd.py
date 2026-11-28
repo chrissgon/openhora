@@ -326,11 +326,13 @@ def test_one_shot_firing_runs_the_copy_once_and_removes_the_units(env, tmp_path)
     assert not marker.exists() and job(env)["status"] == "done"
 
 
-def test_late_firing_after_grace_is_missed(env, tmp_path):
+def test_late_firing_after_grace_is_missed(env, tmp_path, monkeypatch):
     path, _, marker = command_file(tmp_path, extra={"grace_minutes": 0})
     assert confirm(env, path, soon()).returncode == 0
     data = job(env)
     data["at"] = iso(datetime.now(timezone.utc) - timedelta(minutes=10))
+    # A job approved for that earlier time holds its digest: re-sign the edited record (an unsigned edit is refused).
+    data["approved"] = load(SCRIPT, "systemd_late", monkeypatch, env).approval_digest(data)
     (folder(env) / "job.json").write_text(json.dumps(data))
     assert run(env, "run", "--id", "job-1").returncode == 1
     assert job(env)["status"] == "missed" and not marker.exists()

@@ -214,10 +214,12 @@ def test_an_early_firing_within_a_day_waits_for_its_time_then_runs(env, tmp_path
     assert module.EARLY_WAIT_LIMIT == timedelta(hours=26)
 
 
-def test_late_fire_after_grace_is_missed(env, tmp_path):
+def test_late_fire_after_grace_is_missed(env, tmp_path, monkeypatch):
     _, _, marker = schedule(env, tmp_path, datetime.now(timezone.utc) + timedelta(minutes=1), grace=0)
     data = job(env)
     data["at"] = iso(datetime.now(timezone.utc) - timedelta(minutes=10))
+    # A job approved for that earlier time holds its digest: re-sign the edited record (an unsigned edit is refused).
+    data["approved"] = load_module(monkeypatch, env, "launchd_late").approval_digest(data)
     (Path(env["SCHEDULER_HOME"]) / "post-1" / "job.json").write_text(json.dumps(data))
     assert run(env, "run", "--id", "post-1").returncode == 1
     assert job(env)["status"] == "missed"
