@@ -78,7 +78,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-LABEL_PREFIX = "dev.ai-workbench.scheduler."
+LABEL_PREFIX = "dev.openhora.scheduler."
 EARLY_TOLERANCE = timedelta(minutes=5)
 # A one-shot plist holds local wall time, so a change of the system time zone between scheduling and the slot
 # fires the job early, by at most the widest gap between two time zones (UTC-12 to UTC+14): the runner waits.
@@ -161,7 +161,7 @@ command file (JSON):
   command reads from cwd or from a directory argument are not verified.
 
 environment variables:
-  SCHEDULER_HOME        job folders. Default: ~/Library/Application Support/ai-workbench/scheduler
+  SCHEDULER_HOME        job folders. Default: ~/Library/Application Support/openhora/scheduler
   SCHEDULER_AGENTS_DIR  where plists go. Default: ~/Library/LaunchAgents
   SCHEDULER_TEST        1 enables test mode; required for SCHEDULER_LAUNCHCTL.
   SCHEDULER_LAUNCHCTL   tests only (with SCHEDULER_TEST=1): replaces /bin/launchctl.
@@ -228,7 +228,7 @@ def home() -> Path:
     override = os.environ.get("SCHEDULER_HOME")
     if override:
         return Path(override).expanduser()
-    return Path.home() / "Library" / "Application Support" / "ai-workbench" / "scheduler"
+    return Path.home() / "Library" / "Application Support" / "openhora" / "scheduler"
 
 
 def agents_dir() -> Path:

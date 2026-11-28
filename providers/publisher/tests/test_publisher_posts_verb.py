@@ -118,7 +118,7 @@ def test_posts_reads_no_credential_and_makes_no_request(tmp_path, monkeypatch):
         return call
 
     for name in ("load_token", "secret_resolver", "http", "userinfo", "ledger_save", "ledger_locked",
-                 "ledger_migrate", "ledger_update", "ledger_claim"):
+                 "ledger_update", "ledger_claim"):
         monkeypatch.setattr(module, name, forbidden(name))
     monkeypatch.setattr(module.urllib.request, "urlopen", forbidden("urlopen"))
     monkeypatch.setattr("socket.socket.connect", forbidden("socket.connect"))

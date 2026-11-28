@@ -1354,16 +1354,16 @@ def test_comments_endpoint_rest_keeps_the_versioned_path(tmp_path, monkeypatch):
     assert "/rest/socialActions/" in req["url"] and req["headers"]["LinkedIn-Version"]
 
 
-# --- the ledger lives in a data folder; a ledger at its old place in the cache folder is copied once ---
+# --- the ledger lives in a data folder named openhora; nothing is read from the old cache folder ---
 
 def default_ledger_env(env, tmp_path):
     """The environment without a ledger override: (env, new ledger path, old ledger path)."""
     e = {k: v for k, v in env.items() if k != "PUBLISHER_LINKEDIN_LEDGER"}
     e["XDG_DATA_HOME"] = str(tmp_path / "data")
     if sys.platform == "darwin":
-        new = tmp_path / "home" / "Library" / "Application Support" / "ai-workbench" / "publisher-linkedin.json"
+        new = tmp_path / "home" / "Library" / "Application Support" / "openhora" / "publisher-linkedin.json"
     else:
-        new = tmp_path / "data" / "ai-workbench" / "publisher-linkedin.json"
+        new = tmp_path / "data" / "openhora" / "publisher-linkedin.json"
     return e, new, tmp_path / "cache" / "ai-workbench" / "publisher-linkedin.json"
 
 
@@ -1373,65 +1373,33 @@ def test_default_ledger_is_in_the_data_folder_not_the_cache(env, fake, text_file
     assert proc.returncode == 0, proc.stderr
     assert json.loads(new.read_text())["entries"]["launch-1"]["post_urn"] == POST_URN
     assert not (tmp_path / "cache").exists()
-    assert "ledger moved" not in proc.stderr  # nothing to migrate
+    assert "ledger moved" not in proc.stderr
     assert oct(new.stat().st_mode & 0o777) == "0o600" and oct(new.parent.stat().st_mode & 0o777) == "0o700"
     second = run(SCRIPT, publish_args(text_file, "--idempotency-key", "launch-1", "--confirmed"), e)
     assert json.loads(second.stdout)["replayed"] is True and post_count(fake) == 1
 
 
-def test_old_ledger_is_read_by_a_dry_run_and_copied_by_the_first_real_verb(env, fake, text_file, tmp_path):
+def test_data_home_ends_in_openhora():
+    assert load_module().data_home().name == "openhora"
+
+
+def test_no_ledger_is_read_from_the_old_cache(env, fake, text_file, tmp_path):
+    """A ledger planted in the old cache folder is ignored: a dry run finds no key, nothing is copied. The one-time move
+    command (scripts/rename_move.py) is what carries a ledger across."""
     e, new, old = default_ledger_env(env, tmp_path)
-    # The post went out before the move: the provider of that time recorded it in the cache folder.
     first = run(SCRIPT, publish_args(text_file, "--idempotency-key", "launch-1", "--confirmed"),
                 {**env, "PUBLISHER_LINKEDIN_LEDGER": str(old)})
     assert first.returncode == 0 and post_count(fake) == 1 and not new.exists()
     before = old.read_bytes()
-    # A dry run reads the old ledger where the new one does not exist yet, and writes nothing: no copy, no folder.
     dry = run(SCRIPT, publish_args(text_file, "--idempotency-key", "launch-1", "--dry-run"), e)
-    assert json.loads(dry.stdout)["existing_post_urn"] == POST_URN  # found on the very first read
-    assert "ledger moved" not in dry.stderr and not new.exists() and not new.parent.exists()
-    comment = tmp_path / "c.txt"
-    comment.write_text("Thanks!")
-    on_key = run(SCRIPT, ["comment", "--platform", "linkedin", "--text-file", str(comment), "--idempotency-key", "c-1",
-                          "--on-key", "launch-1", "--dry-run"], e)
-    assert json.loads(on_key.stdout)["post_urn"] == POST_URN and "ledger moved" not in on_key.stderr
-    resolve = run(SCRIPT, ["resolve", "--idempotency-key", "launch-1", "--not-published", "--dry-run"], e)
-    assert resolve.returncode == 2 and "ledger moved" not in resolve.stderr  # the key is published: nothing to do
-    assert not new.parent.exists()
-    # The first real verb copies it, and finds the key there.
-    proc = run(SCRIPT, publish_args(text_file, "--idempotency-key", "launch-1", "--confirmed"), e)
-    assert proc.returncode == 0, proc.stderr
-    assert "ledger moved" in proc.stderr and str(old) in proc.stderr and str(new) in proc.stderr
-    assert new.read_bytes() == before and oct(new.stat().st_mode & 0o777) == "0o600"
-    assert json.loads(proc.stdout)["replayed"] is True and json.loads(proc.stdout)["post_urn"] == POST_URN
-    assert post_count(fake) == 1  # not published twice
-    again = run(SCRIPT, publish_args(text_file, "--idempotency-key", "launch-1", "--confirmed"), e)
-    assert again.returncode == 0 and "ledger moved" not in again.stderr  # copied once
-    assert old.read_bytes() == before  # never edited, never deleted
-    # After the copy the new ledger is the only one read and written.
-    assert run(SCRIPT, publish_args(text_file, "--idempotency-key", "launch-2", "--confirmed"), e).returncode == 0
-    assert set(json.loads(new.read_text())["entries"]) == {"launch-1", "launch-2"}
+    assert dry.returncode == 0 and json.loads(dry.stdout)["existing_post_urn"] is None
+    assert "ledger moved" not in dry.stderr and not new.parent.exists()
     assert old.read_bytes() == before
 
 
-def test_existing_new_ledger_is_never_replaced_by_the_old_one(env, fake, text_file, tmp_path):
-    e, new, old = default_ledger_env(env, tmp_path)
-    other = "urn:li:share:7000000000000000009"
-    for path, urn in ((old, other), (new, POST_URN)):
-        path.parent.mkdir(parents=True)
-        path.write_text(json.dumps({"version": 2, "entries": {
-            "launch-1": {"status": "published", "post_urn": urn, "created_at": "2026-10-01T00:00:00Z"}}}))
-    dry = run(SCRIPT, publish_args(text_file, "--idempotency-key", "launch-1", "--dry-run"), e)
-    assert json.loads(dry.stdout)["existing_post_urn"] == POST_URN and "ledger moved" not in dry.stderr
-
-
-def test_old_ledger_that_is_not_json_stops_the_run(env, fake, text_file, tmp_path):
-    e, new, old = default_ledger_env(env, tmp_path)
-    old.parent.mkdir(parents=True)
-    old.write_text("{not json")
-    proc = run(SCRIPT, publish_args(text_file, "--idempotency-key", "launch-1", "--confirmed"), e)
-    assert proc.returncode == 1 and "cannot be copied" in proc.stderr
-    assert fake.requests == [] and not new.exists() and old.read_text() == "{not json"
+def test_the_provider_has_no_ledger_migration():
+    module = load_module()
+    assert not hasattr(module, "ledger_migrate") and not hasattr(module, "old_ledger_path")
 
 
 def test_ledger_flag_pins_the_ledger_and_refuses_another(env, fake, text_file, tmp_path):

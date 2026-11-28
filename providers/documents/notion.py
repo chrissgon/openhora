@@ -91,7 +91,7 @@ At most one page per idempotency key: the key is recorded as pending in the loca
 the creation, and as done after it, so a second write with the key writes to the page it created. A creation whose
 outcome is unknown (a timeout, a 5xx, a 408, a 429) leaves the key pending, and the key blocks every new attempt until
 resolve records what the person found (--id) or releases it (--not-created). The ledger lives in the data folder
-(~/Library/Application Support/ai-workbench/ on macOS, $XDG_DATA_HOME/ai-workbench/ or ~/.local/share/ai-workbench/
+(~/Library/Application Support/openhora/ on macOS, $XDG_DATA_HOME/openhora/ or ~/.local/share/openhora/
 elsewhere), mode 0600.
 
 Environment:
@@ -446,10 +446,10 @@ class Service:
 
 def data_home() -> Path:
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "ai-workbench"
+        return Path.home() / "Library" / "Application Support" / "openhora"
     data = os.environ.get("XDG_DATA_HOME")
     base = Path(data) if data and os.path.isabs(data) else Path.home() / ".local" / "share"
-    return base / "ai-workbench"
+    return base / "openhora"
 
 
 def ledger_path() -> Path:

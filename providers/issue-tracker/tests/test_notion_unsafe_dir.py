@@ -63,3 +63,7 @@ def test_notion_a_safe_credentials_directory_still_gives_the_token(tmp_path, cle
     (folder / "NOTION_TOKEN").chmod(0o600)
     clean_env.setenv("OPENHORA_CREDENTIALS_DIR", str(folder))
     assert load_module().load_token(True) == PLANTED_VALUE
+
+
+def test_notion_data_home_is_named_openhora():
+    assert load_module().data_home().name == "openhora"

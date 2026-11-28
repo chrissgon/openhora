@@ -67,8 +67,8 @@ What a job guarantees (as in launchd.py):
 - Job folders are 0700, files 0600, copies 0400; the unit files are 0600.
 
 systemd mapping (why: providers/scheduler/README.md, "Linux systemd"):
-- dev.ai-workbench.scheduler.<id>.service: Type=oneshot, ExecStart runs the runner copy with python3.
-- dev.ai-workbench.scheduler.<id>.timer: a one-shot job has OnCalendar=<UTC time> with
+- dev.openhora.scheduler.<id>.service: Type=oneshot, ExecStart runs the runner copy with python3.
+- dev.openhora.scheduler.<id>.timer: a one-shot job has OnCalendar=<UTC time> with
   Persistent=true; a recurring job has OnActiveSec=<N>min and OnUnitActiveSec=<N>min. Both set
   AccuracySec=1s and WantedBy=timers.target.
 """
@@ -89,7 +89,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-UNIT_PREFIX = "dev.ai-workbench.scheduler."
+UNIT_PREFIX = "dev.openhora.scheduler."
 EARLY_TOLERANCE = timedelta(minutes=5)
 DEFAULT_GRACE_MINUTES = 120
 MAX_GRACE_MINUTES = 10080  # a week: a one-shot run may start at most this late
@@ -161,8 +161,8 @@ command file (JSON): the same as launchd.py's.
   by the job's copy; "outputs" lists paths the command only writes.
 
 environment variables:
-  SCHEDULER_HOME        job folders. Default: $XDG_DATA_HOME/ai-workbench/scheduler,
-                        or ~/.local/share/ai-workbench/scheduler
+  SCHEDULER_HOME        job folders. Default: $XDG_DATA_HOME/openhora/scheduler,
+                        or ~/.local/share/openhora/scheduler
   SCHEDULER_UNITS_DIR   where the unit files go. Default: $XDG_CONFIG_HOME/systemd/user,
                         or ~/.config/systemd/user
   SCHEDULER_TEST        1 enables test mode; required for the two overrides below.
@@ -232,7 +232,7 @@ def home() -> Path:
         return Path(override).expanduser()
     data = os.environ.get("XDG_DATA_HOME")
     base = Path(data) if data and os.path.isabs(data) else Path.home() / ".local" / "share"
-    return base / "ai-workbench" / "scheduler"
+    return base / "openhora" / "scheduler"
 
 
 def units_dir() -> Path:

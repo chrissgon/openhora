@@ -75,3 +75,7 @@ def test_documents_notion_the_separate_sources_token_is_checked_the_same_way(tmp
     with pytest.raises(module.ProviderError) as caught:
         module.load_token(True, module.SOURCES_SECRET, module.SOURCES_USERNAME)
     assert caught.value.code == 3 and "unsafe" in str(caught.value) and "NOTION_SOURCES_TOKEN" in str(caught.value)
+
+
+def test_documents_notion_data_home_is_named_openhora():
+    assert load_module().data_home().name == "openhora"

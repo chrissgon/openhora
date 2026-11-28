@@ -38,12 +38,9 @@ comment URN after the answer. A pending key whose outcome is unknown (a timeout,
 until `resolve` records what happened. Redirects are refused, so the bearer token is only
 ever sent to the URL that was checked.
 
-The ledger lives in a data folder (~/Library/Application Support/ai-workbench/ on macOS,
-$XDG_DATA_HOME/ai-workbench/ or ~/.local/share/ai-workbench/ elsewhere), next to the scheduler's jobs.
-It used to live in the cache folder, where clearing the cache lost the record of what was already
-published; the first verb that writes the ledger copies the old one to the new place (a note on stderr says
-so) and never deletes it. A dry run reads the old ledger while the new one does not exist, and writes nothing. Jobs scheduled before this change run a copy of the old provider and keep writing to the
-old location, so they must be scheduled again after upgrading.
+The ledger lives in a data folder (~/Library/Application Support/openhora/ on macOS,
+$XDG_DATA_HOME/openhora/ or ~/.local/share/openhora/ elsewhere), next to the scheduler's jobs.
+A ledger of an earlier version in the cache folder is read by nothing; `scripts/rename_move.py` carries one across.
 """
 from __future__ import annotations
 
@@ -177,12 +174,9 @@ other environment variables:
                                variable on to its jobs: a command that runs later carries --ledger
                                <the "ledger" its dry run printed> instead, and is refused when
                                this variable then names another file. Default, in a data folder:
-                               ~/Library/Application Support/ai-workbench/publisher-linkedin.json
-                               on macOS; elsewhere $XDG_DATA_HOME/ai-workbench/publisher-linkedin.json,
-                               or ~/.local/share/ai-workbench/publisher-linkedin.json. A ledger at
-                               its old place ($XDG_CACHE_HOME/ai-workbench/ or ~/.cache/ai-workbench/)
-                               is copied there by the first verb that writes the ledger and never
-                               deleted; a dry run reads it there and writes nothing.
+                               ~/Library/Application Support/openhora/publisher-linkedin.json
+                               on macOS; elsewhere $XDG_DATA_HOME/openhora/publisher-linkedin.json,
+                               or ~/.local/share/openhora/publisher-linkedin.json.
   LINKEDIN_API_BASE            tests only. Replaces {DEFAULT_API_BASE} with a
                                loopback URL (http://127.0.0.1:<port>). Any other
                                host is refused. When set, the secret store is not
@@ -368,10 +362,10 @@ LEDGER_NAME = "publisher-linkedin.json"
 def data_home() -> Path:
     """The folder for state that must outlive cache cleaning: the one the scheduler providers use."""
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "ai-workbench"
+        return Path.home() / "Library" / "Application Support" / "openhora"
     data = os.environ.get("XDG_DATA_HOME")
     base = Path(data) if data and os.path.isabs(data) else Path.home() / ".local" / "share"
-    return base / "ai-workbench"
+    return base / "openhora"
 
 
 # The ledger --ledger pins, set by main(). A command that runs later (a scheduled job) carries the path of the
@@ -393,17 +387,6 @@ def ledger_path() -> Path:
     return chosen or data_home() / LEDGER_NAME
 
 
-def old_ledger_path() -> Path | None:
-    """Where the ledger lived before it moved to the data folder; None when another ledger was chosen
-    (PUBLISHER_LINKEDIN_LEDGER, or --ledger with a path that is not the default one)."""
-    if os.environ.get("PUBLISHER_LINKEDIN_LEDGER"):
-        return None
-    if PINNED_LEDGER is not None and os.path.abspath(PINNED_LEDGER) != os.path.abspath(data_home() / LEDGER_NAME):
-        return None
-    cache = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
-    return Path(cache) / "ai-workbench" / LEDGER_NAME
-
-
 def ledger_folder_ready(path: Path) -> None:
     """Create the ledger's folder (0700). The provider's own data folder is set to 0700 even when it exists with
     wider permissions; a folder the user chose (PUBLISHER_LINKEDIN_LEDGER, or --ledger elsewhere) is theirs and
@@ -417,46 +400,11 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def ledger_migrate() -> None:
-    """First use after the move: copy the old ledger to the new place, so no recorded key is lost.
-
-    Runs before every read made under the lock (only a verb that writes the ledger takes it; a dry run never
-    does), and does something only while the new ledger does not exist and the old one does. The copy appears under its final name in one step (a hard link, which fails when the name
-    exists), so two runs at once cannot overwrite each other. The old file is never changed or deleted.
-    """
-    path, old = ledger_path(), old_ledger_path()
-    if old is None or path.exists() or not old.is_file():
-        return
-    try:
-        content = old.read_bytes()
-        json.loads(content.decode("utf-8"))
-    except (OSError, ValueError) as exc:
-        raise ProviderError(f"the idempotency ledger at {old} cannot be copied to {path}: {exc}", EXIT_SERVICE)
-    ledger_folder_ready(path)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".publisher-linkedin.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(content)
-        os.chmod(tmp, 0o600)
-        try:
-            os.link(tmp, path)
-        except FileExistsError:
-            return  # another run copied it first
-    finally:
-        os.unlink(tmp)
-    print(f"note: the idempotency ledger moved: copied {old} to {path}; the old file is kept and no longer read",
-          file=sys.stderr)
-
-
 def ledger_read() -> dict:
-    """The ledger's content. It writes nothing: while the new ledger does not exist, the old one is read where it
-    is, and only ledger_locked(), which a verb that writes takes, copies it."""
+    """The ledger's content. It writes nothing."""
     path = ledger_path()
     if not path.exists():
-        old = old_ledger_path()
-        if old is None or not old.is_file():
-            return {"version": 2, "entries": {}}
-        path = old
+        return {"version": 2, "entries": {}}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except ValueError:
@@ -498,7 +446,6 @@ def ledger_locked():
                 if time.monotonic() > deadline:
                     raise ProviderError(f"the idempotency ledger {path} stayed locked for {LOCK_TIMEOUT_SECONDS} s")
                 time.sleep(0.05)
-        ledger_migrate()
         yield ledger_read()
     finally:
         os.close(fd)  # closing the descriptor releases the lock
