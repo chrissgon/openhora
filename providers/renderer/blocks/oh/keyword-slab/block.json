@@ -1,0 +1,38 @@
+{
+ "schema_version": 1,
+ "name": "oh:keyword-slab",
+ "kind": "overlay",
+ "preset": "keyword",
+ "band": "card",
+ "may_cross_face": false,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "one short keyword the speaker says should stand out, on a slab of colour",
+ "params": {
+  "text": {
+   "type": "text",
+   "max": 24,
+   "required": true
+  },
+  "color": {
+   "type": "color"
+  }
+ },
+ "samples": [
+  {
+   "text": "Go"
+  },
+  {
+   "text": "Name every dollar today"
+  },
+  {
+   "text": "Promo\u00e7\u00e3o s\u00f3 hoje, j\u00e1!"
+  }
+ ],
+ "natural_duration": 1.0,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

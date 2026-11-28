@@ -308,3 +308,5 @@ Updated on 2026-11-07 by V3a-2.
 2026-11-26: P1b, `captions-edit` places and removes transitions (`transition` op, `transitions_current`, `transition_lost`), and the review marks the words that open a shot (`docs/decisions/2026-11-26-p1a-transitions.md`)
 
 2026-11-27: P2a, `captions-edit` chooses the caption block and its position, the zoom and a font per role for one video (`caption`, `zoom`, `font` ops, `--caption-block`, `edl.captions.block`; `docs/decisions/2026-11-27-p2a-video-choices.md`, draft)
+
+2026-11-27: P2c, `oh:keyword-slab` is one more choice for the keyword preset (the default stays `hf:spring-pop`), and `hf:testimonial-card` enters with the quote and the author together (`docs/decisions/2026-11-27-p2c-blocks.md`, draft; the card's determinism record waits for the supervisor's live leg)

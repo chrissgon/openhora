@@ -169,6 +169,7 @@ def test_the_listing_says_for_each_block_whether_it_can_be_added_and_why_not(tmp
     rows = {b["name"]: b for b in shown["blocks"]}
     assert [b["name"] for b in shown["blocks"]] == sorted(rows)
     assert rows["oh:keyword"]["addable"] is True and rows["oh:keyword"]["why"] is None
+    assert rows["oh:keyword-slab"]["addable"] is True and rows["oh:keyword-slab"]["why"] is None and rows["oh:keyword-slab"]["preset"] == "keyword"      # P2c
     assert (rows["oh:cutaway"]["addable"], rows["oh:cutaway"]["why"]) == (True, None)      # V9b-3a: a layout with one picture parameter is added; its picture comes from the media set
     assert (rows["oh:pip"]["addable"], rows["oh:pip"]["why"]) == (True, None)      # the ffmpeg engine draws the preset pip
     assert rows["oh:caption"]["why"] == "caption" and rows["oh:caption"]["addable"] is False
@@ -399,7 +400,7 @@ def test_video_catalogue_lists_for_the_terminal_and_the_page_and_refuses_the_res
     assert shown["engine"] == "ffmpeg"      # the class default since PF-b (V4: hyperframes)
     assert {b["name"] for b in shown["blocks"] if b["addable"]} == {"oh:keyword", "oh:list", "oh:number", "oh:quote", "hf:count-up", "hf:spring-pop", "hf:testimonial-card",
                                                                         "oh:mark", "oh:sticker", "oh:nametag",
-                                                                        "oh:cutaway", "oh:screenshot", "oh:pip", "oh:split"}      # the three review-only blocks of V9a-1 are addable at review; the picture layouts since V9b-3a; the default engine is ffmpeg since PF-b, which draws pip and split
+                                                                        "oh:cutaway", "oh:screenshot", "oh:pip", "oh:split", "oh:keyword-slab"}      # P2c: the keyword slab is one more choice for the keyword preset; the three review-only blocks of V9a-1 are addable at review; the picture layouts since V9b-3a; the default engine is ffmpeg since PF-b, which draws pip and split
     assert ops_media_catalogue.video_catalogue(world["path"], "terminal") == shown and ops_media_catalogue.video_catalogue(world["path"], "page") == shown
     assert ops.video_catalogue(world["path"]) == shown
     for channel in ("mcp", "messaging", "other"):

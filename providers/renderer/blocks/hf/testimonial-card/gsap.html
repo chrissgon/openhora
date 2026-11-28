@@ -44,9 +44,9 @@
       card.style.padding = (PAD * size).toFixed(1) + "px";
       var scale = ctx.duration < 1.95 ? ctx.duration / 1.95 : 1;
       var out = 0.45 * scale;
-      tl.fromTo(quote, { y: "18%", opacity: 0 }, { y: "0%", opacity: 1, duration: 0.7 * scale, ease: "power2.out" }, 0.12 * scale);
+      tl.fromTo(quote, { y: "10%", opacity: 0 }, { y: "0%", opacity: 1, duration: Math.min(0.3, 0.3 * scale / 0.9), ease: "power3.out" }, 0);
       if (named) {
-        tl.fromTo([avatar, author], { y: "34%", opacity: 0 }, { y: "0%", opacity: 1, duration: 0.56 * scale, stagger: 0.06 * scale, ease: "power2.out" }, 0.82 * scale);
+        tl.fromTo([avatar, author], { y: "20%", opacity: 0 }, { y: "0%", opacity: 1, duration: Math.min(0.3, 0.3 * scale / 0.9), stagger: 0.05, ease: "power3.out" }, Math.min(0.12, 0.12 * scale / 0.9));
       }
       tl.fromTo(card, { opacity: 1 }, { immediateRender: false, opacity: 0, duration: out, ease: "power2.in" }, Math.max(0, ctx.duration - out));
     }
