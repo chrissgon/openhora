@@ -61,7 +61,7 @@ def _is_core(cfg, skill: str) -> bool:
 
 
 def entry(cfg: dict, skill: str):
-    """The entry of `skill` in the project's `imported_skills` ({"folder", "without_external_line"}), or None when the project does
+    """The entry of `skill` in the project's `imported_skills` ({"folder", "without_external_line", "agent"}), or None when the project does
     not list it or when it is a folder of skills/ of the checkout (a skill of the workbench is never read from a listing)."""
     if not skill or _is_core(cfg, skill):
         return None

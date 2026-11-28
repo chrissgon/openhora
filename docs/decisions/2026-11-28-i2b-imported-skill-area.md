@@ -12,4 +12,6 @@ Package I2b, a follow-up of I2 (`docs/decisions/2026-11-28-i2-imported-skill-run
 
 **Why several candidates are refused, not picked.** Choosing by name order or by pack size would be a guess about which agent should carry a foreign skill's task, and an agent owns the task's daily limits, its mode and its profile. Principle 5: a decision that belongs to the person is asked (through the refusal, with the key to set), never guessed.
 
+**What the owner does change (it widens nothing, but the person may not expect it).** The owning agent's fixed `model`, when it has one, chooses the run's model, and a local test of the skill on that model is still required (`imported.refusals`). The run counts against that agent's `max_runs_per_day`, `max_usd_per_day` and `max_parallel` instead of the planning agent's, so an agent with caps of 0 holds the task. The plan's text states the owner and why (`agent_why` on the task, covered by the plan hash). The `agent` key refuses the reserved name `runtime`, as `area_agents` does.
+
 **What did not change.** Who owns the task changes none of its limits: it stays supervised, without the web, its review never released (`autonomy.review_action`), with every refusal of `imported.refusals`, whatever the agent's mode, consent or proof. No skill folder, fingerprinted file or measurement changes.

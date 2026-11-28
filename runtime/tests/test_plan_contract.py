@@ -21,7 +21,7 @@ def routed(*skills: str) -> list:
 
 
 def combined(skills: tuple, limits=LIMITS) -> dict:
-    return plan.combine(REQUEST, routed(*skills), {}, {}, ROOT, pack=None, limits=limits, past=[])
+    return plan.combine(REQUEST, routed(*skills), {}, {}, ROOT, pack=None, limits=limits, past=[], imported={})
 
 
 def test_unrelated_deliveries_are_not_chained():

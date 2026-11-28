@@ -106,5 +106,5 @@ def test_the_agent_key_is_an_agent_name(tree):
     got = project_config.load(configure(tree, {"home": home, "skills": {"ops-tidy-notes": {"agent": "delivery"}}}))["imported_skills"]
     assert got["skills"]["ops-tidy-notes"]["agent"] == "delivery"
     assert project_config.load(configure(tree, {"home": home, "skills": {"ops-tidy-notes": {}}}))["imported_skills"]["skills"]["ops-tidy-notes"]["agent"] is None
-    for bad in ["Delivery", "two words", "", 3, None, "x" * 65]:
+    for bad in ["Delivery", "two words", "", 3, None, "x" * 65, "runtime"]:
         assert "agent" in refused(tree, {"home": home, "skills": {"ops-tidy-notes": {"agent": bad}}})

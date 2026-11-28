@@ -175,7 +175,9 @@ def test_the_task_is_owned_by_the_planning_agent_when_area_agents_are_configured
 def test_a_task_owned_by_the_area_agent_keeps_every_limit_of_an_imported_skill(world):
     st.skill(world["tree"], "ops-core-thing", "docs/workbench/state.md", "docs/ops/core-thing.md", area="delivery")
     pack = {"pack": "default", "mode": "supervised", "max_runs_per_day": 5, "max_usd_per_day": 5.0}
-    configure(world, area_agents={"planning": dict(pack), "delivery": dict(pack)})
+    owner = dict(pack, mode="autonomous", model="m", consent={"model": "m", "mode": "autonomous"})   # consent that would release a review
+    configure(world, area_agents={"planning": dict(pack), "delivery": owner})
+    assert autonomy.consent_valid(ops_core.context(world["path"])["cfg"]["area_agents"]["delivery"], "m")
     rid = plan_and_approve(world)
     task = the_task(world, rid)
     assert task["agent"] == "delivery"                                           # the prefix ops- is the delivery area, its agent covers it
@@ -185,6 +187,18 @@ def test_a_task_owned_by_the_area_agent_keeps_every_limit_of_an_imported_skill(w
     assert out["routing"]["proven"] is False and out["routing"]["consent"] is False
     (item,) = pending_of(world, task["id"])
     assert item["kind"] == "review"
+    snapshot = ops_round._snapshot(ops_core.context(world["path"]), ops_core._keys())
+    decided = dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start, parallel.admit)
+    assert item["id"] not in decided["release"]
+
+
+def test_the_plan_of_a_named_flow_says_who_owns_the_imported_task_and_why(world):
+    configure(world, area_agents={"planning": {"pack": "default", "mode": "supervised", "max_runs_per_day": 5, "max_usd_per_day": 5.0}})
+    rid = ops.request(world["path"], "Tidy my notes.", title="Tidy")["request"]
+    opened = ops.route(world["path"], rid, flow="tidy")["pending_id"]
+    ctx = ops_core.context(world["path"])
+    body = ctx["store"].pending_get(ctx["conn"], opened)["body"]
+    assert "no agent covers the area ops: the planning agent owns it" in body
 
 
 def test_review_is_held_in_autonomous_mode_with_consent(world):

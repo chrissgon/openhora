@@ -155,7 +155,7 @@ def _reroute(ctx: dict, task: dict, returned: list, k: int, delivery: dict, appr
                 for t in tasks:
                     if not [d for d in t["depends_on"] if d in inside]:
                         t["depends_on"] = [task["key"]] + t["depends_on"]
-                    t["agent"] = plan.agent_for(t, skills, (ctx["cfg"].get("imported_skills") or {}).get("skills", {}))
+                    plan.assign(t, skills, imported=(ctx["cfg"].get("imported_skills") or {}).get("skills", {}))
                 language_rules.with_language(tasks, request.get("language") or route_read.get("language"))
             except (flow_files.FlowError, plan.PlanError, ValueError) as e:
                 why, tasks = f"no task can be planned from the route: {e}", None

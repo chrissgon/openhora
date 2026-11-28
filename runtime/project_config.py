@@ -284,7 +284,8 @@ IMPORTED_HASH = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _imported_skills(value, workbench: str) -> dict:
-    """The key "imported_skills", checked: {"home": realpath or None, "skills": {name: {"folder", "without_external_line"}}}."""
+    """The key "imported_skills", checked: {"home": realpath or None, "skills": {name: {"folder", "without_external_line", "agent"}}}
+    (the last two None when the entry does not set them)."""
     if value is None:
         return {"home": None, "skills": {}}
     where = "runtime.json imported_skills"
@@ -317,6 +318,8 @@ def _imported_skills(value, workbench: str) -> dict:
         if "agent" in entry and (not isinstance(agent, str) or not autonomy.AGENT_KEY.fullmatch(agent) or len(agent) > autonomy.AGENT_KEY_MAX):
             raise ConfigError(f"{where}.{name}.agent must be the name of an area agent (lowercase letters, digits and hyphens, at most "
                               f"{autonomy.AGENT_KEY_MAX})")
+        if agent in autonomy.RESERVED_AGENTS:
+            raise ConfigError(f"{where}.{name}.agent: {agent} is the runtime's own name, the owner of step tasks; name an area agent")
         out[name] = {"folder": os.path.join(real, name), "without_external_line": accepted, "agent": agent}
     return {"home": real, "skills": out}
 
