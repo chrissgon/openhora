@@ -738,6 +738,12 @@ class MediaStore:
         self._ctx, self._cfg = ctx, ctx["cfg"]
         self._data, self._root = ctx["cfg"]["data_dir"], os.path.dirname(HERE)
 
+    def catalogue(self) -> dict:
+        """The block catalogue as data (runtime/media_animation.py read_catalogue) of this checkout: a read, no write and no provider call. `media_animation.CatalogueError` is
+        raised as it is; the step kind maps it to its own failure."""
+        import media_animation      # inside the method: media_animation imports this module, so a module-level import would be circular
+        return media_animation.read_catalogue(self.root())
+
     def raw(self, rid: str) -> str:
         try:
             raw = media.load(self._data, rid)["raw"]
