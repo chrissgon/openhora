@@ -59,6 +59,7 @@ What a script needs and cannot read from prose: host names, URL patterns, the pa
 | `media` | `max_count`, `max_bytes`, `types` (each with `name`, `extensions`, `magic_hex`, the first bytes of such a file, and `magic_offset`, the byte at which they sit, 0 when absent), `post_image` (`width`, `height`) |
 | `video` | for a video post: `containers`, `codecs`, `audio_codecs`, `fps_min`, `fps_max`, `max_width`, `min_side`, `max_side`, `min_seconds`, `max_seconds`, `max_bytes`, `aspect` (`recommended`, `min`, `max`), `faststart` |
 | `limits` | for a video post: `posts_per_24h`, `approximate`, `pending_shares_per_24h`, `unaudited_users_per_24h` |
+| `profile` | the pieces of a profile and their limits: `pieces` (one object per piece, keyed by the piece's name) and `checked` (the date the values were read); see "The profile key" below |
 | `reply` | `max_characters` |
 | `comment` | `max_characters_kept` (how much of a comment's text is kept when it is read), `link` (the query parameters that carry the comment and the reply, `nesting_levels`) |
 | `identifiers` | `post`, `comment` and, where a copied link uses another form, `comment_short`: each a `pattern` for the whole value |
@@ -91,6 +92,16 @@ What the new keys mean:
 - `media.types[].magic_offset`: the signature of an MP4 or MOV file is at byte 4, not at the start. The `ftyp` prefix that identifies an MP4 also matches a MOV file, whose brand follows it: a reader decides by the extension, or tries the types with the longest signature first.
 - `video`: `containers` and `codecs` are lowercase names (`mp4`, `mov`, `webm`; `h264`, `h265`, `vp8`, `vp9`, where `h265` is also written HEVC). `max_width` is the widest the platform takes; `min_side` and `max_side` bound each of the width and the height. `aspect` holds ratios written `<width>:<height>`. `faststart` says whether the platform needs the index at the front of the file. Each is null when not checked.
 - `limits.posts_per_24h`: the figures the platform's pages state for the posts one account may publish through its API in 24 hours, a list because the pages may state more than one and disagree; a reader that needs the real one reads it from the platform and never picks one of the list. `limits.approximate`: true when the platform states the figures of `posts_per_24h` as typical or approximate, so that a reader never treats one as a hard cap; false when it states them as limits. `pending_shares_per_24h` and `unaudited_users_per_24h`: a number, or null.
+
+### The profile key
+
+`profile` is optional in every shape. It holds what a script that checks a person's profile needs, and it is read by no publisher: the payload builders ignore it.
+
+- `pieces.<piece>`: one object for each piece the platform's profile has, keyed by the piece's name (`name`, `username`, `bio`, `links`, `photo`, `pinned`, `highlights`, `category`). A piece absent from `pieces` is not a piece of that platform.
+- The keys of a piece, each present only when it applies: `max_characters` and `min_characters` (a count of characters), `unit` (how characters are counted, `utf-16` or `characters`; null when the platform does not say, and a script then counts Unicode code points and says so), `max_count` (links, pinned posts, highlights), `requires` (a condition the platform puts on the piece, in words) and `source` (the tag of the fact in the reference's Sources, or `not checked`).
+- `null` means the platform states no value: a script reports that limit as `not checked` and never fills it with a number.
+- A data file with no `profile` key means no profile fact was checked: a script then reports every limit as `not checked`.
+- `checked`: the date the values were read.
 
 Rules:
 

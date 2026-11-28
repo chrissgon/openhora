@@ -2,7 +2,7 @@
 
 What Instagram is as a medium, for a professional account (Business or Creator) that publishes through the platform's API. A skill reads this file at the step that says "read the reference of the platform"; a script reads the same facts from `instagram.json`, beside this file. What belongs to the tool that publishes (tokens and how long they last, permissions, the service's endpoints, its container states and errors) is in the provider, not here.
 
-Every fact carries the tag of its source in square brackets; the sources, with their addresses and the date each was read, are at the end. `not checked` marks a value the pages read do not state, or one that was not read. "The maintainer's choice" marks a value the maintainer decided because the platform states none. Dates are 2026-10-13.
+Every fact carries the tag of its source in square brackets; the sources, with their addresses and the date each was read, are at the end. `not checked` marks a value the pages read do not state, or one that was not read. "The maintainer's choice" marks a value the maintainer decided because the platform states none. Dates are 2026-10-13, except the section "A profile" and its sources, read 2026-11-24.
 
 ## Post shape
 
@@ -58,6 +58,19 @@ Every fact carries the tag of its source in square brackets; the sources, with t
 - Whether a hashtag or a mention written in a caption becomes a link once published: not stated [IG-media].
 - A first comment as a way to carry a link: not checked. The data file holds no first-comment limit.
 
+## A profile
+
+- Pieces: name (`name`), username (`username`), bio (`bio`), links (`links`), photo (`photo`), pinned posts (`pinned`), story highlights (`highlights`) and the category label of a professional account (`category`).
+- Bio: at most 150 characters [IG-bio]. How a character is counted: not stated.
+- Name: a limit is not stated on the pages read: `not checked`. The 30 characters that circulate are not on them.
+- Search: the platform matches what a person types with usernames, bios, captions, hashtags and places, matches results by text, and advises a username or profile name related to the content of the posts [IG-search].
+- Username: length and characters: `not checked`. A change on an account that reaches a lot of people may need to be reviewed [IG-edit].
+- Links: up to 5 websites [IG-links].
+- Pinned posts: up to 3 [IG-pin].
+- Highlights: no number stated; a story added to highlights stays visible as a highlight until it is removed [IG-highlights].
+- Photo: a size is not stated: `not checked`.
+- Export: a person exports their own information from the "Your information and permissions" section of Accounts Center, with "Export your information" [IG-export]. Never scrape the platform.
+
 ## Comments and replies
 
 - Not checked. Comments on this platform are out of scope of the data file: it has no reply, comment or identifier keys, and no parser reads this platform's comment links.
@@ -79,3 +92,10 @@ Every fact carries the tag of its source in square brackets; the sources, with t
 - [IG-media] IG User Media reference: https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media (read 2026-10-13)
 - [IG-media-node] IG Media reference: https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-media (read 2026-10-13)
 - [IG-oembed] Instagram oEmbed: https://developers.facebook.com/docs/instagram-platform/oembed (read 2026-10-13)
+- [IG-bio] Add a bio to your Instagram profile: https://help.instagram.com/728994388226960/ (read 2026-11-24)
+- [IG-search] Breaking Down How Instagram Search Works: https://about.instagram.com/blog/announcements/break-down-how-instagram-search-works (read 2026-11-24)
+- [IG-edit] How to change your Instagram profile information: https://help.instagram.com/583107688369069/ (read 2026-11-24)
+- [IG-links] Add a website to your Instagram profile: https://help.instagram.com/362497417173378/ (read 2026-11-24)
+- [IG-pin] Pin a post to the top of your profile on Instagram: https://help.instagram.com/318456537074409/ (read 2026-11-24)
+- [IG-highlights] Add a story to your Story Highlights: https://help.instagram.com/813938898787367/ (read 2026-11-24)
+- [IG-export] Review and export a copy of your Instagram information: https://help.instagram.com/181231772500920/ (read 2026-11-24)

@@ -83,7 +83,7 @@
         {"text": "No asset line of the ```script block holds a file name, a path or a link: each is a description in words of what to show", "tags": ["guard"]},
         {"text": "No beat of the ```script block holds neon, pink, a hex colour code, a colour name or a time such as 0:08 as the value of any field, and no field is named start, end, at, time or duration", "tags": ["guard"]},
         {"text": "The reply names both the neon pink text and the zoom at 0:08 and says each was not written because the preset vocabulary does not offer it (no zoom preset, no time in a script, no colour outside the palette tokens)", "tags": ["guard"]},
-        "The spoken lines describe the Sunday review as docs/notes/budget-month.md does (a review of 10 minutes: open the dashboard, compare it with the plan, move what is left over), and every fact, number or tool in the lines is written in docs/notes/budget-month.md",
+        "The spoken lines describe the Sunday review as docs/notes/budget-month.md does (a review of 10 minutes: open the dashboard, compare it with the plan, move what is left over), and every fact, number or tool in the lines is written in docs/notes/budget-month.md or in a file under docs/brand/",
         {"text": "The Checks section of the content file reports the result of check_script.py as ok", "tags": ["format"]}
       ]
     },

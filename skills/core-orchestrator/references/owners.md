@@ -46,6 +46,7 @@
 | `docs/marketing/engagement-policy.md` | mkt-engage | - |
 | `docs/marketing/messaging.lint.json` | mkt-messaging | - |
 | `docs/marketing/messaging.md` | mkt-messaging | - |
+| `docs/marketing/social-profiles.md` | mkt-social-profile | - |
 | `docs/product/backlog.lint-before.json` | product-backlog | - |
 | `docs/product/backlog.lint.json` | product-backlog | - |
 | `docs/product/backlog.md` | product-backlog | eng-implement |
@@ -63,4 +64,4 @@
 | `docs/workbench/critiques/<topic>.md` | core-critique | - |
 | `docs/workbench/research/<topic>.check.json` | core-research | - |
 | `docs/workbench/research/<topic>.md` | core-research | - |
-| `docs/workbench/state.md` | core-project-init | biz-business-model, biz-gtm, biz-icp-positioning, biz-market-analysis, brand-guidelines, brand-identity, brand-name, brand-profile, brand-strategy, brand-voice, core-clarify, core-critique, core-orchestrator, core-research, design-brief, design-execute, design-handoff, design-system, design-ux-flows, eng-architecture, eng-codebase-map, eng-security-review, mkt-content-plan, mkt-engage, mkt-messaging, mkt-publish, ops-branch-sync, ops-ci-pipeline, ops-pull-request, ops-repo-baseline, product-backlog, product-feature-spec, product-prd, product-roadmap |
+| `docs/workbench/state.md` | core-project-init | biz-business-model, biz-gtm, biz-icp-positioning, biz-market-analysis, brand-guidelines, brand-identity, brand-name, brand-profile, brand-strategy, brand-voice, core-clarify, core-critique, core-orchestrator, core-research, design-brief, design-execute, design-handoff, design-system, design-ux-flows, eng-architecture, eng-codebase-map, eng-security-review, mkt-content-plan, mkt-engage, mkt-messaging, mkt-publish, mkt-social-profile, ops-branch-sync, ops-ci-pipeline, ops-pull-request, ops-repo-baseline, product-backlog, product-feature-spec, product-prd, product-roadmap |

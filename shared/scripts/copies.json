@@ -127,6 +127,10 @@
     {
      "path": "skills/mkt-vote-round/scripts/sensitive_topics.py",
      "adopted": true
+    },
+    {
+     "path": "skills/mkt-social-profile/scripts/sensitive_topics.py",
+     "adopted": true
     }
    ]
   },
@@ -143,6 +147,10 @@
     },
     {
      "path": "skills/mkt-vote-round/scripts/voice_stats.py",
+     "adopted": true
+    },
+    {
+     "path": "skills/mkt-social-profile/scripts/voice_stats.py",
      "adopted": true
     }
    ]

@@ -1,0 +1,11 @@
+{
+ "platform": "clipnet",
+ "post": {"max_characters": 100},
+ "profile": {
+  "pieces": {
+   "bio": {"max_characters": 80, "unit": "utf-16", "source": "CN-bio"},
+   "links": {"max_count": 1, "requires": "1,000 followers", "source": "CN-link"}
+  },
+  "checked": "2030-01-01"
+ }
+}

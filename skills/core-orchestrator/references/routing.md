@@ -94,6 +94,7 @@ Match the intent column, not the example words. Skills marked (planned) are not 
 | Plan a launch | mkt-launch-plan (planned) |
 | Content calendar | mkt-content-plan |
 | Write a social post (text only, nothing published) | mkt-social-copy |
+| Review or rewrite a social profile, network by network (bio, name, link, pinned, cover; nothing is changed on the profile) | mkt-social-profile |
 | A script and a caption for a short video post (a Reel, a TikTok, a Short): the text only, nothing recorded, edited or published | flow-short-video |
 | Find pictures or short clips on the web for a short video's cutaways from given words (nothing downloaded) | mkt-video-media-search |
 | Publish or schedule a post that is already written and illustrated | mkt-publish |

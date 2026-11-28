@@ -4,6 +4,7 @@
 # path of the runtime, in no pack. No skill is in two packs of agents enabled together (runtime/plan.py, agent_of).
 mkt-content-plan
 mkt-social-copy
+mkt-social-profile
 mkt-messaging
 mkt-video-media-search
 mkt-video-media-explain

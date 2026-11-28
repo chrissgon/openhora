@@ -23,7 +23,7 @@ Skills never keep state inside this repository. Everything they produce for a pr
     ├── engineering/              # architecture.md (or codebase-map.md beside a registered spec), designs/<feature>.md, adr/<NNNN>-<title>.md, designs/<feature>.check.json, plans/<task>.md (and handoff.md, migration.md when an existing document is registered there), reviews/<change>.md, security-reviews/<date>.md
     ├── ai/                       # opportunity.md, requirements.md, evals/, governance.md
     ├── delivery/                 # repo-baseline.md, runbooks/, releases/, incidents/
-    ├── marketing/                # messaging.md (with messaging.lint.json), launch-plan.md, calendar.md, content/<post>.md, campaigns/, engagement-policy.md, engagement-inbox.md, engagement-log.jsonl
+    ├── marketing/                # messaging.md (with messaging.lint.json), launch-plan.md, calendar.md, content/<post>.md, social-profiles.md, campaigns/, engagement-policy.md, engagement-inbox.md, engagement-log.jsonl
     ├── security/                 # audit-<date>.md, vetting-<skill>-<date>.md: the records of core-security-audit, in the workbench or in a project that vets a skill
     └── outputs/                  # <name>.csv, .xlsx, .docx, .pdf: files the task runtime's export steps make from a document of the project (runtime/step_export.py; no skill declares it)
 ```
@@ -128,6 +128,7 @@ Generated from the skills' frontmatter by `python3 scripts/owner_table.py`; neve
 | `docs/marketing/engagement-policy.md` | mkt-engage | - |
 | `docs/marketing/messaging.lint.json` | mkt-messaging | - |
 | `docs/marketing/messaging.md` | mkt-messaging | - |
+| `docs/marketing/social-profiles.md` | mkt-social-profile | - |
 | `docs/product/backlog.lint-before.json` | product-backlog | - |
 | `docs/product/backlog.lint.json` | product-backlog | - |
 | `docs/product/backlog.md` | product-backlog | eng-implement |
@@ -145,7 +146,7 @@ Generated from the skills' frontmatter by `python3 scripts/owner_table.py`; neve
 | `docs/workbench/critiques/<topic>.md` | core-critique | - |
 | `docs/workbench/research/<topic>.check.json` | core-research | - |
 | `docs/workbench/research/<topic>.md` | core-research | - |
-| `docs/workbench/state.md` | core-project-init | biz-business-model, biz-gtm, biz-icp-positioning, biz-market-analysis, brand-guidelines, brand-identity, brand-name, brand-profile, brand-strategy, brand-voice, core-clarify, core-critique, core-orchestrator, core-research, design-brief, design-execute, design-handoff, design-system, design-ux-flows, eng-architecture, eng-codebase-map, eng-security-review, mkt-content-plan, mkt-engage, mkt-messaging, mkt-publish, ops-branch-sync, ops-ci-pipeline, ops-pull-request, ops-repo-baseline, product-backlog, product-feature-spec, product-prd, product-roadmap |
+| `docs/workbench/state.md` | core-project-init | biz-business-model, biz-gtm, biz-icp-positioning, biz-market-analysis, brand-guidelines, brand-identity, brand-name, brand-profile, brand-strategy, brand-voice, core-clarify, core-critique, core-orchestrator, core-research, design-brief, design-execute, design-handoff, design-system, design-ux-flows, eng-architecture, eng-codebase-map, eng-security-review, mkt-content-plan, mkt-engage, mkt-messaging, mkt-publish, mkt-social-profile, ops-branch-sync, ops-ci-pipeline, ops-pull-request, ops-repo-baseline, product-backlog, product-feature-spec, product-prd, product-roadmap |
 <!-- owner-table:end -->
 
 ## Rules

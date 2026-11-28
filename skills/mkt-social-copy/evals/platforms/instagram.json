@@ -7,9 +7,9 @@
       "prompt": "write the post for the 2038-11-12 slot, the subscription one",
       "expected_output": "The slot's platform, Instagram, offers more than one format and neither the calendar row nor the request names one, so the skill writes no file and asks which format, recommending the one the idea fits.",
       "files": [
-        "evals/files/mira-brand",
+        "evals/platforms/instagram/files/mira-ig-brand",
         "evals/files/mira-notes",
-        "evals/files/mira-calendar"
+        "evals/platforms/instagram/files/mira-ig-calendar"
       ],
       "assertions": [
         {
