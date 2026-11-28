@@ -36,6 +36,7 @@ STATE = "docs/workbench/state.md"
 CONFIG = "docs/workbench/runtime.json"
 FLOWS_DIR = "docs/workbench/flows"   # the project's flows (runtime/flow_files.py): only the person and the operations write there
 INSTRUCTIONS = "docs/workbench/instructions.md"   # the person's standing instructions (runtime/instructions.py, limit L40): only the person writes it
+AGENTS_DIR = "docs/workbench/agents"   # the agents' profiles (runtime/profiles.py, limit L40 as amended by AC1): only the person writes them; they reach the conversation lane, never a run
 CLASSES = ("state", "machine", "document", "versioned", "ignored", "other")
 # The classes that come back as loose files. "versioned" comes back too since stage 4, but only as a change set
 # (runtime/changeset.py), never as a loose file, so it is not listed here.
@@ -70,7 +71,7 @@ def protected(rel: str) -> bool:
     """Whether a project-relative path, in whatever spelling, is a protected path of this module or lies under one: the configuration, the
     person's instructions (a name that is a folder there is also theirs), or the flows folder or anything in it."""
     folded = fold(rel)
-    return folded in (CONFIG, INSTRUCTIONS, FLOWS_DIR) or folded.startswith((FLOWS_DIR + "/", CONFIG + "/", INSTRUCTIONS + "/"))
+    return folded in (CONFIG, INSTRUCTIONS, FLOWS_DIR, AGENTS_DIR) or folded.startswith((FLOWS_DIR + "/", AGENTS_DIR + "/", CONFIG + "/", INSTRUCTIONS + "/"))
 
 
 def classify(rel: str, facts: dict | None = None) -> str:
@@ -80,8 +81,8 @@ def classify(rel: str, facts: dict | None = None) -> str:
     facts = facts or {}
     path = normal(rel)
     folded = fold(path) if path is not None else None   # a case-insensitive disk lands docs/workbench/Flows (or a Unicode fold of it) in the same folder: the compare folds
-    if path is None or folded in (CONFIG, INSTRUCTIONS) or folded == FLOWS_DIR or folded.startswith((FLOWS_DIR + "/", CONFIG + "/", INSTRUCTIONS + "/")):
-        return "other"   # the configuration, the project's flows and the person's instructions: what a run would change to change what runs next
+    if path is None or folded in (CONFIG, INSTRUCTIONS) or folded in (FLOWS_DIR, AGENTS_DIR) or folded.startswith((FLOWS_DIR + "/", AGENTS_DIR + "/", CONFIG + "/", INSTRUCTIONS + "/")):
+        return "other"   # the configuration, the project's flows, the agents' profiles and the person's instructions: what a run would change to change what runs next
     if path == STATE:
         return "state"
     under = lambda prefix: path == prefix.rstrip("/") or path.startswith(prefix.rstrip("/") + "/")

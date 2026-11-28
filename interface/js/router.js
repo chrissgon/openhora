@@ -6,6 +6,7 @@
 //   #/p/<id>/lobby[/<tab>[/<pending id>]]            the planning agent's floor (tab: conversation, inbox, desk, tasks, agent; the desk takes a document and the tasks tab a task like a floor's)
 //   #/p/<id>/lobby/conversation/request/<n>          the Conversation at request n's line (a bare number after the tab is a decision, so the word `request` is a segment)
 //   #/p/<id>/control[/<tab>]             the control room (tab: skills, costs, connections)
+//   #/p/<id>/office                      the office: one room with the project's agents and the number of decisions waiting (no tab)
 // <id> is the 12-character id the service gives a project. An unknown hash is the City. Nothing here touches the document.
 
 const ID = /^[0-9a-f]{12}$/;
@@ -39,6 +40,10 @@ export function parse(hash) {
   if (head === "control") {
     route.screen = "control";
     return finish(route, tail);
+  }
+  if (head === "office") {
+    route.screen = "office";
+    return route;
   }
   return route;
 }
@@ -103,6 +108,11 @@ export function lobbyDeskHash(project, path) {
 /** The hash of the control room. */
 export function controlHash(project, tab) {
   return `#/p/${project}/control` + (tab ? `/${tab}` : "");
+}
+
+/** The hash of a project's office. */
+export function officeHash(project) {
+  return `#/p/${project}/office`;
 }
 
 /** The route one level up: a floor, the lobby and the control room go to the building; a building to the City. */

@@ -264,6 +264,7 @@ CARD_MAIL_ATTACH_NOTE: The file itself is not on this card: read it in the proje
 CARD_MAIL_BCC: Bcc (hidden from the others, listed here for you): ana@mail.example, bruno@mail.example
 CARD_MAIL_CC: Cc: ana@mail.example, bruno@mail.example
 CARD_MAIL_COUNT: Recipients in all: 3
+CARD_MAIL_FIRST_TIME: First time you write to: ana@mail.example, bruno@mail.example
 CARD_MAIL_FROM_ACCOUNT: From your own account: ana@mail.example (ana@mail.example)
 CARD_MAIL_HASH: Hash of this effect (it covers every recipient above, the text and the attachments): 0123456789abcdef
 CARD_MAIL_IN_REPLY: In reply to the message m-9001
@@ -761,6 +762,7 @@ NW_MAIL_ASK_SOURCE: From which mailbox?
 NW_MAIL_ASK_STATE: Mark as read or as unread?
 NW_MAIL_ASK_SUBJECT: What is the subject of the e-mail to ana@mail.example?
 NW_MAIL_ASK_TO: What is the e-mail address of Ana Lima?
+NW_MAIL_ASK_TO_UNNAMED: What is the e-mail address of the recipient?
 NW_MAIL_BY_DATE: I cannot pick e-mails by date yet: say their numbers (ask for your e-mails to see the list).
 NW_MAIL_LIST_CHANGED: Your mailbox changed since I listed those messages, so I did nothing. Ask again and I will list them again.
 NW_MAIL_NONE: No message of the newest snapshot of notes.example has all of these words: move, review.
@@ -897,6 +899,8 @@ PQ_NAME_FLOW_SEND_EMAIL: the e-mail flow
 PQ_NAME_FLOW_SHORT_VIDEO: the short-video flow
 PQ_NAME_FLOW_WEBSITE: the website flow
 PQ_NAME_MKT_PUBLISH: the publishing step
+PROFILE_PROPOSED: A change to the profile of planner is proposed. Read it, then accept it on the page or with this command:
+PROFILE_TEMPLATE: # Ana Lima\n\n## Role\nOne sentence: what this agent does for the project.\n\n## How it speaks\nThe tone, the length of its replies, the words it prefers.\n\n## Never\nWhat it must never do or say.\n\n## Appearance\nHow the office draws it.\n
 PROJECT_NONE: No such project. Projects: Acme Launch, Beta Site.
 PROJECT_NOW: Your lines go to Ana Lima. Projects: Acme Launch, Beta Site.
 PROJECT_SET: Your lines now go to Ana Lima.
@@ -1084,6 +1088,8 @@ TODO_NO_LISTS: No task list is set up yet. Name one in the project's configurati
 TODO_NO_LIST_SHOWN: I have no list of tasks to point to. Ask for your tasks first, then say the number.
 TODO_SEVERAL: Which task? 3 open tasks fit:
 TODO_UNAVAILABLE: I could not read your tasks from Example Calendar right now. Try again in a moment.
+TOO_LARGE_MANY: 3 messages sent to this channel were too large to read (over 1 MB with their attachments) and were set aside: nothing was done with them. If one was yours, send smaller files: about 700 KB in all at most.
+TOO_LARGE_ONE: A message sent to this channel was too large to read (over 1 MB with its attachments) and was set aside: nothing was done with it. If it was yours, send smaller files: about 700 KB in all at most.
 TOO_LONG: Too long to approve here. Approve it on the platform's page
 TOO_LONG_LINE: Too long to approve here: approve it on the platform's page.
 TOO_MANY: A question reads at most 10 sources, and you named 3.

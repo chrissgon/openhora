@@ -42,8 +42,8 @@ every key optional; a key that is absent is not written. A creation needs a titl
 At most one row per idempotency key: the key is recorded as pending in the local ledger, under a file lock, before
 the creation, and as done after it. A creation whose outcome is unknown (a timeout, a 5xx, a 408, a 429) leaves the
 key pending, and the key blocks every new attempt until resolve records what the person found on the base (--id) or
-releases it (--not-created). The ledger lives in the data folder (~/Library/Application Support/ai-workbench/ on
-macOS, $XDG_DATA_HOME/ai-workbench/ or ~/.local/share/ai-workbench/ elsewhere), mode 0600.
+releases it (--not-created). The ledger lives in the data folder (~/Library/Application Support/openhora/ on
+macOS, $XDG_DATA_HOME/openhora/ or ~/.local/share/openhora/ elsewhere), mode 0600.
 
 Environment:
   NOTION_TOKEN                                 the integration's token, read only through
@@ -306,8 +306,17 @@ def secret_resolver():
 
 
 def load_token(test_mode: bool) -> str:
-    found = secret_resolver().resolve(SECRET, allow_store=not test_mode)
-    token = found[0] if found else ""
+    resolver = secret_resolver()
+    state = getattr(resolver, "resolve_state", None)   # an older resolver.py next to a scheduled job's copy has none: the old reading stands
+    if state is not None:
+        found = state(SECRET, allow_store=not test_mode)
+        if found.state not in ("found", "missing"):
+            raise ProviderError(f"the Notion token ({SECRET}) cannot be read ({found.state}): "
+                                f"{one_line(found.detail, 300) or 'no detail'}; nothing was sent", EXIT_NOT_CONFIGURED)
+        token = found.value if found.state == "found" else ""
+    else:
+        found = resolver.resolve(SECRET, allow_store=not test_mode)
+        token = found[0] if found else ""
     if not token:
         raise ProviderError(f"no Notion token: export {SECRET}, or store one with "
                             f"uv run --with keyring==25.7.0 keyring set openhora {KEYRING_USERNAME}",
@@ -442,10 +451,10 @@ class Service:
 
 def data_home() -> Path:
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "ai-workbench"
+        return Path.home() / "Library" / "Application Support" / "openhora"
     data = os.environ.get("XDG_DATA_HOME")
     base = Path(data) if data and os.path.isabs(data) else Path.home() / ".local" / "share"
-    return base / "ai-workbench"
+    return base / "openhora"
 
 
 def ledger_path() -> Path:

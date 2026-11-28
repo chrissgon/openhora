@@ -264,6 +264,7 @@ CARD_MAIL_ATTACH_NOTE: O arquivo em si não está neste card: leia-o no projeto 
 CARD_MAIL_BCC: Cópia oculta (Cco; escondida dos outros, listada aqui para você): ana@mail.example, bruno@mail.example
 CARD_MAIL_CC: Com cópia (Cc): ana@mail.example, bruno@mail.example
 CARD_MAIL_COUNT: Destinatários no total: 3
+CARD_MAIL_FIRST_TIME: Primeira vez que você escreve para: ana@mail.example, bruno@mail.example
 CARD_MAIL_FROM_ACCOUNT: Da sua própria conta: ana@mail.example (ana@mail.example)
 CARD_MAIL_HASH: Hash deste efeito (cobre todos os destinatários acima, o texto e os anexos): 0123456789abcdef
 CARD_MAIL_IN_REPLY: Em resposta à mensagem m-9001
@@ -761,6 +762,7 @@ NW_MAIL_ASK_SOURCE: De qual caixa?
 NW_MAIL_ASK_STATE: Marcar como lido ou como não lido?
 NW_MAIL_ASK_SUBJECT: Qual o assunto do e-mail para ana@mail.example?
 NW_MAIL_ASK_TO: Qual o e-mail de Ana Lima?
+NW_MAIL_ASK_TO_UNNAMED: Qual o e-mail de quem vai receber?
 NW_MAIL_BY_DATE: Ainda não sei escolher e-mails por data: diga os números (peça a lista dos seus e-mails para vê-los).
 NW_MAIL_LIST_CHANGED: Sua caixa de e-mail mudou desde que listei essas mensagens, então não fiz nada. Peça de novo que eu listo outra vez.
 NW_MAIL_NONE: Nenhuma mensagem do snapshot mais novo de notes.example tem todas estas palavras: move, review.
@@ -897,6 +899,8 @@ PQ_NAME_FLOW_SEND_EMAIL: o fluxo de e-mail
 PQ_NAME_FLOW_SHORT_VIDEO: o fluxo de vídeo curto
 PQ_NAME_FLOW_WEBSITE: o fluxo do site
 PQ_NAME_MKT_PUBLISH: a etapa de publicação
+PROFILE_PROPOSED: Há uma mudança proposta no perfil de planner. Leia e aceite na página ou com este comando:
+PROFILE_TEMPLATE: # Ana Lima\n\n## Papel\nUma frase: o que este agente faz pelo projeto.\n\n## Como fala\nO tom, o tamanho das respostas, as palavras que prefere.\n\n## Nunca\nO que ele nunca deve fazer ou dizer.\n\n## Aparência\nComo o escritório o desenha.\n
 PROJECT_NONE: Esse projeto não existe. Projetos: Acme Launch, Beta Site.
 PROJECT_NOW: Suas mensagens vão para Ana Lima. Projetos: Acme Launch, Beta Site.
 PROJECT_SET: Suas mensagens agora vão para Ana Lima.
@@ -1084,6 +1088,8 @@ TODO_NO_LISTS: Nenhuma lista de tarefas está configurada ainda. Indique uma na 
 TODO_NO_LIST_SHOWN: Não tenho uma lista de tarefas para apontar. Peça suas tarefas primeiro e depois diga o número.
 TODO_SEVERAL: Qual tarefa? 3 tarefas abertas combinam:
 TODO_UNAVAILABLE: Não consegui ler suas tarefas do Example Calendar agora. Tente de novo daqui a pouco.
+TOO_LARGE_MANY: 3 mensagens enviadas a este canal eram grandes demais para serem lidas (mais de 1 MB com os anexos) e foram deixadas de lado: nada foi feito com elas. Se alguma era sua, envie arquivos menores, de até cerca de 700 KB no total.
+TOO_LARGE_ONE: Uma mensagem enviada a este canal era grande demais para ser lida (mais de 1 MB com os anexos) e foi deixada de lado: nada foi feito com ela. Se era sua, envie arquivos menores, de até cerca de 700 KB no total.
 TOO_LONG: Longo demais para aprovar aqui. Aprove on the platform's page
 TOO_LONG_LINE: Longo demais para aprovar aqui: aprove na página da plataforma.
 TOO_MANY: Uma pergunta lê no máximo 10 fontes, e você indicou 3.

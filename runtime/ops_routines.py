@@ -169,8 +169,22 @@ def _require_local(ctx: dict, channel, *flows) -> None:
 # --- validating a record ---------------------------------------------------------------------------------------------------------------
 
 
+IMPORTED_REFUSAL = ("routines of imported skills are not supported yet: a skill from outside runs only as a task the person plans "
+                    "and starts, supervised (limit L84)")
+
+
+def _names_imported(loaded: dict):
+    """The first skill of a flow that is no skill of this checkout (a skill from outside), or None."""
+    for t in loaded["tasks"]:
+        if t.get("skill") and not os.path.isfile(os.path.join(core.ROOT, "skills", t["skill"], "SKILL.md")):
+            return t["skill"]
+    return None
+
+
 def _check_flow(ctx: dict, name: str, params: dict) -> dict:
     loaded = _flow(ctx, name)
+    if _names_imported(loaded):
+        raise core.OpsError(f"{IMPORTED_REFUSAL}: {_names_imported(loaded)} in the flow {name}", 2)
     for t in loaded["tasks"]:
         if "step" in t:
             try:
@@ -508,6 +522,8 @@ def fire(ctx: dict, record: dict, slot: str, now) -> dict:
     store, cfg = ctx["store"], ctx["cfg"]
     try:
         loaded = _flow(ctx, record["flow"])
+        if _names_imported(loaded):
+            return _ask(ctx, record, slot, f"{IMPORTED_REFUSAL}: {_names_imported(loaded)}")
         found = flow_check.check(loaded, core.ROOT)
         if not found["ok"]:
             return _ask(ctx, record, slot, "the flow check refuses the flow now: " + " ".join(f["sentence"] for f in found["findings"]))
@@ -521,7 +537,9 @@ def fire(ctx: dict, record: dict, slot: str, now) -> dict:
         ops_flows._check_sources(ctx, bound["flow"])
         agents = plan.agent_skills(cfg, core.ROOT)
         tasks = plan.from_flow(bound["flow"], core.ROOT, plan.pack_skills(cfg, core.ROOT))
-        tasks = [dict(t, agent=plan.agent_for(t, agents)) for t in tasks]
+        tasks = [dict(t) for t in tasks]
+        for t in tasks:
+            plan.assign(t, agents, imported=(cfg.get("imported_skills") or {}).get("skills", {}))
         word = effective_model(ctx, record)
         if word == AUTO:
             tasks, why = _models_for(ctx, record, tasks)

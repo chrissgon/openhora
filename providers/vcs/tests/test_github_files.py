@@ -320,7 +320,7 @@ def ledger(env):
 
 
 def work_root(env) -> Path:
-    return Path(env["XDG_CACHE_HOME"]) / "ai-workbench" / "vcs-github-work"
+    return Path(env["XDG_CACHE_HOME"]) / "openhora" / "vcs-github-work"
 
 
 def sha256(path: Path) -> str:

@@ -219,3 +219,46 @@ def test_the_manifest_is_outside_the_content_hash_and_never_enters_a_run(tree):
     cwd = os.path.join(out["run_dir"], "cwd")
     found = [os.path.join(folder, n) for folder, _, names in os.walk(cwd) for n in names if n == "runtime-manifest.json"]
     assert found == []
+
+
+def _imported_folder(tmp_path, manifest_data):
+    """An imported skill's folder outside the tree: SKILL.md with a manifest written as given (None: no manifest)."""
+    folder = tmp_path / "outside" / "ops-tidy-notes"
+    (folder / "evals").mkdir(parents=True)
+    (folder / "SKILL.md").write_text(
+        "---\nname: ops-tidy-notes\ndescription: invented\nlicense: MIT\nmetadata:\n  area: delivery\n  kind: capability\n"
+        "  inputs: []\n  outputs: [docs/notes/tidy.md]\n  updates: []\n  requires: []\n  side_effects: []\n  version: \"0.1.0\"\n---\n# x\n",
+        encoding="utf-8")
+    if manifest_data is not None:
+        (folder / "evals" / "runtime-manifest.json").write_text(json.dumps(manifest_data), encoding="utf-8")
+    return folder
+
+
+WHOLE = {"skill": "ops-tidy-notes", "documents": [], "machine_files": [], "mandatory_milestone": False,
+         "asking_openings": ["Nothing was tidied yet"], "gate": None}
+
+
+def test_load_dir_reads_a_folder_and_load_still_reads_a_skill_of_the_tree(tmp_path):
+    folder = _imported_folder(tmp_path, WHOLE)
+    assert manifest.load_dir(str(folder))["skill"] == "ops-tidy-notes"
+    assert manifest.path_in(str(folder)).endswith("evals/runtime-manifest.json")
+    assert manifest.load(str(REPO), SIDE_EFFECT_FREE) == manifest.load_dir(str(REPO / "skills" / SIDE_EFFECT_FREE))
+    with pytest.raises(manifest.ManifestError, match="no runtime manifest"):
+        manifest.load_dir(str(_imported_folder(tmp_path / "other", None)))
+
+
+def test_check_with_a_skill_dir_accepts_a_whole_manifest_and_rejects_a_partial_one(tmp_path, capsys):
+    whole = _imported_folder(tmp_path / "a", WHOLE)
+    assert manifest.main(["--check", "--skill-dir", str(whole)]) == 0
+    assert json.loads(capsys.readouterr().out) == {"skills": 1, "problems": {}}
+    partial = _imported_folder(tmp_path / "b", {"skill": "ops-tidy-notes", "reply_phrases": {"missing_input": ["x"]}})
+    assert manifest.main(["--check", "--skill-dir", str(partial)]) == 1
+    found = json.loads(capsys.readouterr().out)
+    assert found["skills"] == 1 and "missing key" in found["problems"]["ops-tidy-notes"][0]
+
+
+def test_ending_facts_with_a_skill_dir_reads_that_folder_and_lists_the_tree_skills(tmp_path):
+    folder = _imported_folder(tmp_path, WHOLE)
+    facts = manifest.ending_facts(str(REPO), "ops-tidy-notes", skill_dir=str(folder))
+    assert facts["asking_openings"] == ["Nothing was tidied yet"] and facts["fixed_output"] is True
+    assert SIDE_EFFECT_FREE in facts["skills"] and "ops-tidy-notes" not in facts["skills"]

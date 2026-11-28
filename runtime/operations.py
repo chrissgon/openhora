@@ -583,7 +583,7 @@ OPERATIONS = (
               {"name": "source_id", "kind": "str", "flag": "source", "label": "source id"},
               {"name": "description", "kind": "str"}),
      "channels": ("terminal",), "model": False,
-     "help": "make Google Drive files sources: the Picker opens on a one-shot page on 127.0.0.1 and you choose one or more files (never a folder); each becomes a source and its first version is imported; with --file-id and --source, one file already picked is imported or refreshed",
+     "help": "make one Google Drive file a source: --file-id <the id in the file's address> and --source <id>; its first version is imported, and run again it is refreshed",
      "natural": {"class": "G", "since": 1, "order": 66, "privacy": "account", "cost": "provider",
                  "what": "make Drive files sources",
                  "about": "Make files of the person's Google Drive sources of the project.",
@@ -847,6 +847,50 @@ OPERATIONS = (
      "natural": {"class": "G", "since": 1, "order": 61, "privacy": "own", "cost": "none",
                  "what": "add a line to the standing instructions",
                  "about": "Choose this to add one line to the project's standing instructions.",
+                 "slots": {}}},
+    {"name": "profile", "call": "profile_read", "args": ({"name": "agent", "kind": "str", "required": True, "flag": "agent"},), "channels": ("terminal", "page", "mcp"), "model": False,
+     "help": "an agent's profile (docs/workbench/agents/<agent>.md, written only by you): whether the file is there, its sha256, its characters against the cap of 2,000, the problem that would refuse it, the text, what code adds (skills, colleagues), the open proposal and, for a file that is not there, a template; it is read into the conversation lane only and no skill run sees it",
+     "natural": {"class": "G", "since": 4, "order": 192, "privacy": "own", "cost": "none",
+                 "what": "show an agent's profile",
+                 "about": "Choose this to show the profile of one agent.",
+                 "slots": {}}},
+    {"name": "profile-set", "call": "profile_set",
+     "args": ({"name": "agent", "kind": "str", "required": True, "flag": "agent"},
+              {"name": "text", "kind": "text", "required": True},
+              {"name": "base_sha256", "kind": "str", "required": True, "flag": "base-sha256", "label": "sha256 or none"}),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "replace the whole text of an agent's profile (--text or --text-file; an empty text clears it); --base-sha256 is the sha256 you read (none for a file that is not there), and a file that changed since is never overwritten; written only by you; an agent only proposes; limit L40; by default only the terminal and the page write it (`PROFILE_CHANNELS`; no policy of today widens it)",
+     "natural": {"class": "G", "since": 4, "order": 193, "privacy": "own", "cost": "none",
+                 "what": "replace an agent's profile",
+                 "about": "Choose this to replace the profile of one agent whole.",
+                 "slots": {}}},
+    {"name": "profile-propose", "call": "profile_propose",
+     "args": ({"name": "agent", "kind": "str", "required": True, "flag": "agent"},
+              {"name": "text", "kind": "text", "required": True},
+              {"name": "base_sha256", "kind": "str", "required": True, "flag": "base-sha256", "label": "sha256 or none"}),
+     "channels": ("terminal", "page", "mcp"), "model": False, "channel_arg": True,
+     "help": "propose a new text for an agent's profile; the file is not touched, the proposal is kept outside the project until you accept it with profile-accept (by its sha256) or drop it with profile-reject; --base-sha256 is the sha256 of the profile you read (none for a file that is not there)",
+     "natural": {"class": "G", "since": 4, "order": 194, "privacy": "own", "cost": "none",
+                 "what": "propose a change to an agent's profile",
+                 "about": "Choose this to propose a new text for the profile of one agent.",
+                 "slots": {}}},
+    {"name": "profile-accept", "call": "profile_accept",
+     "args": ({"name": "agent", "kind": "str", "required": True, "flag": "agent"},
+              {"name": "sha256", "kind": "str", "required": True}),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "accept the open proposal for an agent's profile, named by its sha256 (the text of the proposal is written whole); written only by you; an agent only proposes; limit L40; by default only the terminal and the page write it (`PROFILE_CHANNELS`; no policy of today widens it)",
+     "natural": {"class": "G", "since": 4, "order": 195, "privacy": "own", "cost": "none",
+                 "what": "accept a proposed change to an agent's profile",
+                 "about": "Choose this to accept the proposed profile of one agent.",
+                 "slots": {}}},
+    {"name": "profile-reject", "call": "profile_reject",
+     "args": ({"name": "agent", "kind": "str", "required": True, "flag": "agent"},
+              {"name": "sha256", "kind": "str", "required": True}),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "drop the open proposal for an agent's profile, named by its sha256; the profile is not touched; written only by you; an agent only proposes; limit L40; by default only the terminal and the page write it (`PROFILE_CHANNELS`; no policy of today widens it)",
+     "natural": {"class": "G", "since": 4, "order": 196, "privacy": "own", "cost": "none",
+                 "what": "reject a proposed change to an agent's profile",
+                 "about": "Choose this to drop the proposed profile of one agent.",
                  "slots": {}}},
     {"name": "routines", "call": "routines_read", "args": ({"name": "routine_id", "kind": "int", "flag": "id"},),
      "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
@@ -1226,7 +1270,7 @@ CHAT_OWN = (
 # covers the ceiling's share of it. Pure literals, like the table.
 GROUPS = {
     "read": {"operations": ("status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact",
-                            "flows", "flow-check", "routines", "instructions", "conversation", "connections", "version", "config", "commands", "artifact-raw", "items", "agenda"),
+                            "flows", "flow-check", "routines", "instructions", "profile", "conversation", "connections", "version", "config", "commands", "artifact-raw", "items", "agenda"),
              "kind": None},
     # POL-2: what a limited reader sees on a messaging app: `read` without the spend (costs, agents' caps and spend), the connections and
     # the configuration, and without `task` and `progress`, which carry a run's cost. A profile lists `read` or `read-limited`, not both.
@@ -1266,6 +1310,7 @@ GROUPS = {
     "routine-edit": {"operations": ("routine-create", "routine-change"), "kind": None},
     "routine-approve": {"operations": ("routine-approve", "routine-resume"), "kind": None},   # the approval of a routine's exact content by its hash, and the lifting of a pause
     "instructions-write": {"operations": ("instructions-set", "instructions-add"), "kind": None},   # writing the person's standing instructions (L40): the terminal and the page alone BY DEFAULT, whatever a policy lists today (a later package makes it a grant); not `instructions`, the read operation of the group `read`
+    "profile-edit": {"operations": ("profile-set", "profile-accept", "profile-reject", "profile-propose"), "kind": None},   # writing an agent's profile, or proposing a change to it (L40, AC1): set, accept and reject are the terminal's and the page's alone BY DEFAULT, whatever a policy lists, and a proposal writes nothing; not `profile`, the read operation of the group `read` (one group, not two: the policy record has room for a few groups more, runtime/tests/test_policy_widening_mask.py)
     "verdict": {"operations": ("verdict",), "kind": None},
     "sources": {"operations": ("source-add", "source-import", "source-refresh", "source-describe", "sources"), "kind": None},
     # ATT-1: files sent through a messaging app. `add-sources` is the group of everything about them (a messaging app takes a file only when its policy lists it,
@@ -1368,6 +1413,7 @@ LAN_REFUSED = "this approval is not taken from the page opened over the local ne
 LAN_REFUSED_OPS = ("media-in", "video-download", "video-still", "video-watch", "video-media-find", "video-media-fetch-picks", "video-media-approve", "video-credits", "video-media-websearch", "video-media-approve-asset", "video-media-scan-explain")    # VD18 (limit L68): recorded media and a rendered video cross the loopback socket only (runtime/service.py); V9b-3a (L75): a search that sends words off the computer, a fetch and the approval of the media set are never taken over the local network (the sheet's own PNGs may cross); V9b-3b (L78, L80): the web search and the approval of one file found on the web are the same
 LAN_REFUSED_MEDIA = "a recording or a video is not sent over the local network: open this computer's own page (http://127.0.0.1) to upload or download it"
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
+PROFILE_CHANNELS = ("terminal", "page")            # the channels that write an agent's profile BY DEFAULT (limit L40, AC1; as INSTRUCTIONS_CHANNELS: the rows profile-set, profile-accept and profile-reject list exactly these, a literal each, and a test compares)
 NETWORKED_PLAN_CHANNELS = ("terminal", "page")     # BY DEFAULT: the channels a plan that holds a step of a networked kind (a project script, P9) may be approved from (limit L36); one named literal, which a later policy makes a grant
 ROUTINE_LOCAL_CHANNELS = ("terminal", "page")      # the channels a routine whose flow holds a networked script, or that a standing effect policy covers, is made and changed from (limit L33, S10)
 BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel")                    # never withheld from the page: cancel, and a move of a mode DOWN (the direction is checked by ops_config.set_mode)
@@ -1447,6 +1493,7 @@ GROUP_TEXT = {
     "routine-edit": "makes and changes a routine (it stays a draft until it is approved)",
     "routine-approve": "approves a routine by its hash and resumes it",
     "instructions-write": "writes the person's standing instructions",
+    "profile-edit": "writes an agent's profile, proposes a change to it, and accepts or drops a proposed change (only the terminal and the page write)",
     "verdict": "records a verdict on a skill's use",
     "sources": "adds, imports, refreshes and describes the project's sources",
     "add-sources": "takes the files a listed sender sends through a messaging app (held, then added or discarded on a card or on the page), and lists and decides the held files",

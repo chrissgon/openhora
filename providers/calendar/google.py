@@ -29,7 +29,7 @@ Usage:
   uv run providers/calendar/google.py calendars
   uv run providers/calendar/google.py events --calendar <id> --from <ISO-8601 with offset> --to <ISO-8601 with offset> [--max <n>]
 
-  --check     refreshes the access token, checks its scope (the platform's four for the account token; exactly the two below for the legacy record), and reads one entry of the
+  --check     refreshes the access token, checks its scope (the platform's set for the account token), and reads one entry of the
               calendar list; prints {"ok": true, "scope": [...], "account", "obtained_at"}. Exit 3 when there is no authorization or it was
               refused.
   calendars   {"calendars": [{"id", "summary", "primary", "access_role"}], "truncated", "skipped", "external_content": true}: the calendars the
@@ -51,15 +51,10 @@ Usage:
               start or end (a cancelled occurrence can).
 
 Credentials (never from a flag or a file; contracts/secrets.md):
-  GOOGLE_ACCOUNT_TOKEN   the account token, read first: one JSON record of the person's Google account (refresh token, the Desktop app client,
+  GOOGLE_ACCOUNT_TOKEN   the account token: one JSON record of the person's Google account (refresh token, the Desktop app client,
                          the scope, the address), made by providers/accounts/google_auth.py. It carries the platform's four scopes
                          (calendar.events among them: the reads of this provider are covered, and nothing else is sent: GET only); a token that
                          lacks one of the four or carries another is refused (exit 3).
-  Legacy, for one cycle, used only when no account record exists (a warning on stderr says so, once per process):
-  GOOGLE_CALENDAR_TOKEN  one JSON record, read through providers/secrets/resolver.py (the environment, then the OS secret store, username
-                         calendar-google): {"refresh_token", "client_id", "client_secret", "scope", "account", "obtained_at"}, written by
-                         providers/calendar/google_auth.py after the person's consent. The client travels with the token, so this is the only
-                         entry. Printed nowhere.
 Test overrides (tests only, loopback URLs only, both set together; the secret store is then never read):
   INTEGRATION_CALENDAR_GOOGLE_API_BASE    replaces https://www.googleapis.com
   INTEGRATION_CALENDAR_GOOGLE_TOKEN_URL   replaces https://oauth2.googleapis.com/token
@@ -86,13 +81,6 @@ from pathlib import Path
 
 DEFAULT_API_BASE = "https://www.googleapis.com"
 DEFAULT_TOKEN_URL = "https://oauth2.googleapis.com/token"
-EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly"
-LIST_SCOPE = "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
-SCOPES = (EVENTS_SCOPE, LIST_SCOPE)   # exactly these two: google_auth.py asks for them and this file requires them
-SECRET = "GOOGLE_CALENDAR_TOKEN"
-KEYRING_SERVICE = "openhora"
-KEYRING_USERNAME = "calendar-google"
-AUTH_COMMAND = "uv run <workbench>/providers/calendar/google_auth.py authorize"
 ENV_BASE = "INTEGRATION_CALENDAR_GOOGLE_API_BASE"
 ENV_TOKEN_URL = "INTEGRATION_CALENDAR_GOOGLE_TOKEN_URL"
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
@@ -158,7 +146,7 @@ def _google_module():
     return module
 
 
-# The account token (one record, the platform's scope set) is read first; the old record is the legacy fallback for one cycle.
+# The account token: one record, the platform's scope set.
 _google = _google_module()
 
 
@@ -214,35 +202,11 @@ def secret_resolver():
     return module
 
 
-def parse_record(text: str) -> dict:
-    """The authorization record from its JSON text; ProviderError (not configured) when it is unreadable or lacks what a refresh needs."""
-    try:
-        record = json.loads(text)
-    except ValueError:
-        record = None
-    if not isinstance(record, dict) or not all(isinstance(record.get(k), str) and record[k] for k in RECORD_TEXTS):
-        raise ProviderError(f"the stored Google Calendar authorization is unreadable or incomplete; run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
-    for key in RECORD_TEXTS:
-        if any(ch.isspace() or not ch.isprintable() for ch in record[key]):
-            raise ProviderError(f"the Google Calendar authorization holds a {key} with whitespace or control characters; run: {AUTH_COMMAND}",
-                                EXIT_NOT_CONFIGURED)
-    _SECRET_VALUES.extend(record[k] for k in RECORD_TEXTS)
-    return record
-
-
-def legacy_record(test_mode: bool):
-    """(the legacy record, where it was found), or None when GOOGLE_CALENDAR_TOKEN is found nowhere."""
-    found = secret_resolver().resolve(SECRET, allow_store=not test_mode)
-    return (parse_record(found[0]), found[1]) if found else None
-
-
 def load_record(test_mode: bool) -> dict:
-    """The record to sign in with: the account record (GOOGLE_ACCOUNT_TOKEN) first, else the legacy one for one cycle. The dict carries
-    `kind` ("account" or "legacy"), which decides the scope rule of the refresh, and `source`, where it was found."""
-    loaded = _google.load_account_record(secret_resolver(), test_mode, legacy=(KEYRING_USERNAME, lambda: legacy_record(test_mode), AUTH_COMMAND),
-                                         error=ProviderError)
+    """The record to sign in with: the account record (GOOGLE_ACCOUNT_TOKEN), and `source`, where it was found."""
+    loaded = _google.load_account_record(secret_resolver(), test_mode, error=ProviderError)
     _SECRET_VALUES.extend(loaded.record[k] for k in RECORD_TEXTS)
-    return {**loaded.record, "kind": "legacy" if loaded.legacy else "account", "source": loaded.source}
+    return {**loaded.record, "source": loaded.source}
 
 
 # --- HTTP --------------------------------------------------------------------------------------------------------------------
@@ -288,73 +252,17 @@ def http(method: str, url: str, headers: dict, body: bytes | None = None, limit:
         raise ProviderError(f"the request {method} {path} could not be made or read ({type(exc).__name__})") from None
 
 
-def token_text(value, what: str) -> str:
-    """A token from the service, accepted only as printable ASCII without space: it is put in a header and in the OS secret store."""
-    if not isinstance(value, str) or not TOKEN_RE.fullmatch(value):
-        raise ProviderError(f"the token response holds {what} of an unexpected shape; nothing was used or stored")
-    return value
-
-
-def token_request(token_url: str, form: dict) -> dict:
-    """POST to the token endpoint, mapping OAuth errors to exit codes. Shared with google_auth.py."""
-    status, body, _ = http("POST", token_url, {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
-                           urllib.parse.urlencode(form).encode())
-    try:
-        data = json.loads(body or b"{}")
-    except ValueError:
-        data = {}
-    if status == 200 and isinstance(data, dict) and data.get("access_token"):
-        _SECRET_VALUES.append(token_text(data["access_token"], "an access_token"))
-        if data.get("refresh_token"):
-            _SECRET_VALUES.append(token_text(data["refresh_token"], "a refresh_token"))
-        return data
-    error = one_line(data.get("error"), 80) if isinstance(data, dict) else ""
-    description = one_line(data.get("error_description"), 160) if isinstance(data, dict) else ""
-    detail = f"{error}: {description}" if description else error or "no error code"
-    if error == "invalid_grant":
-        if form.get("grant_type") == "refresh_token":
-            raise ProviderError(f"Google refused the refresh token ({detail}): the authorization expired or was revoked (a project left in "
-                                "\"Testing\" expires it after seven days; access removed in the Google Account does too). "
-                                f"Run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED, status)
-        raise ProviderError(f"Google refused the authorization code ({detail}); run it again", EXIT_SERVICE, status)
-    if error in ("invalid_client", "unauthorized_client"):
-        raise ProviderError(f"Google rejected the OAuth client ({detail}): check the client id and secret of a Desktop app client",
-                            EXIT_NOT_CONFIGURED, status)
-    if status == 200:
-        raise ProviderError("the token response has no access_token", EXIT_SERVICE, status)
-    raise ProviderError(f"the Google token endpoint returned {status} ({detail})", EXIT_SERVICE, status)
-
-
-def check_scope(granted) -> None:
-    """Refuse a token whose reported scope is anything but exactly the two scopes of this provider. A wider scope than the one asked for is a
-    setup error to fix, not a token to use; a response that reports no scope cannot be shown to be the narrow one; a token missing one of
-    the two cannot do what the provider does."""
-    scopes = set(str(granted or "").split())
-    if scopes != set(SCOPES):
-        extra = ", ".join(sorted(scopes - set(SCOPES))) or "none"
-        missing = ", ".join(sorted(set(SCOPES) - scopes)) or "none"
-        raise ProviderError(f"the token reports {', '.join(sorted(scopes)) or 'no scope'} where exactly {EVENTS_SCOPE} and {LIST_SCOPE} are "
-                            f"wanted (extra: {extra}; missing: {missing}): nothing was read. Revoke the app's access in the Google Account "
-                            f"and run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
-
-
 def refresh_access_token(token_url: str, record: dict) -> str:
-    """A new access token (held in memory, used for this process) from the refresh token; checks the scope: the platform's set for the
-    account record, exactly the two legacy scopes for the legacy one."""
-    if record.get("kind") == "account":
-        data = _google.refresh_access_token(token_url, record, ProviderError)
-        _SECRET_VALUES.append(data["access_token"])
-        return data["access_token"]
-    data = token_request(token_url, {"client_id": record["client_id"], "client_secret": record["client_secret"],
-                                     "grant_type": "refresh_token", "refresh_token": record["refresh_token"]})
-    check_scope(data.get("scope"))
+    """A new access token (held in memory, used for this process) from the refresh token; the scope is checked against the platform's set."""
+    data = _google.refresh_access_token(token_url, record, ProviderError)
+    _SECRET_VALUES.append(data["access_token"])
     return data["access_token"]
 
 
 class Calendar:
     """The Calendar API as this provider uses it: GET requests with one access token."""
 
-    def __init__(self, base: str, access_token: str, command: str = AUTH_COMMAND):
+    def __init__(self, base: str, access_token: str, command: str = _google.AUTH_COMMAND):
         self.base, self.token, self.command = base, access_token, command
 
     def get(self, path: str, params: dict) -> dict:
@@ -403,7 +311,7 @@ class Calendar:
 def open_calendar() -> Calendar:
     base, token_url, test_mode = endpoints()
     record = load_record(test_mode)
-    return Calendar(base, refresh_access_token(token_url, record), _google.AUTH_COMMAND if record["kind"] == "account" else AUTH_COMMAND)
+    return Calendar(base, refresh_access_token(token_url, record), _google.AUTH_COMMAND)
 
 
 # --- the verbs ---------------------------------------------------------------------------------------------------------------
@@ -496,19 +404,16 @@ def render_event(item) -> dict | None:
 def cmd_check(args) -> int:
     base, token_url, test_mode = endpoints()
     record = load_record(test_mode)
-    account = record["kind"] == "account"
-    calendar = Calendar(base, refresh_access_token(token_url, record), _google.AUTH_COMMAND if account else AUTH_COMMAND)
+    calendar = Calendar(base, refresh_access_token(token_url, record), _google.AUTH_COMMAND)
     calendar.get("/calendar/v3/users/me/calendarList", {"maxResults": 1, "fields": "items(id)"})
-    out = {"ok": True, "scope": sorted(_google.PREVIOUS_SCOPES if account else SCOPES), "account": record.get("account"),
-           "obtained_at": record.get("obtained_at")}
-    if account:
-        out["record"] = "account"
+    out = {"ok": True, "scope": sorted(_google.PREVIOUS_SCOPES), "account": record.get("account"),
+           "obtained_at": record.get("obtained_at"), "record": "account"}
     return emit(out)
 
 
 def calendar_items(calendar: Calendar, fields: str, stop=None) -> tuple[list, bool]:
     """The raw items of the person's calendar list, page by page (at most MAX_CALENDAR_PAGES), and whether pages were left unread. `stop(item)`
-    ends the reading at the first page that holds an item it accepts. Shared with google_auth.py."""
+    ends the reading at the first page that holds an item it accepts."""
     items, token = [], None
     for _ in range(MAX_CALENDAR_PAGES):
         params = {"fields": fields}

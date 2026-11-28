@@ -240,6 +240,8 @@ def _never(project: str, rel: str, declared, cfg: dict, settings_names) -> str |
         return "the runtime's configuration never enters a run"
     if path_rule.fold(rel) == path_rule.INSTRUCTIONS:   # limit L40: the instructions reach a run in its prompt (runtime/instructions.py), never as a file
         return "the person's standing instructions reach a run in its prompt, not as a file"
+    if path_rule.fold(rel) == path_rule.AGENTS_DIR or path_rule.fold(rel).startswith(path_rule.AGENTS_DIR + "/"):   # limit L40, AC1: a profile reaches the conversation lane only
+        return "an agent's profile reaches the conversation lane only, never a run"
     if sources.inside(cfg, source) or sources.inside(cfg, real):
         return ""  # limit L26: silent, entering() lists the folder once
     if real == cfg["store_db"] or _under(real, cfg["data_dir"]):
@@ -309,7 +311,8 @@ def entering(project: str, meta: dict, *, web: bool, cfg: dict, settings_names, 
             cls = path_rule.classify(rel)
             if cls in ("document", "state") or (cls == "machine" and skill_meta.matches(declared, rel)):
                 candidates.append(rel)
-            elif path_rule.fold(rel) in (path_rule.CONFIG, path_rule.INSTRUCTIONS) or os.path.islink(os.path.join(project, *rel.split("/"))):
+            elif path_rule.fold(rel) in (path_rule.CONFIG, path_rule.INSTRUCTIONS) or path_rule.fold(rel).startswith(path_rule.AGENTS_DIR + "/") \
+                    or os.path.islink(os.path.join(project, *rel.split("/"))):
                 candidates.append(rel)  # listed with its reason, so that the person sees it was kept out
         candidates += _walk(project, path_rule.LOCAL_DIR.rstrip("/"))
     drop, taken = path_rule.DROP_DIR + "/", path_rule.SOURCES_DIR + "/"
@@ -434,13 +437,13 @@ def _logical(project: str, target: str) -> str:
 
 def _protected_alias(project: str, target: str) -> bool:
     """Whether the project's path `target`, as the disk opens it, is a protected path that exists (the configuration, the person's
-    instructions) or sits in the flows folder, whatever its spelling: the same file by inode, or a file whose folder is the flows
+    instructions) or sits in the flows folder or the agents folder (the profiles), whatever its spelling: the same file by inode, or a file whose folder is the flows
     folder. The fold of the path rule catches the spellings it knows; this catches the ones a disk folds that it does not."""
     try:
         where = _logical(project, target)
         if path_rule.protected(where):
             return True      # the path the disk will write, through any link of a folder on the way, is a protected one (file absent or not)
-        for protected in (path_rule.CONFIG, path_rule.INSTRUCTIONS, path_rule.FLOWS_DIR):    # and the protected path may itself be reached through a link
+        for protected in (path_rule.CONFIG, path_rule.INSTRUCTIONS, path_rule.FLOWS_DIR, path_rule.AGENTS_DIR):    # and the protected path may itself be reached through a link
             there = path_rule.fold(_logical(project, os.path.join(project, *protected.split("/"))))
             if path_rule.fold(where) == there or path_rule.fold(where).startswith(there + "/"):
                 return True
@@ -448,13 +451,15 @@ def _protected_alias(project: str, target: str) -> bool:
             full = os.path.join(project, *protected.split("/"))
             if os.path.exists(full) and os.path.exists(target) and os.path.samefile(full, target):
                 return True
-        flows = os.path.join(project, *path_rule.FLOWS_DIR.split("/"))
-        if os.path.isdir(flows):
+        for name in (path_rule.FLOWS_DIR, path_rule.AGENTS_DIR):
+            flows = os.path.join(project, *name.split("/"))
+            if not os.path.isdir(flows):
+                continue
             folder = target
             while True:
                 parent = os.path.dirname(folder)
                 if parent == folder or not folder.startswith(project + os.sep):
-                    return False
+                    break
                 if os.path.isdir(folder) and os.path.samefile(folder, flows):
                     return True
                 folder = parent

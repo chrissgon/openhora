@@ -49,9 +49,11 @@ import documents
 import drop
 import effects
 import endings
+import imported
 import lab
 import manifest
 import path_rule
+import plan
 import skill_meta
 import sources
 import workcopy
@@ -79,17 +81,47 @@ MANDATORY_LINE = ("This delivery is a mandatory milestone: the next task accepts
 PREPARE_ERRORS = (skill_meta.SkillError, manifest.ManifestError, lab.LabError, core.OpsError, OSError, KeyError)
 
 
+def _owner_of(root: str):
+    """owner_of(path) for runtime/imported.py: the workbench skill that owns an artifact (a declared output, the artifact contract's
+    one owner, placeholders read as wildcards, in either direction), or None."""
+    facts = plan.skill_facts(root)
+
+    def owner(path: str):
+        for name, found in sorted(facts.items()):
+            if any(plan.same_artifact(path, theirs) or plan.same_artifact(theirs, path) for theirs in found["outputs"]):
+                return name
+        return None
+    return owner
+
+
 def _prepare_run(ctx: dict, task: dict, requested, keys) -> dict:
     """The slow part of a run's start, made before the claim lock: the skill's meta and manifest (a skill the runtime knows
     nothing of does not run), the routing (ops_models.route with the keys core._keys found, which the caller read from the
     secret store) and the skill's identity. A model with no key is a refusal: the run does not start."""
     skill = task["skill"]
-    meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
-    known = manifest.load(core.ROOT, skill)
+    cfg = ctx["cfg"]
+    listed = imported.entry(cfg, skill)    # a skill from outside (package I2): read from its folder, and run only when nothing refuses it
+    folder = imported.skill_dir(cfg, skill)
+    meta = skill_meta.declared(folder)
+    known = None if listed else manifest.load(core.ROOT, skill)
     routing = ops_models.route(ctx, skill, meta, keys, task, requested)
     if routing["key_missing"]:
         raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
-    return {"meta": meta, "known": known, "keys": keys, "routing": routing, "identity": lab.skill_identity(skill),
+    if listed:   # every condition that fails is said, before the manifest is read as the run's own (a manifest that is not whole is one of them)
+        refused, facts = imported.check(cfg, skill, routing["model"], folder, owner_of=_owner_of(core.ROOT))
+        if refused:
+            raise core.OpsError(imported.PREFIX.format(name=skill) + "; ".join(refused), 1)
+        # One hash decides: the one the checks were computed on. The folder is read again, and a difference is a refusal, never a new
+        # hash to run under; the copy made at the start is compared with this identity (the content, and the manifest the hash leaves out).
+        now = lab.folder_identity(folder)
+        if (now["content_sha256"], now["manifest_sha256"]) != (facts["content_sha256"], facts["manifest_sha256"]):
+            raise core.OpsError(imported.PREFIX.format(name=skill) + "the folder changed while its checks were made: nothing ran", 1)
+        known = manifest.load_dir(folder)
+        identity = {"version": facts["version"], "content_sha256": facts["content_sha256"], "manifest_sha256": facts["manifest_sha256"]}
+    else:
+        identity = lab.skill_identity(skill)
+    return {"meta": meta, "known": known, "keys": keys, "routing": routing, "identity": identity,
+            "imported": folder if listed else None,
             "instructions": ops_instructions.guard(ctx, task)}   # the person's standing instructions, read once; a file that fails a check stops the run
 
 
@@ -123,10 +155,18 @@ def _run_body(ctx: dict, started: dict) -> dict:
         out["failure"] = None if ops_cancel.cancelled_run(out, done) else {"kind": kind, "reason": ops_runs._note(reason)}   # a stopped run is cancelled whatever it found (R18)
         return out
 
-    out["use"] = ops_runs._use_start(ctx, run_id, skill, routing)  # one use per run, also for a run made after an answer
+    # No use is recorded for an imported skill: scripts/evidence.py records the uses of the workbench's skills (decision I2).
+    out["use"] = None if started.get("imported") else ops_runs._use_start(ctx, run_id, skill, routing)  # one use per run, also for a run made after an answer
     # Outside the run folder: the facade sets aside whatever it finds there.
     prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, str(run_id))
+    skill_copy, copy = None, None
     try:
+        if started.get("imported"):   # the copy is what runs, and its hash must be the hash the checks saw (limits of package I2)
+            skill_copy = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"{run_id}-skill")
+            copy = lab.copy_imported(started["imported"], os.path.join(skill_copy, skill))
+            made = lab.folder_identity(copy)
+            if (made["content_sha256"], made["manifest_sha256"]) != (started["identity"]["content_sha256"], started["identity"]["manifest_sha256"]):
+                return fail("internal", "the imported skill changed after its checks: nothing ran")
         handed = drop.files(cfg["project"], task["id"])
         refused = []
         if handed and routing["web"] and not drop.WEB_TASK_TAKES_DROP:
@@ -192,7 +232,9 @@ def _run_body(ctx: dict, started: dict) -> dict:
         with lab.session(), ops_runs._key_in_environment(routing, keys):
             result = lab.run_skill(skill, prompt, files, dest, web=routing["web"], model=routing["model"],
                                    prepare=prepare, finish=finish, tmp_in_run=bool(gate),
-                                   max_cost=budget)
+                                   max_cost=budget, skill_dir=copy)
+        # The copy is removed below, so what it says of the skill's endings is read now: an imported skill's manifest is its own.
+        ending_facts = manifest.ending_facts(core.ROOT, skill, skill_dir=copy) if copy else None
     except lab.LabError as e:
         return fail("internal", f"{e.kind}: {e.reason}", getattr(e, "attempts", 0))  # attempts: how many began (A-57)
     except Exception as e:  # the task never stays `running`: the error is recorded, then shown
@@ -200,6 +242,8 @@ def _run_body(ctx: dict, started: dict) -> dict:
         return fail("internal", f"{type(e).__name__}: {e}", getattr(e, "attempts", 0))
     finally:
         shutil.rmtree(prepared_dir, ignore_errors=True)
+        if skill_copy:
+            shutil.rmtree(skill_copy, ignore_errors=True)
     counts, timing = result["counts"], result["timing"]
     if result["status"] != "ok":
         failure = result["failure"]
@@ -216,7 +260,7 @@ def _run_body(ctx: dict, started: dict) -> dict:
                                                            tracked=entered.get("tracked") or () if code is None else (),
                                                            cfg=cfg)
         gate_files = _tmp_files(result.get("tmp"))
-        ending, why = _ending(result, meta, skill, [rel for rel, _size in gate_files])
+        ending, why = _ending(result, meta, skill, [rel for rel, _size in gate_files], facts=ending_facts)
         gate_found = _gate_payload(result, dest, gate_files, kind) if known.get("gate") else None
         body, masked = workcopy.masked_reply(result["response"])
         if state_report is not None:
@@ -233,7 +277,7 @@ def _run_body(ctx: dict, started: dict) -> dict:
             # The skill stopped on a missing input that another skill writes: the task is blocked, with no pending
             # decision; the note is the first sentence of the masked reply that names the missing input (else its start),
             # and `retry` makes the task ready again.
-            sentence = endings.missing_input_line(body, manifest.ending_facts(core.ROOT, skill))
+            sentence = endings.missing_input_line(body, ending_facts or manifest.ending_facts(core.ROOT, skill))
             done = core._stored(ctx, store.task_run_finish, run_id, task_state="blocked", task_note=ops_runs._note(sentence or body), **finish)
             out.update(status="ok", ending=ending, task_state="blocked", pending_id=None, returned=returned, kept=kept)
             return out
@@ -279,17 +323,18 @@ def _run_body(ctx: dict, started: dict) -> dict:
 # --- what comes back (runtime/workcopy.py: limits L7, L8, L12, L14) and the gate: the payload, then the effect or the review (principle 11) ---
 
 
-def _ending(result: dict, meta: dict, skill: str, gate_files=()) -> tuple:
+def _ending(result: dict, meta: dict, skill: str, gate_files=(), facts=None) -> tuple:
     """(ending, why) of a completed run, from runtime/endings.py, with the skill's facts (manifest.ending_facts),
     the declared outputs without a placeholder that the copy held, unchanged, after the run, and the files found
-    under the run's returned temporary folder (gate_files)."""
+    under the run's returned temporary folder (gate_files). `facts` is manifest.ending_facts of the skill when the caller read
+    them from somewhere else than the checkout (an imported skill's copy)."""
     cwd, changes = result["cwd"], result["changes"]
     written = [p for p in changes["created"] + changes["modified"] if skill_meta.matches(meta["outputs"], p)]
     after = set(changes["created"] + changes["modified"] + changes["unchanged"])
     fixed = [p for p in meta["outputs"] if "<" not in p and not p.endswith("/")]
     missing = [p for p in fixed if p not in after]
     texts = [(_read(os.path.join(cwd, *p.split("/"))) or "") if lab.readable(cwd, p) else "" for p in written]
-    facts = dict(manifest.ending_facts(core.ROOT, skill), outputs_present=[p for p in fixed if p in set(changes["unchanged"])],
+    facts = dict(facts or manifest.ending_facts(core.ROOT, skill), outputs_present=[p for p in fixed if p in set(changes["unchanged"])],
                  gate_files=list(gate_files))
     return endings.classify(result["response"], changes, written, missing, texts, facts=facts)
 

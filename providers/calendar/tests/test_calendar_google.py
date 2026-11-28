@@ -1,6 +1,6 @@
 """Tests of the Google Calendar provider (providers/calendar/google.py) against the stand-in service (fake_gcal.py): no network but
 loopback, no real account, no real credential. The provider lists the calendars of the person and reads the events of one calendar in a
-window, read only: the scope is exactly the two read scopes, the request asks for single events ordered by start with RFC 3339 bounds,
+window, read only, signed in with the account token (the platform's scope set, nothing narrower), the request asks for single events ordered by start with RFC 3339 bounds,
 paging stops at --max, a calendar id is checked and percent-encoded, only GET is sent, no redirect is followed, and no token and no
 description, attendee address or conference link ever reaches the output.
 
@@ -44,7 +44,7 @@ class Case:
         self.fake.add_calendar(HOLIDAYS, "Holidays", access_role="reader")
 
     def run(self, *argv, env=None, record=None):
-        base = {k: v for k, v in os.environ.items() if not k.startswith(("GOOGLE_CALENDAR_", "INTEGRATION_CALENDAR_GOOGLE"))}
+        base = {k: v for k, v in os.environ.items() if not k.startswith(("GOOGLE_CALENDAR_", "GOOGLE_ACCOUNT_", "INTEGRATION_CALENDAR_GOOGLE"))}
         merged = {**base, **(self.fake.env() if record is None else self.fake.env(**record)), **(env or {})}
         done = subprocess.run([sys.executable, str(SCRIPT), *argv], capture_output=True, text=True, timeout=120, env=merged)
         try:
@@ -80,43 +80,60 @@ def case():
 # --- the scope ------------------------------------------------------------------------------------------------------------
 
 
-def test_the_provider_names_exactly_two_scopes_and_no_other():
-    assert google.SCOPES == ("https://www.googleapis.com/auth/calendar.events.readonly",
-                             "https://www.googleapis.com/auth/calendar.calendarlist.readonly")
-    for name in ("google.py", "google_auth.py"):
-        text = (REPO / "providers" / "calendar" / name).read_text(encoding="utf-8")
-        assert set(re.findall(r"https://www\.googleapis\.com/auth/[a-zA-Z.]+", text)) <= set(google.SCOPES), name
+def test_the_provider_holds_no_legacy_record_and_names_no_scope_of_its_own():
+    text = (REPO / "providers" / "calendar" / "google.py").read_text(encoding="utf-8")
+    assert not re.findall(r"https://www\.googleapis\.com/auth/[a-zA-Z.]+", text.split('"""', 2)[2]), "the scope set is providers/_google.py's"
+    for name in ("legacy_record", "parse_record", "token_request", "check_scope", "SCOPES", "SECRET"):
+        assert not hasattr(google, name), name
+    assert "GOOGLE_CALENDAR_TOKEN" not in text and "calendar/google_auth.py" not in text
+    assert not (REPO / "providers" / "calendar" / "google_auth.py").exists()
 
 
 @pytest.mark.parametrize("granted", [
-    f"{fake_gcal.BOTH_SCOPES} {GMAIL_SCOPE}",       # a wider token: mail as well
-    f"{fake_gcal.BOTH_SCOPES} {WIDE_SCOPE}",        # the wide calendar scope as well
-    WIDE_SCOPE,                                     # the wide scope instead of the two
-    fake_gcal.EVENTS_SCOPE,                         # one of the two missing
-    fake_gcal.LIST_SCOPE,
+    fake_gcal.BOTH_SCOPES,                                  # the two scopes of the retired Calendar-only record
+    f"{fake_gcal.PLATFORM_SET} {WIDE_SCOPE}",               # the platform's set and the wide calendar scope as well
+    f"{fake_gcal.PREVIOUS_SET} {WIDE_SCOPE}",
+    WIDE_SCOPE,
+    fake_gcal.EVENTS_SCOPE,
     GMAIL_SCOPE,
-    "",
 ])
-def test_a_token_whose_scope_is_not_exactly_the_two_exits_3_and_reads_nothing(case, granted):
+def test_a_token_whose_scope_is_not_the_platform_set_exits_3_and_reads_nothing(case, granted):
     case.fake.scope_granted = granted
     for argv in (["--check"], ["calendars"], ["events", "--calendar", PRIMARY, *WINDOW]):
         code, out, text = case.run(*argv)
-        assert code == 3 and out is None and "exactly" in text and "google_auth.py authorize" in text, argv
+        assert code == 3 and out is None and "account token" in text and "google_auth.py authorize" in text, argv
     assert case.fake.api_requests() == [], "no call to the Calendar API was made with a token of the wrong scope"
     for secret in SECRETS:
         assert secret not in text
 
 
-def test_a_token_that_reports_no_scope_is_refused_because_it_cannot_be_shown_to_be_narrow(case):
-    case.fake.omit_scope = True
+def test_a_token_of_the_four_scopes_before_google_tasks_is_still_read(case):
+    case.fake.scope_granted = fake_gcal.PREVIOUS_SET
     code, out, text = case.run("calendars")
-    assert code == 3 and "no scope" in text and case.fake.api_requests() == []
+    assert code == 0, text
+
+
+def test_a_token_that_reports_no_scope_is_accepted_only_when_the_record_stores_the_set(case):
+    case.fake.omit_scope = True
+    assert case.run("calendars")[0] == 0
+    code, out, text = case.run("calendars", record={"scope": fake_gcal.BOTH_SCOPES})
+    assert code == 3 and "account token" in text
+
+
+def test_a_reader_with_only_a_legacy_record_is_not_configured(case):
+    legacy = {"GOOGLE_ACCOUNT_TOKEN": "", "GOOGLE_CALENDAR_TOKEN": case.fake.record_json(scope=fake_gcal.BOTH_SCOPES)}
+    for argv in (["--check"], ["calendars"]):
+        code, out, text = case.run(*argv, env=legacy)
+        assert code == 3 and out is None and "providers/accounts/google_auth.py authorize" in text, argv
+        assert "calendar/google_auth.py" not in text
+    assert case.fake.requests == [] and case.fake.token_forms == []
 
 
 def test_check_proves_the_token_with_one_call_and_prints_no_secret(case):
     code, out, text = case.run("--check")
     assert code == 0 and out["ok"] is True and out["account"] == fake_gcal.ACCOUNT
-    assert out["scope"] == sorted(google.SCOPES) and out["obtained_at"] == "2026-10-17T08:00:00Z"
+    assert out["scope"] == sorted(fake_gcal.PREVIOUS_SET.split()) and out["record"] == "account"
+    assert out["obtained_at"] == "2026-10-17T08:00:00Z"
     assert [r[1] for r in case.fake.api_requests()] == ["/calendar/v3/users/me/calendarList"]
     for secret in SECRETS:
         assert secret not in text
@@ -299,16 +316,16 @@ def test_the_token_is_absent_from_the_output_and_from_an_error_that_echoes_it(ca
 
 
 def test_no_authorization_is_exit_3_and_the_os_store_is_not_read_in_test_mode(case):
-    code, out, text = case.run("calendars", env={"GOOGLE_CALENDAR_TOKEN": ""})
+    code, out, text = case.run("calendars", env={"GOOGLE_ACCOUNT_TOKEN": ""})
     assert code == 3 and "google_auth.py authorize" in text and case.fake.requests == [] and case.fake.token_forms == []
     for bad in ("not json", "{}", json.dumps({"refresh_token": "a b", "client_id": "x", "client_secret": "y"}),
                 json.dumps({"refresh_token": "a", "client_id": "x"})):
-        code, _, text = case.run("calendars", env={"GOOGLE_CALENDAR_TOKEN": bad})
+        code, _, text = case.run("calendars", env={"GOOGLE_ACCOUNT_TOKEN": bad})
         assert code == 3 and "unreadable or incomplete" in text or "whitespace" in text, bad
 
 
 def test_the_test_overrides_are_loopback_only_and_set_together(case):
-    base = {"GOOGLE_CALENDAR_TOKEN": case.fake.record_json()}
+    base = {"GOOGLE_ACCOUNT_TOKEN": case.fake.record_json()}
     alone = subprocess.run([sys.executable, str(SCRIPT), "calendars"], capture_output=True, text=True, timeout=60,
                            env={**os.environ, **base, "INTEGRATION_CALENDAR_GOOGLE_API_BASE": case.fake.base})
     assert alone.returncode == 2 and "set together" in alone.stderr
@@ -320,7 +337,7 @@ def test_the_test_overrides_are_loopback_only_and_set_together(case):
 
 def test_help_prints_the_sources_and_the_exit_codes_and_needs_no_credential():
     done = subprocess.run([sys.executable, str(SCRIPT), "--help"], capture_output=True, text=True, timeout=60,
-                          env={k: v for k, v in os.environ.items() if not k.startswith("GOOGLE_CALENDAR_")})
+                          env={k: v for k, v in os.environ.items() if not k.startswith(("GOOGLE_CALENDAR_", "GOOGLE_ACCOUNT_"))})
     assert done.returncode == 0
     for needle in ("developers.google.com/workspace/calendar/api/auth", "singleEvents", "Exit codes", "accessed 2026-10-17"):
         assert needle in done.stdout, needle

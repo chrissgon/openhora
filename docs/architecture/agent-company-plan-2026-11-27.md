@@ -148,12 +148,13 @@ The record is `docs/decisions/2026-11-27-ac-0-agent-company.md`. In short:
 - **Written by the person only, as the standing instructions are (L40).**
   - The path rule refuses the file as a run's output under every spelling, as L40 does.
   - Code checks it as the instructions are checked: UTF-8, a regular file inside the project, a size cap, the credential scan, no invisible character, no prompt-separator line.
-  - An agent may propose a change, and the person accepts it on the page or in the terminal (OPEN-2).
+  - An agent may propose a change, and the person accepts it on the page or in the terminal (OPEN-2, decided: AC-D18).
 - **Where it enters: the conversation lane only (section 4.4)**, as a nonce-marked data block.
   - It never enters a skill run, so the skills' bands still describe the runs (principles 9 and 10).
   - Its wording says it never overrides a stop rule, a gate or a refusal.
   - In the lane the persona writes the whole message (AC-D8); what code checked is attached (section 4.4). Artifacts a skill run writes keep no persona voice: they are documents, not conversation.
 - The profile is project data (principle 8); the workbench holds only its template.
+- **Status (2026-11-28): AC1 is built** on the wave-2 branch (`runtime/profiles.py`, `runtime/ops_profiles.py`; `docs/decisions/2026-11-28-ac1-agent-profiles.md`). The cap is 2,000 characters; a proposal is kept in the data folder, outside the project, and accepted by its sha256; the block (`ops_profiles.lane_block`) has no caller until AC3, and its `area` fact is none until AC8.
 
 ### 4.2 Agents that manage themselves, and governance without managers
 
@@ -386,15 +387,15 @@ The downgrades of questions and the matching of delegations run on the same pinn
 
 ### 4.9 The office
 
-If R23 chooses a fork of Habblaud, it is fed by openhora:
-- rooms per area;
+R23 is decided (2026-11-28, `docs/decisions/2026-11-28-w0-decisions-backlog-wave-0.md`): the office is our own, built in `interface/` as static files from parts of permissive open projects, with their notices kept. It is not a fork of Habblaud, whose repository is kept as a reference only. The art is chosen later with the maintainer. It is fed by openhora:
+- one room per area;
 - characters with their appearance from the profile;
 - the message box wired to the lane;
-- the events of section 4.5 as bubbles.
+- the events of section 4.5 as bubbles, showing the kind of step only (L50).
 
-If R23 does not choose a fork, the same data feeds `interface/`.
+The page polls `/versions` each second and reads the events when the number moved; there is no server-sent stream unless AC4 changes the rule by its own decision. The language is the project's language setting.
 
-A fork's approvals are a new client of the service. They come under L44, or are served from the service's own origin so that its origin check holds. In either case the service checks the hash.
+The office is part of the same page and origin, so its approvals are the page's: it shows the item and links to the existing card, and holds no approval path of its own. The service checks the hash.
 
 ### 4.10 Questions between agents, by level (AC-D9)
 
@@ -633,7 +634,7 @@ Each package is a backlog item, sized S, M or L. A package's spec is written bef
 | AC7 | Messages between agents: the table under L13, the four kinds, the `sources` key and the access sets that messages, memories and answers use, the access set per message, the agent channel's ceiling, the capability group `agent-chains` with its defaults, the closed list of starters recorded on each chain and `chain_autonomy`, the provenance field of agent-written requests, the credential scan, the brakes, the visibility | L | AC1, AC2 |
 | AC8 | Self-managing agents: the `area` key, open tasks and assignment by code, the change of `agent_of` and all its callers, the owning agent per artifact, an agent's own plan as a route (`core-orchestrator` limited to one pack, Y change with cases), the reception (`core-orchestrator`, Y change, tested), one responsible agent per request, the priorities file | L | AC7 |
 | AC9 | Proof of the lane: its evidence kind, cases and bands per route, including attachments, injected passages and routes | L | AC3 (starts with it) |
-| AC10 | The office, if R23 chooses a fork: the spike, then its source fed by AC4 | L | spike: none; wiring: AC4 |
+| AC10 | The office: our own, in `interface/` as static files, with no fork, the fork repository kept as a reference only (R23 decided, `docs/decisions/2026-11-28-w0-decisions-backlog-wave-0.md`); built in slices behind a painter interface, the art chosen later with the maintainer, fed by AC4 | L | spike: none; wiring: AC4 |
 | AC11 | Questions between agents by level: N1, N3 and N4 by code; `answered-by-agent` and the colleagues' block; the no-loop rule; delegations in the accepted configuration; the inbox cap; the cases of reruns with colleagues' answers. For chains whose starter holds `agent-chains`: the measured downgrades to N0 and N2 and the delegation match, with their cases | L | AC6, AC7, AC8; the downgrades and the match: AC3, AC9 (their cases are cases of the lane's evidence kind) |
 | AC12 | Peer review and the autonomous work mode: the choice of the review skill by the kind of work; `eng-code-review` and `core-critique` as reviewers, with the smallest change each needs to address the author's criteria (Y changes, tested); the new skill `core-work-review` with its cases and first full test; `design-review` left planned until a real design task; the review mode of the contained run (a closed list of review skills checked in code in place of the pack check, the task's tracked files and the diff as a patch file, the model from the review choice); `eng-code-review` changed to review from a patch with no git history and to read the checks already run from the context (Y change, tested); cases of each review skill in the assembled-prompt shape, held by a byte-for-byte test; the step kind that runs the project's checks before the review; temporary reviewer and tiebreaker runs, the context assembled by code, bounded discussion, the ranking of models and the person's choice, the consent kind with its stored warning hash, the cost estimate recorded with the consent, plan release, the opt-in for proven runs, the inbox summary | L | AC0, AC8, AC11 |
 
@@ -647,7 +648,7 @@ Each package is a backlog item, sized S, M or L. A package's spec is written bef
 7. AC11.
 8. AC12.
 
-The AC10 spike and CARD-READ (#987) run whenever there is room; neither needs another package.
+The AC10 first slice and CARD-READ (#987) run whenever there is room; neither needs another package.
 
 **Existing items:**
 - AGENT-DIRECT (#977) is AC2 and AC3, and was closed into them on 2026-11-27. What the planner sees of a direct task is answered by assignment by code (AC8) and by the reception.
@@ -673,28 +674,26 @@ The AC10 spike and CARD-READ (#987) run whenever there is room; neither needs an
 
 ## 7. Open questions
 
-Decided by the maintainer on 2026-11-27 (section 11):
+Decided by the maintainer on 2026-11-27 (section 11) and 2026-11-28 (`docs/decisions/2026-11-28-w0-decisions-backlog-wave-0.md`):
 - **OPEN-1. Embeddings.** Decided: in v1, local by default, behind a provider class (AC-D10).
 - **OPEN-6. How long threads and memories are kept.** Decided: until the person erases them, with tombstones and an export; records between agents are kept like the other governance records (AC-D13).
 - **OPEN-7. The consent of plan release.** Decided: part of the autonomous work mode's consent (AC-D11); section 4.2 makes it a consent kind of its own, and `auto` agents get plan release by proof only.
 - **OPEN-10. The dated L63 decision for the lane.** Decided: page and terminal lines; messaging later (AC-D12).
 - **OPEN-15. Whether a routine holds `agent-chains`.** Decided: only when it was approved on a channel that holds it, with the holding in the routine's content hash (AC-D17).
-- **OPEN-14. Run replies and messages between agents on the lane's route.** Decided (section 13): by who started the chain, through the capability group `agent-chains`, with the defaults of section 4.13 (AC-D16).
-
-Still open:
-- **OPEN-2. Who writes the profile.** Recommended: the person only; an agent proposes, the person accepts.
-- **OPEN-3. Who pays a chain of requests.** Recommended: each task counts on its owner's caps, and the chain carries a budget set where it started; the chain stops at either.
-- **OPEN-4. What the planning agent becomes.** Recommended: the reception, with no manager role.
-- **OPEN-5. Targets of speed.** Recommended: set from AC3's first measurements, per model.
-- **OPEN-8. Where the sources' index lives.** Recommended: beside the sources folder, outside git, under the limits restated in section 4.7.
-- **OPEN-9. Memory written by an agent.** Recommended: allowed without approval inside a task or a turn, always visible and erasable, marked when it came from external content, and kept out of turns that carry an effect proposal.
-- **OPEN-11. Reading memories from MCP or messaging.** Recommended: not in v1.
-- **OPEN-12. How a delegation names a kind of decision.** Recommended: free words written by the person, matched by a model behind a measured guard, with a doubtful match sent to the person.
-- **OPEN-13. The number of review rounds and the reviewer's budget.** Recommended: two rounds before the tiebreak, fixed in AC12's spec from the first measurements.
+- **OPEN-14. Run replies and messages between agents on the lane's route.** Decided (section 13): by who started the chain, through the ca
+- **OPEN-2. Who writes the profile.** Decided: the person only; an agent proposes, the person accepts (AC-D18, `docs/decisions/2026-11-28-w0-decisions-backlog-wave-0.md`).
+- **OPEN-3. Who pays a chain of requests.** Decided: each task counts on its owner's caps, and the chain carries a budget set where it started; it stops at either (AC-D19).
+- **OPEN-4. What the planning agent becomes.** Decided: the reception, with no manager role (AC-D20).
+- **OPEN-5. Targets of speed.** Decided: set from AC3's first measurements, per model (AC-D21).
+- **OPEN-8. Where the sources' index lives.** Decided: beside the sources folder, outside git, under the limits restated in section 4.7 (AC-D22).
+- **OPEN-9. Memory written by an agent.** Decided: allowed without approval inside a task or a turn, visible and erasable, marked when it came from external content, and kept out of turns that carry an effect proposal (AC-D23).
+- **OPEN-11. Reading memories from MCP or messaging.** Decided: not in v1 (AC-D24).
+- **OPEN-12. How a delegation names a kind of decision.** Decided: the person's own words, matched by a model behind a measured guard, with a doubtful match sent to the person (AC-D25).
+- **OPEN-13. The number of review rounds and the reviewer's budget.** Decided: two rounds before the tiebreak, the budget fixed in AC12's spec from the first measurements (AC-D26).ounds before the tiebreak, fixed in AC12's spec from the first measurements.
 
 ## 8. Not in this plan
 
-- Choosing the office (R23 decides it).
+- Choosing the office: R23 decided it, an own office in `interface/` with no fork (`docs/decisions/2026-11-28-w0-decisions-backlog-wave-0.md`). The art is chosen later with the maintainer.
 - Voice (VOICE-MODE, #978), built on the lane later.
 - Agents of another project talking to this one.
 - Messaging lines reaching the lane as a conversation (a later decision under L63). A chain started from messaging by a sender who holds `agent-chains` does send its run replies, which may quote the line, to the lane's route (AC-D16).
@@ -734,7 +733,7 @@ An independent reviewer on another model read version 1 against the code. It rai
 | F12. Who writes memory and profile files, and where | 4.1 (a slot row provided by `user`), 4.6 (memories in the store) |
 | F13. Lane turns not under caps or costs | 4.4 (cost, bounds) |
 | F14. Wrong dependencies; missing work (migration, messaging and MCP, `agent_of`, L63) | Section 6 |
-| F15. R23 decided and not decided; a fork's approvals | 4.9, section 8 |
+| F15. R23 decided and not decided; a fork's approvals (R23 is decided, with no fork: the office's approvals are the page's) | 4.9, section 8 |
 | F16. The D11 reversal not named; "three choices" inexact | Section 3 (AC-D3, AC-D6), the decision record |
 | F17. Imprecise citations | Section 2, 4.2 |
 | F18. Principle 8 for AC6's real case | Section 3 (AC-D6) |

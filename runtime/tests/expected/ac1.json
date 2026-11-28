@@ -1,0 +1,26 @@
+{
+ "package": "ac1",
+ "add": {
+  "operations_table.PUBLIC_MODULES": [
+   "ops_profiles"
+  ],
+  "operations_table.NOT_OPERATIONS": [
+   "added",
+   "lane_block",
+   "propose"
+  ],
+  "mcp.CHANNEL_ARG": [
+   "profile-set",
+   "profile-propose",
+   "profile-accept",
+   "profile-reject"
+  ],
+  "interpreter_coverage.INTERNAL": [
+   "profile",
+   "profile-set",
+   "profile-propose",
+   "profile-accept",
+   "profile-reject"
+  ]
+ }
+}

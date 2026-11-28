@@ -1,6 +1,6 @@
 """Tests of the three Google readers (providers/mailbox/gmail.py, providers/calendar/google.py, providers/documents/gdrive.py) with the account
-token: each works with only the account record, with only its legacy record (the old exact rule, a warning once per process), and prefers the
-account record when both exist; a token that lacks a scope of the platform's set or carries another is refused with exit 3 before any call to
+token: each works with only the account record and is not configured with only a legacy record (the records they had before are no longer
+read); a token that lacks a scope of the platform's set or carries another is refused with exit 3 before any call to
 an API; a refresh that omits `scope` is accepted only when the stored scope is the set; the verbs of each reader are unchanged and send GET
 only (limit L58, readers); and no credential is in anything a reader prints (limit L59). Against the stand-in service (fake_google_account.py)
 on 127.0.0.1; no Google host is reached and no real credential exists.
@@ -41,19 +41,19 @@ def fake():
 class Reader:
     """One reader, how to start it against the stand-in, and the verbs that prove it works."""
 
-    def __init__(self, name, script, endpoints, legacy, verbs):
-        self.name, self.script, self.endpoints, self.legacy, self.verbs = name, script, endpoints, legacy, verbs
+    def __init__(self, name, script, endpoints, verbs):
+        self.name, self.script, self.endpoints, self.verbs = name, script, endpoints, verbs
 
 
 def readers(tmp_path):
     out = tmp_path / "drive-out"
     out.mkdir(exist_ok=True)
     return [
-        Reader("gmail", GMAIL, lambda f: f.gmail_env(), lambda f: f.legacy_gmail_env(),
+        Reader("gmail", GMAIL, lambda f: f.gmail_env(),
                [["--check"], ["search", "--query", "in:inbox", "--limit", "1"], ["get", "--id", "msg1"]]),
-        Reader("calendar", CALENDAR, lambda f: f.calendar_env(), lambda f: f.legacy_calendar_env(),
+        Reader("calendar", CALENDAR, lambda f: f.calendar_env(),
                [["--check"], ["calendars"], ["events", "--calendar", fga.ACCOUNT, *WINDOW]]),
-        Reader("drive", DRIVE, lambda f: f.drive_env(), lambda f: f.legacy_drive_env(),
+        Reader("drive", DRIVE, lambda f: f.drive_env(),
                [["--check"], ["stat", "--id", fga.DOC_ID, "--as-source"], ["read", "--id", fga.DOC_ID, "--as-source", "--out-dir", str(out)]]),
     ]
 
@@ -120,56 +120,42 @@ def test_the_verbs_print_what_they_always_printed_from_the_account_token(fake, t
     assert read["content"] == "markdown" and (tmp_path / "drive-out" / "content").read_text(encoding="utf-8") == fga.DOC_TEXT
 
 
-# --- the legacy record alone, and both -------------------------------------------------------------------------------------
+# --- the legacy record is not read ------------------------------------------------------------------------------------------
+
+
+LEGACY_ENV = {
+    0: {"GMAIL_REFRESH_TOKEN": "fake-legacy-gmail-refresh-not-real-2c8d", "GMAIL_CLIENT_ID": fga.CLIENT_ID, "GMAIL_CLIENT_SECRET": fga.CLIENT_SECRET},
+    1: {"GOOGLE_CALENDAR_TOKEN": json.dumps({"refresh_token": "fake-legacy-calendar-refresh-not-real-3e9a", "client_id": fga.CLIENT_ID,
+                                             "client_secret": fga.CLIENT_SECRET})},
+    2: {"GDRIVE_SOURCES_TOKEN": json.dumps({"refresh_token": "fake-legacy-drive-refresh-not-real-6b0f", "client_id": fga.CLIENT_ID,
+                                             "client_secret": fga.CLIENT_SECRET})},
+}
 
 
 @pytest.mark.parametrize("which", [0, 1, 2], ids=["gmail", "calendar", "drive"])
-def test_each_reader_still_works_with_only_its_legacy_record_and_says_so_once(fake, tmp_path, which):
+def test_a_reader_with_only_a_legacy_record_is_not_configured(fake, tmp_path, which):
     reader = readers(tmp_path)[which]
-    env = {**base_env(tmp_path), **reader.endpoints(fake), **reader.legacy(fake)}
-    done = run(reader, reader.verbs[1], env)
-    assert done.returncode == 0, done.stderr
-    warnings = [line for line in done.stderr.splitlines() if "legacy record" in line]
-    assert len(warnings) == 1 and "move to the account token" in warnings[0] and "google_auth.py authorize" in warnings[0]
-    assert warnings[0].startswith("warning: using the legacy record ")
-    legacy_refresh = {0: fga.LEGACY_GMAIL_REFRESH, 1: fga.LEGACY_CALENDAR_REFRESH, 2: fga.LEGACY_DRIVE_REFRESH}[which]
-    assert refresh_tokens(fake) == [legacy_refresh]
-    again = run(reader, reader.verbs[0], env)
-    assert again.returncode == 0 and len([line for line in again.stderr.splitlines() if "legacy record" in line]) == 1, "once per process"
-
-
-def test_the_legacy_check_prints_what_it_always_printed(fake, tmp_path):
-    gmail, calendar, drive = readers(tmp_path)
-    out = json.loads(run(gmail, ["--check"], {**base_env(tmp_path), **gmail.endpoints(fake), **gmail.legacy(fake)}).stdout)
-    assert out == {"ok": True, "account": fga.ACCOUNT, "token_source": "environment (GMAIL_REFRESH_TOKEN)", "scope": fga.GMAIL_READONLY}
-    out = json.loads(run(calendar, ["--check"], {**base_env(tmp_path), **calendar.endpoints(fake), **calendar.legacy(fake)}).stdout)
-    assert set(out) == {"ok", "scope", "account", "obtained_at"} and len(out["scope"]) == 2
-    out = json.loads(run(drive, ["--check"], {**base_env(tmp_path), **drive.endpoints(fake), **drive.legacy(fake)}).stdout)
-    assert out == {"ok": True, "scope": fga.DRIVE_FILE, "obtained_at": "2026-10-16T09:00:00Z"}
+    for args in reader.verbs[:2]:
+        done = subprocess.run([sys.executable, str(reader.script), *args], env={**base_env(tmp_path), **reader.endpoints(fake), **LEGACY_ENV[which]},
+                              capture_output=True, text=True, timeout=60)
+        assert done.returncode == 3 and "accounts/google_auth.py authorize" in done.stderr and "GOOGLE_ACCOUNT_TOKEN" in done.stderr, args
+        assert "legacy" not in done.stderr and "mailbox/auth.py" not in done.stderr and "gdrive_auth.py" not in done.stderr
+    assert fake.requests == []
 
 
 @pytest.mark.parametrize("which", [0, 1, 2], ids=["gmail", "calendar", "drive"])
-def test_the_account_record_is_preferred_when_both_exist_and_the_legacy_one_is_not_even_used(fake, tmp_path, which):
-    reader = readers(tmp_path)[which]
-    env = {**account_env(fake, reader, tmp_path), **reader.legacy(fake)}
-    done = run(reader, reader.verbs[1], env)
-    assert done.returncode == 0, done.stderr
-    assert "legacy" not in done.stderr and refresh_tokens(fake) == [fga.REFRESH_TOKEN]
-
-
-@pytest.mark.parametrize("which", [0, 1, 2], ids=["gmail", "calendar", "drive"])
-def test_a_reader_with_neither_record_is_not_configured_and_names_both_commands(fake, tmp_path, which):
+def test_a_reader_with_no_record_is_not_configured_and_names_the_one_command(fake, tmp_path, which):
     reader = readers(tmp_path)[which]
     done = run(reader, reader.verbs[0], {**base_env(tmp_path), **reader.endpoints(fake)})
     assert done.returncode == 3 and "accounts/google_auth.py authorize" in done.stderr and "GOOGLE_ACCOUNT_TOKEN" in done.stderr
-    assert "auth.py" in done.stderr and fake.requests == []
+    assert fake.requests == []
 
 
 @pytest.mark.parametrize("which", [0, 1, 2], ids=["gmail", "calendar", "drive"])
-def test_an_unreadable_account_record_is_an_error_and_the_legacy_one_is_not_a_way_around_it(fake, tmp_path, which):
+def test_an_unreadable_account_record_is_an_error(fake, tmp_path, which):
     reader = readers(tmp_path)[which]
     for bad in ("{broken", json.dumps({"refresh_token": "x"}), fake.record_json(slot="work")):
-        done = run(reader, reader.verbs[0], {**base_env(tmp_path), **reader.endpoints(fake), **reader.legacy(fake), "GOOGLE_ACCOUNT_TOKEN": bad})
+        done = run(reader, reader.verbs[0], {**base_env(tmp_path), **reader.endpoints(fake), **LEGACY_ENV[which], "GOOGLE_ACCOUNT_TOKEN": bad})
         assert done.returncode == 3 and "legacy" not in done.stderr
         assert "GOOGLE_ACCOUNT_TOKEN" in done.stderr and "google-account" in done.stderr, "the error names the record"
     assert fake.requests == []
@@ -209,15 +195,6 @@ def test_a_refresh_that_omits_the_scope_is_accepted_only_when_the_stored_scope_i
     assert fake.api_requests() == []
 
 
-def test_the_legacy_scope_rule_of_each_reader_is_unchanged(fake, tmp_path):
-    calendar, drive = readers(tmp_path)[1], readers(tmp_path)[2]
-    fake.refresh_scope = SET      # a legacy record whose token turns out to carry the platform's set: the old exact rules refuse it
-    for reader in (calendar, drive):
-        done = run(reader, reader.verbs[0], {**base_env(tmp_path), **reader.endpoints(fake), **reader.legacy(fake)})
-        assert done.returncode == 3, reader.name
-    assert fake.api_requests() == []
-
-
 # --- a refused or revoked token -------------------------------------------------------------------------------------------
 
 
@@ -235,7 +212,7 @@ def test_a_revoked_authorization_and_a_wrong_client_are_not_configured_and_name_
 
 
 @pytest.mark.parametrize("which", [0, 1, 2], ids=["gmail", "calendar", "drive"])
-def test_a_rejected_access_token_names_the_account_command_not_the_legacy_one(fake, tmp_path, which):
+def test_a_rejected_access_token_names_the_account_command(fake, tmp_path, which):
     reader = readers(tmp_path)[which]
     original = fake.token
     fake.token = lambda form: (200, {"access_token": "fake-access-token-the-api-rejects", "scope": SET})
@@ -252,8 +229,7 @@ def test_limit_58_every_verb_of_each_reader_sends_get_to_the_api_and_post_only_t
     reader = readers(tmp_path)[which]
     for args in reader.verbs:
         assert run(reader, args, account_env(fake, reader, tmp_path)).returncode == 0, args
-    for env_for in (lambda: account_env(fake, reader, tmp_path), lambda: {**base_env(tmp_path), **reader.endpoints(fake), **reader.legacy(fake)}):
-        assert run(reader, reader.verbs[1], env_for()).returncode == 0
+    assert run(reader, reader.verbs[1], account_env(fake, reader, tmp_path)).returncode == 0
     methods = {(r["method"], r["path"] == "/token") for r in fake.requests}
     assert methods == {("GET", False), ("POST", True)}, "GET to the API, POST only to the token endpoint"
     assert len(fake.requests) > 6

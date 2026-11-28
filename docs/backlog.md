@@ -22,11 +22,8 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - T7: A routing measurement per pack (#862, `backlog: tooling`)
 - T18: An installed skill keeps its description in the harness's skill list (#863, `backlog: tooling`)
 - T22: Move the dated fixtures forward before 2027-10-02 (#864, `backlog: tooling`)
-- T47: Remove the compatibility stages of the rename to openhora (formerly the rename items of T23) (#865, `backlog: tooling`)
 - T48: The runtime workarounds marked `T23:` (formerly workarounds 4 to 8 of T23) (#866, `backlog: tooling`)
-- T49: An opencode runner pair on the OpenCode 2 line is not planned (#867, `backlog: tooling`)
 - T31: The installers carry what a skill needs of `providers/` and print the workbench root (#870, `backlog: tooling`)
-- T34: The providers say "no token" when the credentials directory is unsafe (#872, `backlog: tooling`)
 - T41: A step kind reaches the script provider through a `ctx.services` seam (#873, `backlog: tooling`)
 - T42: Channel restrictions that stay fixed after POL-1 (phase 2) (#874, `backlog: tooling`)
 - T43: What policies per person leave out (POL-2) (#875, `backlog: tooling`)
@@ -49,7 +46,6 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - SETUP-GUIDE: A guided setup of a project from zero, in the interface, over a command-line tool (#976, `backlog: runtime`)
 - VOICE-MODE: Talk to openhora by voice, and let it see what the person shows (#978, `backlog: runtime`)
 - CARD-READ: Decision cards on a phone are easy to read, in the project's language (#987, `backlog: runtime`)
-- AC1: Agent profiles: a persona per agent, written by the person (#990, `backlog: runtime`)
 - AC2: A conversation per agent (#991, `backlog: runtime`)
 - AC3: The conversation lane: fast replies in the service, streamed (#992, `backlog: runtime`)
 - AC4: What the screen shows while an agent works (#993, `backlog: runtime`)
@@ -68,15 +64,12 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - W6: openhora.dev does not appear in search results (#889, `backlog: website`)
 - DESIGN-FILES: The website, and later the interface, documented in Figma (#979, `backlog: website`)
 
-## E-mail
-
-- EM6: A first-time recipient is flagged on the card of an e-mail (#891, `backlog: e-mail`)
-
 ## Files from messaging apps
 
+- AT4: Files larger than 1 MiB by e-mail; priority high (#1025, `backlog: attachments`)
 - AT1: The live checks of the attachments (ATT-1 to ATT-4) (#892, `backlog: attachments`)
-- AT2: Files by e-mail (#893, `backlog: attachments`)
 - AT3: Follow-ups the maintainer deferred (#894, `backlog: attachments`)
+- AT5: The files of a forwarded e-mail are offered (#1026, `backlog: attachments`)
 
 ## Publishing
 
@@ -101,11 +94,11 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 ## Skills from outside
 
 - I1: IMPORT-PAGE: the Control room shows imported skills, read-only (#906, `backlog: imported skills`)
-- I2: IMPORT-RUNTIME: the runtime runs an imported skill, supervised (#907, `backlog: imported skills`)
 - I3: Archives and registry names as sources of an import (#908, `backlog: imported skills`)
 - I4: Writes from the page: fetch, accept an audit, run a test (#909, `backlog: imported skills`)
 - I5: A model helper for writing the cases of an imported skill (#910, `backlog: imported skills`)
 - I6: `core-security-audit` writes its vetting record beside the import (#911, `backlog: imported skills`)
+- I7: An imported skill may use the web, at the person's explicit word (#1027, `backlog: imported skills`)
 
 ## Answers from the sources
 
@@ -185,5 +178,4 @@ Work on the workbench itself that is not writing a skill: tooling, checks, rules
 - GOLDEN-APPEND-ONLY-CHECK: A code check that the merged rows of the entry golden files are append-only (#969, `backlog: account writes`)
 - P5B-SERIES: A series of the calendar is not cancelled as a series (#970, `backlog: account writes`)
 - P5B-AGENDA-SERVICE: `agenda` has no `service` slot (#971, `backlog: account writes`)
-- P5B-MAIL-ASK-TO-EMPTY: `NW_MAIL_ASK_TO` with an empty name reads "Qual o e-mail de ?" (#972, `backlog: account writes`)
 - P5B-TWO-WORD-TO: A two-word recipient name in the word slot `to` (#973, `backlog: account writes`)

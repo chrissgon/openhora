@@ -140,7 +140,7 @@ def secret_resolver():
 def open_session() -> tuple:
     """(the API base, an access token, the record): the account record with the whole five-scope set, or exit 3. There is no legacy record."""
     base, token_url, test_mode = endpoints()
-    loaded = _google.load_account_record(secret_resolver(), test_mode, legacy=None, error=ProviderError)
+    loaded = _google.load_account_record(secret_resolver(), test_mode, error=ProviderError)
     data = _google.refresh_access_token(token_url, loaded.record, ProviderError, tasks=True)
     return base, data["access_token"], loaded.record
 

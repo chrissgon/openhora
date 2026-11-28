@@ -26,6 +26,9 @@ _spec.loader.exec_module(gmail)
 
 FINE_ACCESS = "fine-" + "access-token"      # a made-up value for the stand-in server
 REFRESH, CLIENT_ID, CLIENT_SECRET = "FAKE-refresh-shape-test", "fake-client.apps.example", "FAKE-client-secret-shape-test"
+PLATFORM_SET = " ".join(gmail._google.PLATFORM_SCOPES)
+RECORD = json.dumps({"slot": "main", "refresh_token": REFRESH, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
+                     "scope": PLATFORM_SET, "account": "alex.sample@example.com", "obtained_at": "2026-10-17T08:00:00Z"})
 
 
 class Token:
@@ -74,23 +77,23 @@ BAD = ["good\r\nX-Injected: yes", "tök€n-non-latin1", "has a space", "", None
 
 @pytest.mark.parametrize("access", BAD)
 def test_a_malformed_access_token_is_refused_where_it_is_read(token, access):
-    token.answer = {"access_token": access, "scope": gmail.GMAIL_SCOPE}
+    token.answer = {"access_token": access, "scope": PLATFORM_SET}
     with pytest.raises(gmail.ProviderError) as refused:
-        gmail.token_request(token.url + "/token", {"grant_type": "refresh_token"})
+        gmail._google.token_request(token.url + "/token", {"grant_type": "refresh_token"}, gmail.ProviderError)
     assert "Injected" not in str(refused.value) and "non-latin1" not in str(refused.value)
 
 
 @pytest.mark.parametrize("refresh", [b for b in BAD if b])
 def test_a_malformed_refresh_token_in_the_answer_is_refused_before_anything_stores_it(token, refresh):
-    token.answer = {"access_token": FINE_ACCESS, "refresh_token": refresh, "scope": gmail.GMAIL_SCOPE}
+    token.answer = {"access_token": FINE_ACCESS, "refresh_token": refresh, "scope": PLATFORM_SET}
     with pytest.raises(gmail.ProviderError) as refused:
-        gmail.token_request(token.url + "/token", {"grant_type": "authorization_code"})
+        gmail._google.token_request(token.url + "/token", {"grant_type": "authorization_code"}, gmail.ProviderError)
     assert "unexpected shape" in str(refused.value) and "Injected" not in str(refused.value)
 
 
 def test_a_well_formed_answer_is_still_accepted(token):
-    token.answer = {"access_token": FINE_ACCESS, "refresh_token": FINE_ACCESS + "-r", "scope": gmail.GMAIL_SCOPE}
-    assert gmail.token_request(token.url + "/token", {})["access_token"] == FINE_ACCESS
+    token.answer = {"access_token": FINE_ACCESS, "refresh_token": FINE_ACCESS + "-r", "scope": PLATFORM_SET}
+    assert gmail._google.token_request(token.url + "/token", {}, gmail.ProviderError)["access_token"] == FINE_ACCESS
 
 
 def test_http_names_only_the_kind_of_a_header_the_library_refuses():
@@ -104,14 +107,13 @@ def test_http_names_only_the_kind_of_a_header_the_library_refuses():
 
 def run(token, *argv):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("GMAIL_", "GOOGLE_"))}
-    env.update({"GMAIL_API_BASE": token.url, "GOOGLE_TOKEN_URL": token.url + "/token", "GMAIL_REFRESH_TOKEN": REFRESH,
-                "GMAIL_CLIENT_ID": CLIENT_ID, "GMAIL_CLIENT_SECRET": CLIENT_SECRET})
+    env.update({"GMAIL_API_BASE": token.url, "GOOGLE_TOKEN_URL": token.url + "/token", "GOOGLE_ACCOUNT_TOKEN": RECORD})
     done = subprocess.run([sys.executable, str(SCRIPT), *argv], capture_output=True, text=True, timeout=60, env=env)
     return done.returncode, done.stdout + done.stderr
 
 
 def test_the_command_line_leaves_no_traceback_for_a_bad_token_or_an_answer_that_is_not_http(token):
-    token.answer = {"access_token": "good\r\nX-Injected: yes", "scope": gmail.GMAIL_SCOPE}
+    token.answer = {"access_token": "good\r\nX-Injected: yes", "scope": PLATFORM_SET}
     code, text = run(token, "--check")
     assert code == 1 and "unexpected shape" in text and "Traceback" not in text and "Injected" not in text
     token.answer = b"this is not an HTTP answer\r\n\r\n"

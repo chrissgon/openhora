@@ -20,8 +20,8 @@ operation here is ever written from a messaging channel, and none approves anyth
   source_refresh(project, source_id[, file])                           a new version: from a new file, from the page again, or,
                                     with neither, from the file the person changed in the folder (limit L25)
   source_describe(project, source_id, description)                     the person's description of a source
-  source_drive(project[, file_id, source_id, description])             Google Drive: pick files in the Picker (a one-shot page on
-                                    127.0.0.1) and make each a source, or import one file already picked; terminal only
+  source_drive(project, file_id, source_id[, description])             Google Drive: make the file with this id a source and import
+                                    it (run again, it is refreshed); terminal only
   source_onedrive(project[, search, folder, item, source_id, description])   OneDrive (O2): list candidates for a search text or
                                     a folder (registers nothing), or make the chosen files sources and import them; terminal only
   source_mail(project, source_id[, origin, description])               mail (RT-1): a window of the mailbox as a dated snapshot; the first
@@ -262,8 +262,8 @@ def sources_catalog(project: str) -> dict:
 
 
 def _drive_one(ctx, pick: dict, evidence, source_id=None, description=None, convert=None, call=None) -> dict:
-    """Make one picked file a source and import its first version: ask Drive about it (a file the app was not given, a folder or a type
-    that is not read stops here), register it under `source_id` or an id made from its name (a file picked again is the source it
+    """Make one named file a source and import its first version: ask Drive about it (a file the account cannot see, a folder or a type
+    that is not read stops here), register it under `source_id` or an id made from its name (a file named again is the source it
     already is), then import. Returns {"file", "name", "source", "registered", "imported"/"error", ...}; never raises for one file."""
     out = {"file": pick["id"], "name": pick.get("name")}
     try:
@@ -290,7 +290,7 @@ def _drive_one(ctx, pick: dict, evidence, source_id=None, description=None, conv
         out.update({"source": row["id"], "registered": registered})
         if registered:
             done = sources.drive_import(ctx, row, convert=convert or _convert(ctx), label="import", call=call, evidence_base=evidence)
-        else:   # a file picked again is a refresh: Drive's version is asked first, and nothing is read when it has not moved
+        else:   # a file named again is a refresh: Drive's version is asked first, and nothing is read when it has not moved
             done = sources.drive_refresh(ctx, row, convert=convert or _convert(ctx), call=call, evidence_base=evidence)
         out.update({k: done[k] for k in ("imported", "version", "kind", "warnings", "images_removed") if k in done})
         if done.get("unchanged"):
@@ -301,28 +301,24 @@ def _drive_one(ctx, pick: dict, evidence, source_id=None, description=None, conv
 
 
 def source_drive(project: str, file_id: str | None = None, source_id: str | None = None, description: str | None = None) -> dict:
-    """Make Google Drive files sources. With no `file_id`, the Picker opens for you (a one-shot page on 127.0.0.1 and your browser; the
-    command prints its address): you choose one or more FILES, never a folder, and each becomes a source named from the file (a file you
-    picked before is the source it already is) with its first version imported. With `file_id` (a file already picked, together with
-    `source_id`), that file alone is imported or refreshed. A file that cannot be read stops itself and not the others. Nothing is written
-    to Drive: the provider sends reads only, and `drive.file`, the one scope asked, is wider than read. Returns {"picked": n,
-    "cancelled", "results": [one per file: "source", "registered", "imported", "version" or "error"]}."""
-    if file_id is None and source_id is not None:
-        raise core.OpsError("--source goes with --file-id: with no file id the Picker opens and each file gets an id from its name", 2)
+    """Make a Google Drive file a source: the file with `file_id` (the part of its address after /d/) is imported under `source_id`, or
+    refreshed when it already is that source. A file that cannot be read stops with its reason. Nothing is written to Drive: the provider
+    sends reads only, and the account token's `drive` scope reads any file id the account can see. With no `file_id` it refuses: the Picker
+    went with the legacy Drive record. Returns {"picked": 1, "cancelled": false, "results": [one per file: "source", "registered",
+    "imported", "version" or "error"]}."""
+    if file_id is None:
+        raise core.OpsError("give --file-id <Drive file id> and --source <id>: the Picker went with the legacy Drive record, and under the "
+                            "account token's drive scope any file id you name is readable", 2)
+    if source_id is None:
+        raise core.OpsError("give --source with --file-id: the id the source will have", 2)
     ctx = core.context(project)
     evidence = _evidence_base()
     try:
-        if file_id is not None:
-            if source_id is None:
-                raise core.OpsError("give --source with --file-id: the id the source will have", 2)
-            picks, cancelled = [{"id": sources.drive_file_id(file_id), "name": None}], False
-        else:
-            got = sources.pick_drive(ctx["cfg"])
-            picks, cancelled = got["picked"], bool(got.get("cancelled"))
+        picks = [{"id": sources.drive_file_id(file_id), "name": None}]
     except sources.SourcesError as e:
         raise _refused(e) from None
-    results = [_drive_one(ctx, pick, evidence, source_id=source_id, description=description) for pick in picks if isinstance(pick, dict)]
-    return {"picked": len(results), "cancelled": cancelled, "results": results}
+    results = [_drive_one(ctx, pick, evidence, source_id=source_id, description=description) for pick in picks]
+    return {"picked": len(results), "cancelled": False, "results": results}
 
 
 # --- OneDrive (O2) ----------------------------------------------------------------------------------------------------------

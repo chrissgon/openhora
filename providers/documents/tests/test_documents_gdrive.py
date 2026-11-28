@@ -1,5 +1,5 @@
 """Tests of the Drive documents provider (providers/documents/gdrive.py) against the stand-in service (fake_drive.py): no network
-but loopback, no real account, no real credential. The provider reads the files a person picked as sources: `stat` says whether
+but loopback, no real account, no real credential. The provider reads Drive files, by id, as sources, signed in with the account token: `stat` says whether
 a file changed (its `version`), `read` writes the bytes (an export of a Google file, or a download) for the converter, and
 nothing is ever written to Drive.
 
@@ -38,7 +38,7 @@ class Case:
         self.out.mkdir()
 
     def run(self, *argv, env=None, record=None):
-        base = {k: v for k, v in os.environ.items() if not k.startswith("GDRIVE_") and not k.startswith("INTEGRATION_DOCUMENTS_GDRIVE")}
+        base = {k: v for k, v in os.environ.items() if not k.startswith(("GDRIVE_", "GOOGLE_ACCOUNT_", "INTEGRATION_DOCUMENTS_GDRIVE"))}
         merged = {**base, **(self.fake.env() if record is None else self.fake.env(**record)), **(env or {})}
         done = subprocess.run([sys.executable, str(SCRIPT), *argv], capture_output=True, text=True, timeout=120, env=merged)
         try:
@@ -143,9 +143,9 @@ def test_a_folder_a_drawing_and_a_trashed_file_are_refused_with_the_reason(case,
     assert code == 1 and why in said and not (case.out / "content").exists()
 
 
-def test_a_file_the_app_was_not_given_is_a_refusal_that_says_to_pick_it_again(case):
+def test_a_file_the_account_cannot_see_is_a_refusal_that_says_to_check_the_id(case):
     code, _, said = case.run("stat", "--id", "1NopeHhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh", "--as-source")
-    assert code == 1 and "pick it again" in said
+    assert code == 1 and "check the file id" in said and "pick" not in said
 
 
 def test_the_api_is_only_ever_read_and_every_request_carries_the_token(case):
@@ -176,8 +176,7 @@ def test_the_flags_are_checked_before_anything_is_asked(case):
     link.symlink_to(case.out)
     assert case.run("read", "--id", DOC_ID, "--as-source", "--out-dir", str(link))[0] == 2, "a link is not a folder of ours"
     assert case.run()[0] == 2 and case.run("--check", "stat")[0] == 2
-    assert case.run("stat", "--id", DOC_ID, "--as-source", "--no-browser")[0] == 2, "--no-browser belongs to pick"
-    assert case.run("pick", "--as-source")[0] == 2
+    assert case.run("stat", "--id", DOC_ID, "--as-source", "--no-browser")[0] == 2, "--no-browser went with the Picker"
     assert case.fake.requests == []
 
 
@@ -188,30 +187,45 @@ def test_an_existing_content_file_is_never_overwritten(case):
     assert (case.out / "content").read_bytes() == MARKDOWN
 
 
-def test_no_authorization_a_revoked_one_and_a_wider_scope_are_not_configured_and_say_what_to_run(case):
-    code, _, said = case.run("stat", "--id", DOC_ID, "--as-source", env={"GDRIVE_SOURCES_TOKEN": ""})
-    assert code == 3 and "gdrive_auth.py authorize" in said
-    code, _, said = case.run("stat", "--id", DOC_ID, "--as-source", env={"GDRIVE_SOURCES_TOKEN": "not json"})
+def test_the_drive_provider_has_no_pick_verb(case):
+    code, _, said = case.run("pick", "--as-source")
+    assert code == 2 and case.fake.requests == [], said
+    assert case.run("pick")[0] == 2
+
+
+def test_no_authorization_a_revoked_one_and_a_wrong_scope_are_not_configured_and_say_what_to_run(case):
+    code, _, said = case.run("stat", "--id", DOC_ID, "--as-source", env={"GOOGLE_ACCOUNT_TOKEN": ""})
+    assert code == 3 and "providers/accounts/google_auth.py authorize" in said
+    code, _, said = case.run("stat", "--id", DOC_ID, "--as-source", env={"GOOGLE_ACCOUNT_TOKEN": "not json"})
     assert code == 3 and "unreadable" in said
     case.fake.token_status = 400
     code, _, said = case.run("stat", "--id", DOC_ID, "--as-source")
-    assert code == 3 and "expired or was revoked" in said and "gdrive_auth.py authorize" in said
+    assert code == 3 and "expired or was revoked" in said and "google_auth.py authorize" in said
     case.fake.token_status = 200
-    case.fake.scope_granted = fake_drive.SCOPE + " https://www.googleapis.com/auth/drive.readonly"
+    case.fake.scope_granted = fake_drive.PLATFORM_SET + " https://www.googleapis.com/auth/drive.readonly"
     case.fake.requests.clear()
     code, _, said = case.run("stat", "--id", DOC_ID, "--as-source")
-    assert code == 3 and "drive.readonly" in said and case.fake.requests == [], "a token that is wider than drive.file is never used"
-    case.fake.scope_granted = "https://www.googleapis.com/auth/drive.readonly"
-    assert case.run("--check")[0] == 3
+    assert code == 3 and "drive.readonly" in said and case.fake.requests == [], "a token that carries a scope the platform does not ask is never used"
+    for narrow in ("https://www.googleapis.com/auth/drive.readonly", fake_drive.SCOPE):
+        case.fake.scope_granted = narrow
+        assert case.run("--check")[0] == 3, narrow
 
 
-def test_a_token_that_reports_no_scope_is_refused_because_it_cannot_be_shown_to_be_the_narrow_one(case):
-    for how in ("empty", "omitted"):
-        case.fake.requests.clear()
-        case.fake.scope_granted, case.fake.omit_scope = ("" if how == "empty" else fake_drive.SCOPE), how == "omitted"
-        code, _, said = case.run("stat", "--id", DOC_ID, "--as-source")
-        assert code == 3 and "no scope" in said and case.fake.requests == [], how
-        assert case.run("--check")[0] == 3, how
+def test_a_reader_with_only_a_legacy_record_is_not_configured(case):
+    legacy = {"GOOGLE_ACCOUNT_TOKEN": "", "GDRIVE_SOURCES_TOKEN": case.fake.record_json(scope=fake_drive.SCOPE)}
+    for argv in (["--check"], ["stat", "--id", DOC_ID, "--as-source"]):
+        code, _, said = case.run(*argv, env=legacy)
+        assert code == 3 and "providers/accounts/google_auth.py authorize" in said and "gdrive_auth.py" not in said, argv
+    assert case.fake.requests == [] and case.fake.token_forms == []
+    assert not (HERE.parent / "gdrive_auth.py").exists() and not (HERE.parent / "gdrive_picker.py").exists()
+
+
+def test_a_token_that_reports_no_scope_is_accepted_only_when_the_record_stores_the_set(case):
+    case.fake.omit_scope = True
+    assert case.run("stat", "--id", DOC_ID, "--as-source")[0] == 0
+    case.fake.requests.clear()
+    code, _, said = case.run("stat", "--id", DOC_ID, "--as-source", record={"scope": fake_drive.SCOPE})
+    assert code == 3 and "account token" in said and case.fake.api_requests() == []
 
 
 def test_a_rejected_client_is_not_configured(case):
@@ -221,7 +235,8 @@ def test_a_rejected_client_is_not_configured(case):
 
 def test_check_proves_the_authorization_with_the_one_token_call_and_names_the_scope(case):
     code, out, said = case.run("--check")
-    assert code == 0 and out == {"ok": True, "scope": fake_drive.SCOPE, "obtained_at": "2026-10-15T08:00:00Z"}, said
+    assert code == 0 and out == {"ok": True, "scope": sorted(fake_drive.PREVIOUS_SET.split()), "account": "alex.sample@example.com",
+                                 "record": "account", "obtained_at": "2026-10-15T08:00:00Z"}, said
     assert case.fake.api_requests() == [] and len(case.fake.token_forms) == 1
 
 
@@ -251,15 +266,15 @@ def test_no_credential_is_ever_printed(case):
 
 
 def test_the_authorization_record_is_read_from_the_credentials_directory_as_the_json_text_it_is(case, tmp_path):
-    """A headless machine keeps GDRIVE_SOURCES_TOKEN as a file of the credentials directory (docs/architecture/platform/unattended.md): the file
+    """A headless machine keeps GOOGLE_ACCOUNT_TOKEN as a file of the credentials directory (docs/architecture/platform/unattended.md): the file
     holds the whole JSON record, not a bare token, exactly as the environment variable does."""
     folder = tmp_path / "credentials"
     folder.mkdir(mode=0o700)
-    file = folder / "GDRIVE_SOURCES_TOKEN"
+    file = folder / "GOOGLE_ACCOUNT_TOKEN"
     file.write_text(case.fake.record_json() + "\n", encoding="utf-8")
     file.chmod(0o600)
     folder.chmod(0o700)
-    env = {"GDRIVE_SOURCES_TOKEN": "", "OPENHORA_CREDENTIALS_DIR": str(folder)}
+    env = {"GOOGLE_ACCOUNT_TOKEN": "", "OPENHORA_CREDENTIALS_DIR": str(folder)}
     code, out, said = case.run("stat", "--id", DOC_ID, "--as-source", env=env)
     assert code == 0 and out["version"], said
     assert not any(secret in said for secret in SECRETS)

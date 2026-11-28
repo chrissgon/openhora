@@ -66,7 +66,7 @@ MEDIA_WORDS = ("photo", "voice", "video", "audio", "sticker")     # what a provi
 STDIN_WAIT, TERM_WAIT = 10.0, 5.0  # the stop: after stdin ends, then after SIGTERM, before SIGKILL
 UPDATE_QUEUE = 1000
 STDERR_TAIL = 300
-ERROR_KINDS = ("usage", "not-configured", "failed", "paused", "skipped")   # "skipped" is not the state of the run: a message the provider gave up (ListenSession.take_unread)
+ERROR_KINDS = ("usage", "not-configured", "failed", "paused", "skipped", "too-large")   # "skipped" and "too-large" are not the state of the run: a message the provider gave up (ListenSession.take_unread) or one over its limit (take_too_large)
 ANSWER_KINDS = ("usage", "not-configured", "failed", "deferred", "gone")   # "paused" is an error-event kind only: a send answer cannot be paused today; the kinds of a send or a fetch that did not go out; "gone" is a fetch of a reference the platform no longer serves; "deferred" is not an error: the platform cannot take it yet and the bridge keeps the card
 PAUSED_WAIT = 300.0                # a provider that exits 3 after an error event of kind "paused" (its session is gone) is asked again after this
 PAUSED_REPEAT = 86400.0            # the line that says it is paused is written again this often while it stays paused
@@ -153,6 +153,11 @@ class Messenger:
         """How many messages the provider gave up since the last call (error events of kind `skipped`), and forget them. 0 for a provider that
         does not listen: a provider that is polled writes no events."""
         return self.session.take_unread() if self.session is not None else 0
+
+    def take_too_large(self) -> int:
+        """How many messages the provider set aside for their size since the last call (error events of kind `too-large`), and forget them. 0 for a
+        provider that does not listen."""
+        return self.session.take_too_large() if self.session is not None else 0
 
     def receive(self, offset: int, timeout: int) -> dict:
         if self.session is not None:
@@ -347,6 +352,8 @@ class ListenSession:
         self.woken = False
         self.skip_noted = False                  # one log line for a burst of skipped events, until the bridge takes the count
         self.unread = 0                          # messages the provider gave up (error events of kind "skipped") and the bridge has not taken; under inbox_cv
+        self.too_large_noted = False             # the same, for the events of kind "too-large"
+        self.too_large = 0                       # messages the provider set aside for their size (error events of kind "too-large") and the bridge has not taken; under inbox_cv
         self.cv = threading.Condition()          # guards run, closing, fatal, generation
         self.run = None
         self.closing = threading.Event()
@@ -387,6 +394,12 @@ class ListenSession:
         """The number of messages the provider gave up since the last call, and reset it. Only the count: what the provider said of them is never kept."""
         with self.inbox_cv:
             found, self.unread, self.skip_noted = self.unread, 0, False
+            return found
+
+    def take_too_large(self) -> int:
+        """The number of messages set aside for their size since the last call, and reset it. Only the count."""
+        with self.inbox_cv:
+            found, self.too_large, self.too_large_noted = self.too_large, 0, False
             return found
 
     def send(self, chat: str, message: dict) -> str:
@@ -701,6 +714,12 @@ class ListenSession:
                 first, self.skip_noted = not self.skip_noted, True
             if first:      # one line for a burst (a list of 200 given up at once), like full_noted
                 self.log("the messenger provider gave up a message it could not read (skipped)")
+        elif event == "error" and found.get("kind") == "too-large":
+            with self.inbox_cv:      # like a skip: not the state of the run, and the reason is never stored, logged or forwarded
+                self.too_large += 1
+                first, self.too_large_noted = not self.too_large_noted, True
+            if first:
+                self.log("the messenger provider set aside a message over its size limit (too-large)")
         elif event == "error":
             kind = found.get("kind") if found.get("kind") in ERROR_KINDS else "other"
             run.kind = kind

@@ -77,7 +77,7 @@ def routed_plan():
     entry = {"item": "A new project", "reply": "", "route": {"kind": "route", "name": "flow-new-project", "shape": "flow", "status": "ready",
                                                          "line": line, "checked": {"ok": True, "flow": NAME}}}
     return kit.plan.combine({"id": 1, "title": "A new project", "text": "A new project"}, [entry], {NAME: flow}, kit.agents(), kit.ROOT,
-                            pack=kit.scope(), limits={"max_running": 1, "timeout_seconds": 600, "retries": 0}, past=[])
+                            pack=kit.scope(), limits={"max_running": 1, "timeout_seconds": 600, "retries": 0}, past=[], imported={})
 
 
 def test_the_released_backlog_gives_exactly_one_implementation_per_todo_task_and_the_flow_has_none_of_its_own():

@@ -595,7 +595,10 @@ def test_the_skip_links_focus_by_id_without_changing_the_hash_the_notice_is_redr
 
 def test_the_one_animation_frame_request_is_inside_the_scheduler_and_the_scheduler_draws_only_when_asked():
     users = {p.name: p.read_text(encoding="utf-8").count("requestAnimationFrame") for p in JS.rglob("*.js") if "requestAnimationFrame" in p.read_text(encoding="utf-8")}
-    assert set(users) <= {"engine.js", "loop.js"}, f"requestAnimationFrame is used outside the scene engine: {sorted(users)}"
+    paths = {p.relative_to(JS).as_posix() for p in JS.rglob("*.js") if "requestAnimationFrame" in p.read_text(encoding="utf-8")}
+    assert paths <= {"scene/engine.js", "scene/loop.js", "views/office.js"}, f"requestAnimationFrame is used outside the scene engine: {sorted(paths)}"   # views/office.js: the 2D office gives the same scheduler its default request (office1), by exact path
+    office = (JS / "views" / "office.js").read_text(encoding="utf-8")
+    assert office.count("requestAnimationFrame") == 1 and office.count("raf = (fn) => requestAnimationFrame(fn)") == 1 and "context, raf, caf," in office, "the office names it once, as the raf default it hands on to the scene, whose scheduler is createLoop"
     engine = (SCENE / "engine.js").read_text(encoding="utf-8")
     assert re.search(r"createLoop\(\{\s*raf: \(fn\) => requestAnimationFrame\(fn\)", engine), "the engine's one request is the scheduler's dependency"
     assert engine.count("requestAnimationFrame(") == 1 and "setInterval" not in engine, "no standing loop in the engine"
@@ -654,7 +657,7 @@ def test_a_script_writes_only_custom_properties_to_an_elements_style():
     for path in sorted(JS.rglob("*.js")):
         text = path.read_text(encoding="utf-8")
         for call in re.findall(r"\.style\.(\w+)\(([^)]*)", text):
-            ok = call[0] == "setProperty" and (re.match(r'\s*"--wb-(x|y|a|b|c|d|share|drawer-drag|wait-h|cam-top|notice-bottom)"', call[1]) or (path.name == "palette.js" and "color" in call[1]))
+            ok = call[0] == "setProperty" and (re.match(r'\s*"--wb-(x|y|a|b|c|d|share|drawer-drag|wait-h|cam-top|notice-bottom)"', call[1]) or (path.name == "palette.js" and "color" in call[1]) or (path.relative_to(JS).as_posix() == "office/scene.js" and "color" in call[1]))   # office/scene.js: the office's 2D probe reads a token's colour; palette.js cannot be reused, it imports the 3D library and returns its colour type (office1)
             assert ok, \
                 f"{path.name}: {call}: a script writes the page's own position, matrix (A-59: `--wb-a` to `--wb-d` of a label fitted on a plate) and share properties only"
         assert not re.search(r"\.style\.\w+\s*=[^=]", text), f"{path.name} assigns a style property"

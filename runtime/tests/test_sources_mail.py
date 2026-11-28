@@ -827,9 +827,9 @@ def test_limit_53_a_run_next_receives_an_old_snapshot_and_the_dispatcher_does_no
 # --- no credential anywhere ----------------------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("cls, implementation, own", [("reader:email", "gmail", ("GOOGLE_ACCOUNT_TOKEN", "GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET")),
+@pytest.mark.parametrize("cls, implementation, own", [("reader:email", "gmail", ("GOOGLE_ACCOUNT_TOKEN",)),
                                                       ("reader:email", "outlook", ("MICROSOFT_ACCOUNT_TOKEN", "OUTLOOK_MAIL_TOKEN")),
-                                                      ("integration:calendar", "google", ("GOOGLE_ACCOUNT_TOKEN", "GOOGLE_CALENDAR_TOKEN")),
+                                                      ("integration:calendar", "google", ("GOOGLE_ACCOUNT_TOKEN",)),
                                                       ("integration:calendar", "outlook", ("MICROSOFT_ACCOUNT_TOKEN", "OUTLOOK_CALENDAR_TOKEN"))])
 def test_a_provider_gets_the_minimum_environment_and_its_own_secret_and_no_other(desk, monkeypatch, cls, implementation, own):
     everything = ("GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "OUTLOOK_MAIL_TOKEN", "GOOGLE_CALENDAR_TOKEN", "OUTLOOK_CALENDAR_TOKEN",

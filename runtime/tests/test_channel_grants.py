@@ -629,7 +629,7 @@ def test_the_mcp_mode_lists_and_runs_the_granted_tools_for_a_plan_with_its_hash_
     server = mcp.Server(ops, projects, log=lambda line: None, grace=WAIT)
     names = lambda: [t["name"] for t in server.tools()]  # noqa: E731
     base = ["request", "route", "status", "task", "flows", "flow-check", "progress", "pending", "answer", "release", "say", "agents", "conversation", "skills", "costs",
-            "connections", "artifacts", "artifact", "version", "sources", "instructions", "routines", "projects", "job"]
+            "connections", "artifacts", "artifact", "version", "sources", "instructions", "profile", "profile-propose", "routines", "projects", "job"]
     assert names() == base, "off by default: no approve, reject, cancel or retry tool"
     for name in ("approve", "reject", "retry", "cancel"):
         assert tool(server, name, {"pending_id": plan_id})["error"]["code"] == -32602

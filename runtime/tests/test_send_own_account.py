@@ -193,8 +193,8 @@ def test_a_send_prepares_a_card_of_the_whole_email_and_reads_no_credential_and_o
     assert item["body"] == phrases.card_text(item["payload"]["card"])
     lines = item["body"].splitlines()
     pk.assert_said(lines[0], "CARD_MAIL_SEND", CFG)
-    assert_lines(lines[1:5], [("CARD_MAIL_FROM_ACCOUNT", {"address": fgs.ACCOUNT, "account": "google"}), ("CARD_MAIL_TO", {"addresses": TO}), ("CARD_MAIL_CC", {"addresses": "lee@client.example"}),
-                              ("CARD_MAIL_SUBJECT", {"subject": SUBJECT})])
+    assert_lines(lines[1:6], [("CARD_MAIL_FROM_ACCOUNT", {"address": fgs.ACCOUNT, "account": "google"}), ("CARD_MAIL_TO", {"addresses": TO}), ("CARD_MAIL_CC", {"addresses": "lee@client.example"}),
+                              ("CARD_MAIL_FIRST_TIME", {"addresses": f"{TO}, lee@client.example"}), ("CARD_MAIL_SUBJECT", {"subject": SUBJECT})])
     count = [i for i, line in enumerate(lines) if pk.said(line, "CARD_MAIL_COUNT", CFG, count=2)]
     assert len(count) == 1
     start = count[0] + 1
@@ -718,7 +718,7 @@ def test_no_step_module_or_run_reaches_the_account_mailers_and_only_the_effect_m
 
 def test_the_seam_a_step_is_given_can_only_ask_for_a_dry_run_never_a_send(world):
     seam = st.load("ops_step_seams").AccountMailReader(ops_core.context(world["path"]))
-    assert {n for n in dir(seam) if not n.startswith("_")} == {"enabled", "address", "implementation", "reply_facts", "dry_run"}
+    assert {n for n in dir(seam) if not n.startswith("_")} == {"enabled", "address", "implementation", "reply_facts", "dry_run", "first_time"}
     assert seam.enabled("google") and seam.enabled("microsoft") and not seam.enabled("yahoo") and seam.implementation("microsoft") == "outlook"
     doc = effect_doc(world, send(world))
     shown = seam.dry_run(doc, [])
@@ -830,7 +830,7 @@ def card_for(world, started, groups, channel=None):
 def test_every_line_that_shows_who_an_email_goes_to_what_it_says_or_which_files_it_carries_is_private_and_the_count_and_the_hash_are_not(world):
     private = set(phrases.CARD_PRIVATE)
     reply_keys = ["CARD_MAIL_REPLY_TO_AT", "CARD_MAIL_REPLY_TO_DIFFERS", "CARD_MAIL_IN_REPLY", "CARD_MAIL_SUBJECT_REPLY", "CARD_MAIL_MESSAGE"]
-    new_keys = ["CARD_MAIL_TO", "CARD_MAIL_CC", "CARD_MAIL_SUBJECT", "CARD_MAIL_MESSAGE", "CARD_MAIL_ATTACHMENT"]
+    new_keys = ["CARD_MAIL_TO", "CARD_MAIL_CC", "CARD_MAIL_FIRST_TIME", "CARD_MAIL_SUBJECT", "CARD_MAIL_MESSAGE", "CARD_MAIL_ATTACHMENT"]      # EM6: TO is in no snapshot, so the card says it is a first time
     assert set(reply_keys + new_keys + ["CARD_MAIL_BCC"]) <= private
     answered = reply(world)
     assert [k for k, _ in item_of(world, answered)["payload"]["card"] if k in private] == reply_keys

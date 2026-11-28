@@ -71,12 +71,9 @@ pending key whose outcome is unknown (a timeout, a crash) blocks every new attem
 records what happened. Redirects are refused and pagination links are followed only on the API
 host, so the token is only ever sent to a URL that was checked.
 
-The ledger lives in a data folder (~/Library/Application Support/ai-workbench/ on macOS,
-$XDG_DATA_HOME/ai-workbench/ or ~/.local/share/ai-workbench/ elsewhere), next to the scheduler's jobs.
-It used to live in the cache folder, where clearing the cache lost the record of what was already
-dismissed or committed; on first use the old ledger is copied to the new place (a note on stderr says so) and is
-never deleted. Jobs scheduled before this change run a copy of the old provider and keep writing to the
-old location, so they must be scheduled again after upgrading.
+The ledger lives in a data folder (~/Library/Application Support/openhora/ on macOS,
+$XDG_DATA_HOME/openhora/ or ~/.local/share/openhora/ elsewhere), next to the scheduler's jobs.
+A ledger of an earlier version in the cache folder is read by nothing; `scripts/rename_move.py` carries one across.
 """
 from __future__ import annotations
 
@@ -237,11 +234,9 @@ credentials (never from files or flags):
 
 other environment variables:
   VCS_GITHUB_LEDGER      path of the idempotency ledger (JSON). Default, in a data folder:
-                         ~/Library/Application Support/ai-workbench/vcs-github.json on macOS;
-                         elsewhere $XDG_DATA_HOME/ai-workbench/vcs-github.json, or
-                         ~/.local/share/ai-workbench/vcs-github.json. A ledger at its old place
-                         ($XDG_CACHE_HOME/ai-workbench/ or ~/.cache/ai-workbench/) is copied
-                         there on first use and never deleted.
+                         ~/Library/Application Support/openhora/vcs-github.json on macOS;
+                         elsewhere $XDG_DATA_HOME/openhora/vcs-github.json, or
+                         ~/.local/share/openhora/vcs-github.json.
   VCS_GITHUB_API_BASE    tests only. Replaces {DEFAULT_API_BASE} with a loopback URL
                          (http://127.0.0.1:<port>). Any other host is refused. When set,
                          the secret store is not read; the token must come from GITHUB_TOKEN.
@@ -253,7 +248,7 @@ other environment variables:
   VCS_GIT_TIMEOUT        tests only (with VCS_TEST=1): seconds before any git call times out.
                          Both timeouts are positive numbers; anything else exits 2.
   commit-files clones into a private folder (0700) under
-  $XDG_CACHE_HOME/ai-workbench/vcs-github-work/ (or ~/.cache/...) and removes it afterwards.
+  $XDG_CACHE_HOME/openhora/vcs-github-work/ (or ~/.cache/...) and removes it afterwards.
 
 output:
   JSON on stdout; diagnostics on stderr. Alert text (summaries) is written by third
@@ -358,8 +353,17 @@ def load_token(test_mode: bool, required: bool = True) -> tuple[str, str]:
     the token is optional."""
     # The resolver reads VCS_GITHUB_TOKEN, then GITHUB_TOKEN (a harness or CI may export its own,
     # with other permissions), then the OS secret store; tests never read the store.
-    found = secret_resolver().resolve("VCS_GITHUB_TOKEN", allow_store=not test_mode)
-    token, source = found if found else ("", "")
+    resolver = secret_resolver()
+    state = getattr(resolver, "resolve_state", None)   # an older resolver.py next to a scheduled job's copy has none: the old reading stands
+    if state is not None:
+        answer = state("VCS_GITHUB_TOKEN", allow_store=not test_mode)
+        if answer.state == "unsafe" or (answer.state == "locked" and required):
+            raise ProviderError(f"the GitHub token (VCS_GITHUB_TOKEN) cannot be read ({answer.state}): "
+                                f"{one_line(answer.detail, 300) or 'no detail'}; nothing was sent", EXIT_NOT_CONFIGURED)
+        token, source = (answer.value, answer.source) if answer.state == "found" else ("", "")
+    else:
+        found = resolver.resolve("VCS_GITHUB_TOKEN", allow_store=not test_mode)
+        token, source = found if found else ("", "")
     if not token and not required:
         return "", ""
     if not token:
@@ -378,8 +382,16 @@ def load_pr_token(test_mode: bool) -> tuple[str, str, str]:
     the secret store; tests never read the store), and only when that name is found nowhere the everyday token of
     load_token. The name used and where it was found go to stderr; the value never does."""
     resolver = secret_resolver()
+    state = getattr(resolver, "resolve_state", None)   # an older resolver.py next to a scheduled job's copy has none: the old reading stands
     try:
-        found = resolver.resolve(PR_TOKEN_NAME, allow_store=not test_mode)
+        if state is not None:
+            answer = state(PR_TOKEN_NAME, allow_store=not test_mode)
+            if answer.state in ("unsafe", "locked"):
+                raise ProviderError(f"the GitHub pull request token ({PR_TOKEN_NAME}) cannot be read ({answer.state}): "
+                                    f"{one_line(answer.detail, 300) or 'no detail'}; nothing was sent", EXIT_NOT_CONFIGURED)
+            found = (answer.value, answer.source) if answer.state == "found" else None
+        else:
+            found = resolver.resolve(PR_TOKEN_NAME, allow_store=not test_mode)
     except resolver.NotRegistered:  # an older resolver.py next to a scheduled job's copy of this script
         found = None
     if found and found[0]:
@@ -402,10 +414,10 @@ LEDGER_NAME = "vcs-github.json"
 def data_home() -> Path:
     """The folder for state that must outlive cache cleaning: the one the scheduler providers use."""
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "ai-workbench"
+        return Path.home() / "Library" / "Application Support" / "openhora"
     data = os.environ.get("XDG_DATA_HOME")
     base = Path(data) if data and os.path.isabs(data) else Path.home() / ".local" / "share"
-    return base / "ai-workbench"
+    return base / "openhora"
 
 
 def ledger_path() -> Path:
@@ -415,48 +427,25 @@ def ledger_path() -> Path:
     return data_home() / LEDGER_NAME
 
 
-def old_ledger_path() -> Path | None:
-    """Where the ledger lived before it moved to the data folder; None when VCS_GITHUB_LEDGER is set."""
-    if os.environ.get("VCS_GITHUB_LEDGER"):
-        return None
-    cache = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
-    return Path(cache) / "ai-workbench" / LEDGER_NAME
+OLD_LEDGER_SAID = []   # the old cache ledger is told once in a process
 
 
-def ledger_migrate() -> None:
-    """First use after the move: copy the old ledger to the new place, so no recorded key is lost.
-
-    Runs before every read, and does something only while the new ledger does not exist and the old one
-    does. The copy appears under its final name in one step (a hard link, which fails when the name
-    exists), so two runs at once cannot overwrite each other. The old file is never changed or deleted.
-    """
-    path, old = ledger_path(), old_ledger_path()
-    if old is None or path.exists() or not old.is_file():
+def say_old_ledger_is_unread(path: Path) -> None:
+    """One stderr line when the ledger the old versions kept in the cache folder exists and the new one does not: nothing reads the old
+    one, so a key recorded there looks new to this run (scripts/rename_move.py is what carries it across)."""
+    if OLD_LEDGER_SAID or os.environ.get("VCS_GITHUB_LEDGER") or path.exists():
         return
-    try:
-        content = old.read_bytes()
-        json.loads(content.decode("utf-8"))
-    except (OSError, ValueError) as exc:
-        raise ProviderError(f"the idempotency ledger at {old} cannot be copied to {path}: {exc}", EXIT_SERVICE)
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".vcs-github.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(content)
-        os.chmod(tmp, 0o600)
-        try:
-            os.link(tmp, path)
-        except FileExistsError:
-            return  # another run copied it first
-    finally:
-        os.unlink(tmp)
-    print(f"note: the idempotency ledger moved: copied {old} to {path}; the old file is kept and no longer read",
-          file=sys.stderr)
+    cache = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    old = Path(cache) / "ai-workbench" / LEDGER_NAME
+    if old.is_file():
+        OLD_LEDGER_SAID.append(1)
+        print(f"note: an idempotency ledger exists at {old} and nothing reads it there, so a key recorded in it looks new to this run; "
+              "run scripts/rename_move.py to move it (it lists first and changes nothing without --yes)", file=sys.stderr)
 
 
 def ledger_read() -> dict:
-    ledger_migrate()
     path = ledger_path()
+    say_old_ledger_is_unread(path)
     if not path.exists():
         return {"version": 1, "entries": {}}
     try:
@@ -1311,7 +1300,7 @@ def ssh_failure(err: str) -> ProviderError | None:
 
 def work_root() -> Path:
     cache = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
-    return Path(cache) / "ai-workbench" / "vcs-github-work"
+    return Path(cache) / "openhora" / "vcs-github-work"
 
 
 def remote_has_branch(repo: str, branch: str, remote: str, cwd: Path) -> bool:

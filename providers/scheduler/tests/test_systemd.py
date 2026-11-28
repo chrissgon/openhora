@@ -25,7 +25,7 @@ import pytest
 HERE = Path(__file__).resolve().parent.parent
 SCRIPT = HERE / "systemd.py"
 LAUNCHD = HERE / "launchd.py"
-UNIT = "dev.ai-workbench.scheduler.{}"
+UNIT = "dev.openhora.scheduler.{}"
 
 # Appends the snapshotted input to the output file, then prints a JSON line.
 APPEND = ("import sys, json; open(sys.argv[2], 'a').write(open(sys.argv[1]).read() + '\\n'); "
@@ -294,11 +294,11 @@ def test_default_folders_follow_xdg(env, tmp_path, monkeypatch):
     for key in ("SCHEDULER_HOME", "SCHEDULER_UNITS_DIR", "XDG_DATA_HOME", "XDG_CONFIG_HOME"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    assert module.home() == tmp_path / "home" / ".local" / "share" / "ai-workbench" / "scheduler"
+    assert module.home() == tmp_path / "home" / ".local" / "share" / "openhora" / "scheduler"
     assert module.units_dir() == tmp_path / "home" / ".config" / "systemd" / "user"
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    assert module.home() == tmp_path / "data" / "ai-workbench" / "scheduler"
+    assert module.home() == tmp_path / "data" / "openhora" / "scheduler"
     assert module.units_dir() == tmp_path / "config" / "systemd" / "user"
 
 
@@ -532,3 +532,12 @@ def test_check_without_a_user_manager(env):
     env["FAKE_SYSTEMCTL_EXIT"] = "1"
     result = run(env, "--check")
     assert result.returncode == 3 and "user service manager" in result.stderr
+
+
+def test_the_unit_prefix_and_the_default_home_are_named_openhora(env, tmp_path, monkeypatch):
+    module = load(SCRIPT, "systemd_names", monkeypatch, env)
+    assert module.UNIT_PREFIX == "dev.openhora.scheduler."
+    for key in ("SCHEDULER_HOME", "XDG_DATA_HOME"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert module.home().parts[-2:] == ("openhora", "scheduler")

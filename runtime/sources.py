@@ -1744,26 +1744,24 @@ def fetch_notion(cfg: dict, address: str, *, call=None) -> dict:
 
 # --- Google Drive files (decision D13, P7) ---------------------------------------------------------------------------------
 #
-# A Drive source is one FILE the person picked in Google's Picker (the scope is drive.file; a picked folder gives the app nothing inside
-# it, so folders are not sources). The registry's type column admits `drive` since migration 14: a Drive source is a row of type
+# A Drive source is one FILE the person names by its id (the account token's drive scope reads any file id it is given; a folder is not a
+# source). The registry's type column admits `drive` since migration 14: a Drive source is a row of type
 # `drive` whose origin is the file id. Before that migration P7 stored it as a `file` row with the origin `drive:<file id>`; migration
 # 14 rewrote those rows, and public_row() stays as the one place every reader passes a row through (it changes nothing now; a row a
 # store older than 14 would hold cannot be read, since the runtime migrates a store before it reads it).
 #
 # The provider is `providers/documents/gdrive.py` (class integration:documents, implementation gdrive), run as a process with the
-# minimum environment plus the one secret it reads (GDRIVE_SOURCES_TOKEN). It writes the exported or downloaded bytes to a folder of the
+# minimum environment plus the one secret it reads (GOOGLE_ACCOUNT_TOKEN). It writes the exported or downloaded bytes to a folder of the
 # runtime's private staging area and prints their description; they enter through the same intake, converter, scan and rows as a file
 # of the person's, never parsed here (limit L27). The refresh compares the provider's `version` with the one recorded with the newest
 # version (`origin_version`) before it reads anything.
 
 DRIVE_CLASS = "integration:documents"
 DRIVE_IMPLEMENTATION = "gdrive"
-DRIVE_SECRET = "GDRIVE_SOURCES_TOKEN"   # providers/secrets/resolver.py: the legacy record (token, client, Picker key); read by the provider alone
-# What the provider is given: the account token of the person's Google account first (one record, the platform's whole scope set), and, for one
-# cycle (backlog ACCT-LEGACY), the legacy record, which the Picker still needs. Both are read by the provider alone, never by a run.
-DRIVE_SECRETS = ("GOOGLE_ACCOUNT_TOKEN", DRIVE_SECRET)
+# What the provider is given: the account token of the person's Google account (one record, the platform's whole scope set), read by the
+# provider alone, never by a run.
+DRIVE_SECRETS = ("GOOGLE_ACCOUNT_TOKEN",)
 DRIVE_TIMEOUT = 300
-DRIVE_PICK_TIMEOUT = 900                # the Picker session stops itself after 10 minutes
 DRIVE_PREFIX = "drive:"
 DRIVE_FILE_ID = re.compile(r"[A-Za-z0-9_-]{10,100}")
 DRIVE_CONTENT = "content"               # the name of the file the provider writes in its --out-dir
@@ -1772,12 +1770,12 @@ DRIVE_CONTENT_KINDS = ("markdown", "file")
 
 def drive_file_id(text) -> str:
     """The Drive file id from a bare id or from `drive:<id>`. SourcesError (usage) for anything else: an address is not accepted, since
-    the id is what the Picker gives and the provider checks the file by it."""
+    the id is what the provider checks the file by."""
     raw = text.strip() if isinstance(text, str) else ""
     if raw.startswith(DRIVE_PREFIX):
         raw = raw[len(DRIVE_PREFIX):]
     if not DRIVE_FILE_ID.fullmatch(raw):
-        raise SourcesError("a Drive file id is 10 to 100 letters, digits, hyphens and underscores (the Picker gives it)", "usage")
+        raise SourcesError("a Drive file id is 10 to 100 letters, digits, hyphens and underscores (the part after /d/ in the file's address)", "usage")
     return raw
 
 
@@ -1939,7 +1937,7 @@ def drive_refresh(ctx, source: dict, *, convert, call=None, clock=None, evidence
 
 
 def drive_source_id(name: str, taken) -> str:
-    """A source id for a picked Drive file, from its name (source_id_from_name, with `drive-file` for a name that leaves nothing)."""
+    """A source id for a Drive file, from its name (source_id_from_name, with `drive-file` for a name that leaves nothing)."""
     return source_id_from_name(name, taken, "drive-file")
 
 
@@ -1954,72 +1952,6 @@ def source_id_from_name(name: str, taken, fallback: str = "file") -> str:
         n += 1
         candidate = f"{base[:36 - len(str(n)) - 1].rstrip('-')}-{n}"
     return candidate
-
-
-def _stop_group(proc) -> None:
-    """End a child started in a session of its own, and what it started. A child that is already gone is not an error."""
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass
-
-
-def _run_pick(resolver, cfg: dict, env: dict, timeout: int):
-    """Run the provider's `pick` verb for the person: the resolver starts it (the class resolves to the Drive implementation), its
-    messages (the local address to open) are copied to this process's error output as they come, and its output is read to the end.
-    Returns (exit code, output). The child is ended when the time is up or this process is interrupted."""
-    try:
-        proc = resolver.start(DRIVE_CLASS, "pick", [], root=cfg["workbench"], implementation=DRIVE_IMPLEMENTATION, env=env)
-    except Exception as e:
-        raise SourcesError(f"the Picker could not be started: {_clean(getattr(e, 'reason', None) or e, 300)}", "drive") from None
-    proc.stdin.close()
-
-    def relay():
-        for line in iter(proc.stderr.readline, b""):
-            text = line.decode("utf-8", "replace")
-            sys.stderr.write(text)
-            sys.stderr.flush()
-
-    copier = threading.Thread(target=relay, daemon=True)
-    copier.start()
-    timer = threading.Timer(timeout, _stop_group, args=(proc,))
-    timer.start()
-    try:
-        out = proc.stdout.read()
-        proc.wait()
-    except BaseException:
-        _stop_group(proc)
-        raise
-    finally:
-        timer.cancel()
-        copier.join(2)
-        for pipe in (proc.stdout, proc.stderr):
-            pipe.close()
-    return proc.returncode, out.decode("utf-8", "replace")
-
-
-def pick_drive(cfg: dict, *, run=None) -> dict:
-    """Open the Picker for the person (the Drive provider's `pick` verb: a one-shot page on 127.0.0.1 that this process never serves) and
-    return what the person chose: {"picked": [{"id", "name", "mime_type"}], "cancelled": bool}. The verb's messages (the local address to
-    open) go to this process's own error output. `run(argv, env, timeout)` -> (exit code, output) is the seam a test replaces; argv is
-    the verb and its arguments. SourcesError (drive) when the command fails or answers something else."""
-    resolver = _lazy("workbench_sources_resolve", os.path.join(cfg["workbench"], "providers", "resolve.py"))
-    env = _provider_env(cfg, DRIVE_CLASS, (DRIVE_SECRET,))   # the Picker reads the legacy record alone (its key lives there), never the account token
-    if run is None:
-        code, out = _run_pick(resolver, cfg, env, DRIVE_PICK_TIMEOUT)
-    else:
-        verb = ["pick"]
-        code, out = run(verb, env, DRIVE_PICK_TIMEOUT)
-    if code != 0:
-        raise SourcesError(f"the Picker ended with exit {code} (its message is above); the Drive provider's --check says whether Drive is "
-                           "authorized (providers/documents/README.md, Google Drive)", "drive")
-    try:
-        got = json.loads(out)
-    except ValueError:
-        got = None
-    if not isinstance(got, dict) or not isinstance(got.get("picked"), list):
-        raise SourcesError("the Picker answered something this runtime does not read", "drive")
-    return got
 
 
 def main(argv=None) -> int:

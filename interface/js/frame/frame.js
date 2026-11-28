@@ -40,7 +40,7 @@ export function obstacleInset(rect, scene) {
   return nearLeft ? { side: "left", amount: rect.right - scene.left + 16 } : { side: "right", amount: scene.right - rect.left + 16 };
 }
 
-const SCREEN_NAMES = { city: "City", building: "Building", floor: "Floor", lobby: "Lobby", control: "Control room" };
+const SCREEN_NAMES = { city: "City", building: "Building", floor: "Floor", lobby: "Lobby", control: "Control room", office: "Office" };
 const ANNOUNCE_EVERY_MS = 2000;
 
 /**

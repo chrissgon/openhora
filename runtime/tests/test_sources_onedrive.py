@@ -581,7 +581,7 @@ def test_the_provider_gets_the_minimum_environment_and_the_one_secret_and_nothin
     for_converter = sources._provider_env(cloud.cfg, sources.CONVERTER_CLASS)
     assert not any("ONEDRIVE" in k or "TOKEN" in k or "KEY" in k for k in for_converter)
     assert "ONEDRIVE_SOURCES_TOKEN" not in sources._provider_env(cloud.cfg, sources.NOTION_CLASS, (sources.NOTION_SECRET,)), "each provider gets its own secret only"
-    assert "ONEDRIVE_SOURCES_TOKEN" not in sources._provider_env(cloud.cfg, sources.DRIVE_CLASS, (sources.DRIVE_SECRET,))
+    assert "ONEDRIVE_SOURCES_TOKEN" not in sources._provider_env(cloud.cfg, sources.DRIVE_CLASS, sources.DRIVE_SECRETS)
 
 
 def test_the_real_call_names_the_class_the_implementation_and_that_environment(cloud, monkeypatch):

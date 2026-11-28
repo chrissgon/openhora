@@ -368,11 +368,11 @@ def rows_by_name(world, store=None):
 
 
 def test_report_asks_a_failing_manager_once(world):
-    world.write_mapping({"backend": "1password", "references": {NAME: REF, OTHER: REF2, "GMAIL_CLIENT_ID": REF2}})
+    world.write_mapping({"backend": "1password", "references": {NAME: REF, OTHER: REF2, "LINKEDIN_CLIENT_SECRET": REF2}})
     world.op.answer("*", rc=1, stderr=NOT_SIGNED_IN)
     rows = rows_by_name(world)
     assert len(world.op.calls()) == 1
-    for name in (NAME, OTHER, "GMAIL_CLIENT_ID"):
+    for name in (NAME, OTHER, "LINKEDIN_CLIENT_SECRET"):
         assert rows[name]["state"] == "locked" and rows[name]["detail"].startswith("the password manager (1Password) is locked"), name
     assert rows["LINKEDIN_CLIENT_ID"]["state"] == "missing", "a name that is not mapped is not touched by the manager's failure"
 
@@ -391,8 +391,8 @@ def test_list_and_check_say_where_and_never_the_value(world, monkeypatch, capsys
     world.write_mapping({"backend": "1password", "references": {NAME: REF, OTHER: REF2}})
     world.op.answer(REF, stdout=SENTINEL)
     world.op.answer(REF2, rc=1, stderr=NO_ITEM + " " + SENTINEL)
-    world.environ["GMAIL_CLIENT_ID"] = SENTINEL
-    world.write_mapping({"backend": "1password", "references": {NAME: REF, OTHER: REF2, "GMAIL_CLIENT_ID": REF}})
+    world.environ["LINKEDIN_CLIENT_SECRET"] = SENTINEL
+    world.write_mapping({"backend": "1password", "references": {NAME: REF, OTHER: REF2, "LINKEDIN_CLIENT_SECRET": REF}})
     for key, value in world.environ.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(res, "_keyring", lambda: FakeStore())

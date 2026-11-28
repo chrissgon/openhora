@@ -1091,7 +1091,10 @@ def _with_agents(cfg: dict, tasks: list) -> list:
     """The tasks of a plan the person named, each with its area agent (plan.agent_of) when area agents are
     configured; without them every agent is None (stages 1 to 4)."""
     skills = plan.agent_skills(cfg, core.ROOT)
-    return [dict(t, agent=plan.agent_for(t, skills)) for t in tasks]
+    out = [dict(t) for t in tasks]
+    for t in out:
+        plan.assign(t, skills, imported=(cfg.get("imported_skills") or {}).get("skills", {}))
+    return out
 
 
 def _plan_pending(ctx: dict, request: dict, tasks: list, route_read, source: str, flow, bound=None) -> dict:
@@ -1528,6 +1531,8 @@ import ops_flows  # noqa: E402
 from ops_flows import check_flow, flow_save, flows, stage_file  # noqa: E402,F401
 import ops_instructions  # noqa: E402  (the standing instructions: three operations, the block of a prompt, the answer's proposal)
 from ops_instructions import answer_proposing, instructions_add, instructions_read, instructions_set  # noqa: E402,F401
+import ops_profiles  # noqa: E402  (an agent's profile: five operations, the proposal and its acceptance by hash, the lane's block)
+from ops_profiles import profile_accept, profile_propose, profile_read, profile_reject, profile_set  # noqa: E402,F401
 import ops_ask  # noqa: E402  (the answer from sources: `ask`, and the owners of the runs of a request)
 from ops_ask import ask  # noqa: E402,F401
 from ops_contained import (  # noqa: E402,F401  (the contained run: a handler's agent run; moved out of this file, no change of logic)

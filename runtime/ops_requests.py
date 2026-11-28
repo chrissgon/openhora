@@ -177,6 +177,11 @@ def _checked(ctx: dict, read: dict) -> dict:
                                                  known_sources=ops_sources.known_ids(ctx)))
 
 
+def _imported(cfg: dict) -> dict:
+    """The entries of the project's imported_skills ({name: entry}); plan.agent_for reads the person's `agent` choice in them."""
+    return (cfg.get("imported_skills") or {}).get("skills", {})
+
+
 def _combined(ctx: dict, request: dict, routed: list) -> dict:
     """plan.combine for these routed deliveries, with the flow files they name, the agents' packs, the gate file's
     limits and the past runs of their skills. Raises plan.PlanError, ValueError, flow_files.FlowError."""
@@ -193,13 +198,14 @@ def _combined(ctx: dict, request: dict, routed: list) -> dict:
     pack = plan.pack_skills(cfg, core.ROOT)
     forced = ops_sources.forced_for(ctx, request["text"])  # the sources an @mention names are in the plan whatever the router chose
     mine = ops_language.project_of(cfg)
-    out = plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=[], forced=forced, project_language=mine)
+    out = plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=[], forced=forced, project_language=mine,
+                       imported=_imported(cfg))
     ops_flows.vet(ctx, out["tasks"])
     past = []
     for skill in dict.fromkeys(t["skill"] for t in out["tasks"] if t.get("skill")):
         past += core._stored(ctx, ctx["store"].task_runs_of_skill, skill)
     return plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=past, forced=forced,
-                        project_language=mine) if past else out
+                        project_language=mine, imported=_imported(cfg)) if past else out
 
 
 def _route_run(ctx: dict, request: dict) -> dict:

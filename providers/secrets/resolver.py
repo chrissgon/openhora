@@ -10,9 +10,7 @@ Every script asks for a secret by name; the resolver looks in the same places, i
      or an export in the shell);
   2. the credentials directory, the one supported backend for a machine with no desktop session (see
      "The credentials directory" below);
-  3. the OS secret store (keyring): service "openhora", the username listed below; a name not found
-     there is looked up under the service the workbench used before it was renamed, "ai-workbench"
-     (LEGACY_SERVICE), for one stage (removed with the next change of the lab models, T23);
+  3. the OS secret store (keyring): service "openhora", the username listed below;
   4. a password manager (1Password first), only for a name the person mapped to a reference in the mapping file (see "The
      password manager" below).
 The first non-empty value wins. Values are never printed, logged or written, not even partially.
@@ -61,8 +59,7 @@ Usage:
   python3 providers/secrets/resolver.py [--registry <file>]... --check <NAME>
 
   --list      every registered secret: purpose, minimum permission, readers, whether it is found
-              and where (environment or store, and which store service answered: "openhora" or
-              "ai-workbench (legacy)", the name to move), and how to set it; never the value
+              and where (environment or store, and which store service answered: "openhora"), and how to set it; never the value
   --check     exit 0 when <NAME> is found, 3 when not, 4 when the store is locked or unavailable or the
               credentials directory or the mapping file is unsafe or the password manager is locked or unavailable (the answer is not
               "missing"), 2 when <NAME> is not
@@ -97,8 +94,6 @@ import sys
 from dataclasses import dataclass, field, replace
 
 SERVICE = "openhora"
-LEGACY_SERVICE = "ai-workbench"  # T23: what the store held before the rename; read as a fallback, never written
-LEGACY_LABEL = f"{LEGACY_SERVICE} (legacy)"
 EXIT_USAGE = 2
 EXIT_NOT_FOUND = 3
 EXIT_LOCKED = 4
@@ -163,36 +158,6 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "the app's primary client secret",
            ("providers/publisher/auth.py",),
            store_username="linkedin-client-secret"),
-    Secret("GMAIL_REFRESH_TOKEN",
-           "read the user's Gmail (search and read messages, never change them)",
-           "OAuth scope https://www.googleapis.com/auth/gmail.readonly only (providers/mailbox/auth.py)",
-           ("providers/mailbox/gmail.py", "providers/mailbox/auth.py"),
-           store_username="mailbox-gmail",
-           set_local="uv run providers/mailbox/auth.py --provider gmail (writes the record after the browser consent)",
-           note="the store holds a JSON record written by providers/mailbox/auth.py (refresh_token, scope, "
-                "obtained_at, account); from the environment, the bare refresh token"),
-    Secret("GMAIL_CLIENT_ID",
-           "the Google Cloud OAuth client (Desktop app) that authorizes and refreshes the Gmail access",
-           "a Desktop app OAuth client in a project with the Gmail API and only the gmail.readonly scope",
-           ("providers/mailbox/auth.py", "providers/mailbox/gmail.py"),
-           store_username="gmail-client-id"),
-    Secret("GMAIL_CLIENT_SECRET",
-           "that Google OAuth client's secret, used by the authorization and every token refresh",
-           "the Desktop app client's secret",
-           ("providers/mailbox/auth.py", "providers/mailbox/gmail.py"),
-           store_username="gmail-client-secret"),
-    Secret("GOOGLE_CALENDAR_TOKEN",
-           "read the events and the list of calendars of the person's Google Calendar, for the calendar sources they chose (and nothing else)",
-           "OAuth scopes https://www.googleapis.com/auth/calendar.events.readonly and "
-           "https://www.googleapis.com/auth/calendar.calendarlist.readonly only (providers/calendar/google_auth.py): they read every event of "
-           "every calendar the account can see and the list of calendars, and change nothing; the narrowing to a calendar and a window is the "
-           "runtime's, not the service's",
-           ("providers/calendar/google.py", "providers/calendar/google_auth.py"),
-           store_username="calendar-google",
-           set_local="uv run providers/calendar/google_auth.py authorize (writes the record after the browser consent)",
-           note="one JSON record (refresh_token, client_id, client_secret, scope, account, obtained_at) written by "
-                "providers/calendar/google_auth.py; the Desktop app client travels with the refresh token so that this is the only entry, "
-                "and it is a record of its own, apart from the Gmail one; from the environment, the same JSON text"),
     Secret("GOOGLE_ACCOUNT_TOKEN",
            "sign in to the person's own Google account for every Google provider of the platform: the Gmail, Calendar, Drive and Tasks readers, "
            "and the writers of later packages only through an approved effect of the exact content",
@@ -212,8 +177,7 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            set_local="uv run providers/accounts/google_auth.py authorize (writes the record after the browser consent)",
            note="one JSON record (slot, refresh_token, client_id, client_secret, scope, account, obtained_at) written by "
                 "providers/accounts/google_auth.py; the Desktop app client travels with the refresh token so that this is the only entry; "
-                "the three Google readers read it first and fall back for one cycle to their own records (GMAIL_REFRESH_TOKEN with the "
-                "client, GOOGLE_CALENDAR_TOKEN, GDRIVE_SOURCES_TOKEN), with a warning on stderr; revoking the app's access in the Google "
+                "the three Google readers read nothing else (the records they had before it are no longer read); revoking the app's access in the Google "
                 "Account stops them all; from the environment, the same JSON text"),
     Secret("NOTION_TOKEN",
            "read and write the task board and the documents of a project on Notion",
@@ -227,16 +191,6 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "sources: a separate integration from the one behind NOTION_TOKEN, which can write",
            ("providers/documents/notion.py",),
            store_username="notion-sources"),
-    Secret("GDRIVE_SOURCES_TOKEN",
-           "read the Google Drive files the person picked as sources of a project (their content and version)",
-           "OAuth scope https://www.googleapis.com/auth/drive.file only (providers/documents/gdrive_auth.py): it lets the app read and "
-           "write every file the person picked in the Picker, so it is not read-only; the provider sends GET requests only",
-           ("providers/documents/gdrive.py", "providers/documents/gdrive_auth.py"),
-           store_username="gdrive-sources",
-           set_local="uv run providers/documents/gdrive_auth.py authorize (writes the record after the browser consent)",
-           note="one JSON record (refresh_token, client_id, client_secret, api_key, project_number, scope, obtained_at) written by "
-                "providers/documents/gdrive_auth.py; the Desktop app client and the Picker's API key travel with the refresh token so "
-                "that this is the only entry; from the environment, the same JSON text"),
     Secret("ONEDRIVE_SOURCES_TOKEN",
            "read the OneDrive files the person chose as sources of a project (their content and version)",
            "Microsoft Graph delegated Files.Read only (providers/documents/onedrive_auth.py): it reads every file of the person's own "
@@ -519,24 +473,18 @@ def _ask(store, service: str, username: str) -> str:
 
 
 def _from_store(secret: Secret, store) -> tuple[str, str, str] | None:
-    """(value, "secret store", the service that answered): SERVICE first, then LEGACY_SERVICE. A service that raises does not stop
-    the other from answering; StoreLocked when nothing was found and one of them raised (the secret may be in the one that could not
-    be read)."""
+    """(value, "secret store", the service that answered), asking SERVICE only; StoreLocked when the store raised (the secret may be in
+    it and cannot be read now)."""
     if not secret.store_username or store is None:
         return None
-    failed = None
-    for service, label in ((SERVICE, SERVICE), (LEGACY_SERVICE, LEGACY_LABEL)):
-        try:
-            value = _ask(store, service, secret.store_username)
-        except StoreLocked as e:
-            failed = failed or e
-            continue
-        if value:
-            _FAILURE.update(kind=None, sentence="")
-            return value, "secret store", label
-    if failed is not None:
-        _FAILURE.update(kind=failed.kind, sentence=LOCKED_SENTENCE)
-        raise failed
+    try:
+        value = _ask(store, SERVICE, secret.store_username)
+    except StoreLocked as e:
+        _FAILURE.update(kind=e.kind, sentence=LOCKED_SENTENCE)
+        raise
+    if value:
+        _FAILURE.update(kind=None, sentence="")
+        return value, "secret store", SERVICE
     return None
 
 
@@ -907,7 +855,7 @@ def probe_manager(environ=None) -> dict:
 
 def resolve_detail(name: str, *, allow_store: bool = True, environ=None, store="default") -> tuple[str, str, str | None] | None:
     """Return (value, source, service) for a registered secret, or None. The service is None for the environment and the credentials
-    directory, and for the store "openhora" or "ai-workbench (legacy)". A locked store, an unsafe credentials directory and an absent
+    directory, and for the store "openhora". A locked store, an unsafe credentials directory and an absent
     secret are all None here: resolve_state tells them apart (and store_failure / store_locked_note say whether the last read of the
     store failed). Never prints the value."""
     got = resolve_state(name, allow_store=allow_store, environ=environ, store=store)

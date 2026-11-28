@@ -13,9 +13,8 @@
 # reported and changes nothing (exit 0). Installing a pack removes what an earlier pack installed
 # and this one does not select, a dangling link to a renamed or removed skill included.
 # Replaces or removes only what it made (its symlinks, or copies holding its marker file; the
-# shared folder holds the marker in both modes). The marker it wrote before the rename,
-# .installed-by-ai-workbench, still counts as its own (removed with T23). A folder of the same
-# name that is not its own is skipped and reported, and the run exits 1. Exit 2 on a usage error.
+# shared folder holds the marker in both modes). A folder of the same
+# name that is not its own, one that holds only the marker of before the rename included, is skipped and reported, and the run exits 1. Exit 2 on a usage error.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -30,7 +29,7 @@ while [[ $# -gt 0 ]]; do
     --copy) COPY=1; shift ;;
     --dry-run) DRY=1; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
-    --help|-h) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Error: unknown option '$1'. See --help." >&2; exit 2 ;;
   esac
 done
@@ -72,8 +71,7 @@ fi
 # folder holding the marker file. Anything else with the same name is the user's; it is skipped and
 # reported, never deleted.
 MARK=".installed-by-openhora"
-LEGACY_MARK=".installed-by-ai-workbench"  # T23: what this installer wrote before the rename
-marked() { [[ -f "$1/$MARK" || -f "$1/$LEGACY_MARK" ]]; }
+marked() { [[ -f "$1/$MARK" ]]; }
 ours() {
   if [[ -L "$1" ]]; then [[ "$(readlink -- "$1")" == "$SKILLS/"* ]]; return; fi
   [[ -d "$1" ]] && marked "$1"

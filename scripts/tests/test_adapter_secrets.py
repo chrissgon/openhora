@@ -37,21 +37,14 @@ BEFORE = {
                                                          "providers/publisher/auth.py")),
     "LINKEDIN_CLIENT_ID": ((), "linkedin-client-id", ("providers/publisher/auth.py",)),
     "LINKEDIN_CLIENT_SECRET": ((), "linkedin-client-secret", ("providers/publisher/auth.py",)),
-    "GMAIL_REFRESH_TOKEN": ((), "mailbox-gmail", ("providers/mailbox/gmail.py", "providers/mailbox/auth.py")),
-    "GMAIL_CLIENT_ID": ((), "gmail-client-id", ("providers/mailbox/auth.py", "providers/mailbox/gmail.py")),
-    "GMAIL_CLIENT_SECRET": ((), "gmail-client-secret", ("providers/mailbox/auth.py", "providers/mailbox/gmail.py")),
     # The platform's token joined the core registry on 2026-10-06 (stage 3 of the platform plan, WP-3.10).
     "NOTION_TOKEN": ((), "notion", ("providers/issue-tracker/notion.py", "providers/documents/notion.py")),
-    # G1 (SPEC-SECRETARY-INTEGRATIONS): the person's Google calendar as a source; one record of its own (token, client), two read scopes.
-    "GOOGLE_CALENDAR_TOKEN": ((), "calendar-google", ("providers/calendar/google.py", "providers/calendar/google_auth.py")),
     # ACCT-G (decision of 2026-10-18): one token for the person's own Google account, the platform's four scopes, read first by the three readers.
     "GOOGLE_ACCOUNT_TOKEN": ((), "google-account", ("providers/mailbox/gmail.py", "providers/calendar/google.py", "providers/documents/gdrive.py",
                                                      "providers/_google.py", "providers/accounts/google_auth.py", "providers/writer/gdrive.py", "providers/mailer/gmail.py",
                                                      "providers/tasks/google.py", "providers/writer/google-tasks.py")),      # CB-4: the Tasks reader and writer
     # Decision D13 and secret S7 of the delegation plan (P4): the read-only token of the pages chosen as sources, never the one that writes.
     "NOTION_SOURCES_TOKEN": ((), "notion-sources", ("providers/documents/notion.py",)),
-    # P7: the Google Drive files the person picked as sources; one record (token, client, Picker key), scope drive.file.
-    "GDRIVE_SOURCES_TOKEN": ((), "gdrive-sources", ("providers/documents/gdrive.py", "providers/documents/gdrive_auth.py")),
     # O1: the OneDrive files the person chose as sources; one record (refresh token, client id, tenant), scope Files.Read.
     "ONEDRIVE_SOURCES_TOKEN": ((), "onedrive-sources", ("providers/documents/onedrive.py", "providers/documents/onedrive_auth.py")),
     # M1: the person's Outlook mail and calendar as sources, each its own record and its own Microsoft app registration (Mail.Read; Calendars.ReadBasic).
@@ -187,7 +180,7 @@ def test_the_doctor_child_never_reaches_a_mapping_under_the_real_home(tmp_path, 
     home = tmp_path / "home"
     (home / ".config" / "openhora").mkdir(parents=True)
     mapping = home / ".config" / "openhora" / "password-manager.json"
-    names = ("VCS_GITHUB_TOKEN", "NOTION_TOKEN", "GMAIL_CLIENT_ID", "LINKEDIN_CLIENT_ID")
+    names = ("VCS_GITHUB_TOKEN", "NOTION_TOKEN", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_CLIENT_ID")
     mapping.write_text(json.dumps({"backend": "1password", "references": {n: "op://Example Vault/item/credential" for n in names}}),
                        encoding="utf-8")
     mapping.chmod(0o600)

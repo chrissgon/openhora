@@ -1,10 +1,10 @@
-"""Offline tests for providers/mailbox/gmail.py and auth.py.
+"""Offline tests for providers/mailbox/gmail.py.
 
 Run: uv run --with pytest pytest providers/mailbox/tests
 
 No network and no real credentials: a local fake Google (token endpoint and Gmail API) answers on
-127.0.0.1 (GOOGLE_TOKEN_URL, GMAIL_API_BASE), the client and refresh token are fake values in the
-environment, and the secret store is a fake object. In test mode the scripts never read or write
+127.0.0.1 (GOOGLE_TOKEN_URL, GMAIL_API_BASE), the account record (GOOGLE_ACCOUNT_TOKEN: the client and
+refresh token are fake values in it) is in the environment, and the secret store is a fake object. In test mode the scripts never read or write
 the OS secret store.
 """
 from __future__ import annotations
@@ -31,14 +31,17 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE.parent / "gmail.py"
-AUTH_SCRIPT = HERE.parent / "auth.py"
 FIXTURE = HERE / "fixtures" / "comment-notification.eml"
 FAKE_REFRESH = "FAKE-refresh-5d4c3b2a-never-print-me"
 FAKE_ACCESS = "FAKE-access-a1b2c3d4-never-print-me"
 FAKE_CLIENT_ID = "fake-client-id.apps.example.com"
 FAKE_CLIENT_SECRET = "FAKE-client-secret-77e6-never-print-me"
 FAKE_CODE = "FAKE-auth-code-0042"
-SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+SCOPE = "https://www.googleapis.com/auth/gmail.modify"
+PLATFORM_SET = " ".join(("https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/calendar.events",
+                         "https://www.googleapis.com/auth/calendar.calendarlist.readonly", "https://www.googleapis.com/auth/drive",
+                         "https://www.googleapis.com/auth/tasks"))
+GMAIL_READONLY = "https://www.googleapis.com/auth/gmail.readonly"
 ACCOUNT = "alex.sample@example.com"
 SECRETS = (FAKE_REFRESH, FAKE_ACCESS, FAKE_CLIENT_SECRET, FAKE_CODE)
 
@@ -105,7 +108,7 @@ class FakeGoogle:
     def __init__(self):
         self.requests: list[dict] = []
         self.token_error: str | None = None
-        self.token_scope = SCOPE
+        self.token_scope = PLATFORM_SET
         self.redirect_profile = False
         self.challenge: str | None = None
         self.page_cap: int | None = None
@@ -211,6 +214,14 @@ def fake():
     server.close()
 
 
+def record_json(**over) -> str:
+    """A GOOGLE_ACCOUNT_TOKEN value: the one record of the person's Google account, with the platform's scope set."""
+    record = {"slot": "main", "refresh_token": FAKE_REFRESH, "client_id": FAKE_CLIENT_ID, "client_secret": FAKE_CLIENT_SECRET,
+              "scope": PLATFORM_SET, "account": ACCOUNT, "obtained_at": "2026-10-17T08:00:00Z"}
+    record.update(over)
+    return json.dumps(record)
+
+
 @pytest.fixture()
 def env(tmp_path, fake):
     base = {k: v for k, v in os.environ.items() if not k.startswith(("GMAIL_", "GOOGLE_", "MAILBOX_"))}
@@ -218,9 +229,7 @@ def env(tmp_path, fake):
         "HOME": str(tmp_path / "home"),
         "GMAIL_API_BASE": fake.base,
         "GOOGLE_TOKEN_URL": f"{fake.base}/token",
-        "GMAIL_CLIENT_ID": FAKE_CLIENT_ID,
-        "GMAIL_CLIENT_SECRET": FAKE_CLIENT_SECRET,
-        "GMAIL_REFRESH_TOKEN": FAKE_REFRESH,
+        "GOOGLE_ACCOUNT_TOKEN": record_json(),
     })
     return base
 
@@ -240,7 +249,7 @@ def run(script, args, env):
 def test_help_says_read_only(env):
     proc = run(SCRIPT, ["--help"], env)
     assert proc.returncode == 0
-    for word in ("read only", "no --confirmed", "search", "get", "read-eml", "GMAIL_REFRESH_TOKEN", "external content"):
+    for word in ("read only", "no --confirmed", "search", "get", "read-eml", "GOOGLE_ACCOUNT_TOKEN", "external content"):
         assert word in proc.stdout
 
 
@@ -248,7 +257,8 @@ def test_check_ok(env, fake):
     proc = run(SCRIPT, ["--check"], env)
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout)
-    assert out == {"ok": True, "account": ACCOUNT, "token_source": "environment (GMAIL_REFRESH_TOKEN)", "scope": SCOPE}
+    assert out == {"ok": True, "account": ACCOUNT, "token_source": "environment (GOOGLE_ACCOUNT_TOKEN)", "scope": PLATFORM_SET,
+                   "record": "account"}
     token_call = fake.requests[0]
     form = urllib.parse.parse_qs(token_call["body"].decode())
     assert form["grant_type"] == ["refresh_token"] and form["refresh_token"] == [FAKE_REFRESH]
@@ -259,30 +269,39 @@ def test_invalid_grant_is_not_configured_and_names_the_seven_day_rule(env, fake)
     fake.token_error = "invalid_grant"
     proc = run(SCRIPT, ["--check"], env)
     assert proc.returncode == 3
-    assert "invalid_grant" in proc.stderr and "seven days" in proc.stderr and "auth.py" in proc.stderr
+    assert "invalid_grant" in proc.stderr and "seven days" in proc.stderr and "google_auth.py" in proc.stderr
     assert "Testing" in proc.stderr
     assert fake.paths() == ["/token"]
 
 
-def test_missing_authorization_or_client_is_not_configured(env, fake):
-    no_token = {k: v for k, v in env.items() if k != "GMAIL_REFRESH_TOKEN"}
+def test_missing_authorization_is_not_configured(env, fake):
+    no_token = {k: v for k, v in env.items() if k != "GOOGLE_ACCOUNT_TOKEN"}
     proc = run(SCRIPT, ["--check"], no_token)
-    assert proc.returncode == 3 and "auth.py" in proc.stderr
-    no_client = {k: v for k, v in env.items() if k != "GMAIL_CLIENT_SECRET"}
-    proc = run(SCRIPT, ["--check"], no_client)
-    assert proc.returncode == 3 and "GMAIL_CLIENT_SECRET" in proc.stderr
+    assert proc.returncode == 3 and "providers/accounts/google_auth.py authorize" in proc.stderr
     assert fake.requests == []
 
 
+def test_a_reader_with_only_a_legacy_record_is_not_configured(env, fake):
+    """The Gmail-only record of before the account token is no longer read, whatever it holds."""
+    legacy = {k: v for k, v in env.items() if k != "GOOGLE_ACCOUNT_TOKEN"}
+    legacy.update({"GMAIL_REFRESH_TOKEN": FAKE_REFRESH, "GMAIL_CLIENT_ID": FAKE_CLIENT_ID, "GMAIL_CLIENT_SECRET": FAKE_CLIENT_SECRET})
+    proc = run(SCRIPT, ["--check"], legacy)
+    assert proc.returncode == 3 and "providers/accounts/google_auth.py authorize" in proc.stderr
+    assert "mailbox/auth.py" not in proc.stderr and "GMAIL_" not in proc.stderr
+    assert fake.requests == []
+    assert not (HERE.parent / "auth.py").exists()
+
+
 def test_wrong_client_is_not_configured(env, fake):
-    proc = run(SCRIPT, ["--check"], {**env, "GMAIL_CLIENT_ID": "someone-else"})
+    proc = run(SCRIPT, ["--check"], {**env, "GOOGLE_ACCOUNT_TOKEN": record_json(client_id="someone-else")})
     assert proc.returncode == 3 and "invalid_client" in proc.stderr
 
 
-def test_token_without_gmail_scope_is_refused(env, fake):
-    fake.token_scope = "openid"
+@pytest.mark.parametrize("granted", [GMAIL_READONLY, "https://www.googleapis.com/auth/drive.file", PLATFORM_SET + " https://mail.google.com/"])
+def test_token_whose_scope_is_not_the_platform_set_is_refused(env, fake, granted):
+    fake.token_scope = granted
     proc = run(SCRIPT, ["--check"], env)
-    assert proc.returncode == 3 and "gmail.readonly" in proc.stderr
+    assert proc.returncode == 3 and "account token" in proc.stderr
     assert "/gmail/v1/users/me/profile" not in fake.paths()
 
 
@@ -471,209 +490,6 @@ def test_long_text_is_capped_on_a_character_boundary():
     assert m["truncated"] is True
     assert len(m["text"].encode("utf-8")) <= module.TEXT_LIMIT_BYTES
     assert set(m["text"]) == {"\u00e9"}
-
-
-# --- auth.py -----------------------------------------------------------------------
-
-
-class FakeStore:
-    def __init__(self, values=None):
-        self.values = dict(values or {})
-        self.writes = []
-
-    def get_password(self, service, username):
-        return self.values.get((service, username))
-
-    def set_password(self, service, username, value):
-        self.writes.append((service, username))
-        self.values[(service, username)] = value
-
-
-@pytest.fixture()
-def auth(env, monkeypatch):
-    for k, v in env.items():
-        monkeypatch.setenv(k, v)
-    module = load(AUTH_SCRIPT, "mailbox_auth_under_test")
-    store = FakeStore()
-    monkeypatch.setattr(module, "keyring_module", lambda test_mode: store)
-    # --check reads through the secret resolver; here its store is the fake one, never the machine's.
-    resolver = module.gmail.secret_resolver()
-    real_resolve = resolver.resolve
-    monkeypatch.setattr(resolver, "resolve", lambda name, **kw: real_resolve(name, allow_store=True, store=store))
-    monkeypatch.setattr(module.gmail, "secret_resolver", lambda: resolver)
-    module.fake_store = store
-    return module
-
-
-def test_auth_help_documents_setup(env):
-    proc = run(AUTH_SCRIPT, ["--help"], env)
-    assert proc.returncode == 0
-    for word in ("Gmail API", "External", SCOPE, "In production", "seven days", "Desktop app",
-                 "gmail-client-id", "gmail-client-secret", "mailbox-gmail", "keyring set"):
-        assert word in proc.stdout
-
-
-def test_auth_without_client_is_not_configured(env):
-    no_client = {k: v for k, v in env.items() if k not in ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET")}
-    proc = run(AUTH_SCRIPT, ["--provider", "gmail", "--no-browser"], no_client)
-    assert proc.returncode == 3 and "GMAIL_CLIENT_ID" in proc.stderr
-
-
-def test_auth_test_mode_never_uses_the_real_store(env):
-    proc = run(AUTH_SCRIPT, ["--provider", "gmail", "--no-browser"], env)
-    assert proc.returncode == 2 and "secret store" in proc.stderr
-    del env["GMAIL_REFRESH_TOKEN"]  # --check in test mode asks the environment only
-    proc = run(AUTH_SCRIPT, ["--provider", "gmail", "--check"], env)
-    assert proc.returncode == 3 and json.loads(proc.stdout) == {"provider": "gmail", "found": False, "stored": False}
-
-
-def test_auth_check_finds_a_token_given_through_the_environment(env):
-    """PUB5: --check read the OS secret store directly, so a token from the environment (a cloud session,
-    CI) was reported as not stored, while the provider, which reads through the resolver, worked."""
-    proc = run(AUTH_SCRIPT, ["--provider", "gmail", "--check"], env)
-    assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout) == {"provider": "gmail", "found": True, "stored": False,
-                                       "source": "environment (GMAIL_REFRESH_TOKEN)", "has_refresh_token": True}
-
-
-def test_auth_check_reads_through_the_resolver():
-    """contracts/secrets.md: a secret is read only through the resolver, never from the store directly."""
-    source = AUTH_SCRIPT.read_text(encoding="utf-8")
-    assert "get_password" not in source
-
-
-def test_a_silent_connection_does_not_block_the_callback(auth, monkeypatch):
-    """PUB3: the listener serves one connection at a time and had no timeout, so a local connection that
-    sent nothing held it for ever: the real callback waited behind it, and so did the shutdown."""
-    monkeypatch.setattr(auth, "CALLBACK_HANDLER_TIMEOUT_SECONDS", 0.3)
-    server = auth.CallbackServer("s")
-    port = int(server.redirect_uri.rsplit(":", 1)[1])
-    silent = socket.create_connection(("127.0.0.1", port), timeout=5)
-    try:
-        time.sleep(0.1)  # the listener is now inside the silent connection
-        assert callback(server.redirect_uri, state="s", code="c") == 200
-        assert server.wait(5) == "c"
-    finally:
-        silent.close()
-
-
-def test_pkce_pair_follows_s256(auth):
-    verifier, challenge = auth.pkce_pair()
-    assert 43 <= len(verifier) <= 128
-    assert set(verifier) <= set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
-    assert challenge == base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-    assert auth.pkce_pair()[0] != verifier
-
-
-def test_authorize_url_asks_only_for_gmail_readonly(auth):
-    url = auth.authorize_url("cid", "http://127.0.0.1:5555", "st", "ch")
-    parsed = urllib.parse.urlparse(url)
-    assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == "https://accounts.google.com/o/oauth2/v2/auth"
-    assert {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()} == {
-        "client_id": "cid", "redirect_uri": "http://127.0.0.1:5555", "response_type": "code", "scope": SCOPE,
-        "code_challenge": "ch", "code_challenge_method": "S256", "state": "st", "access_type": "offline",
-        "prompt": "consent"}
-
-
-def callback(uri: str, **params) -> int:
-    try:
-        with urllib.request.urlopen(f"{uri}/?{urllib.parse.urlencode(params)}", timeout=10) as r:
-            return r.status
-    except urllib.error.HTTPError as exc:
-        return exc.code
-
-
-def test_the_callback_page_is_titled_openhora(auth):
-    server = auth.CallbackServer("s")
-    with urllib.request.urlopen(f"{server.redirect_uri}/?{urllib.parse.urlencode({'state': 's', 'code': 'c'})}", timeout=10) as r:
-        page = r.read().decode()
-    assert "<title>openhora</title>" in page and "ai-workbench" not in page
-    assert server.wait(5) == "c"
-
-
-def test_callback_refuses_a_wrong_state(auth):
-    server = auth.CallbackServer("expected-state")
-    assert server.redirect_uri.startswith("http://127.0.0.1:")
-    assert callback(server.redirect_uri, state="other", code="c") == 401
-    with pytest.raises(auth.ProviderError) as err:
-        server.wait(5)
-    assert "state" in str(err.value)
-    assert auth.state_matches("abc", "abc") and not auth.state_matches("abc", "abd")
-    assert not auth.state_matches("\u00e9", "e")
-
-
-def test_callback_reports_a_denied_consent(auth):
-    server = auth.CallbackServer("s")
-    assert callback(server.redirect_uri, state="s", error="access_denied") == 400
-    with pytest.raises(auth.ProviderError) as err:
-        server.wait(5)
-    assert "access_denied" in str(err.value)
-
-
-def fake_browser(auth, fake, monkeypatch, **overrides):
-    seen = {}
-
-    def open_url(url):
-        params = {k: v[0] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(url).query).items()}
-        seen.update(params)
-        fake.challenge = params["code_challenge"]
-        reply = {"state": params["state"], "code": FAKE_CODE, "scope": SCOPE, **overrides}
-        threading.Thread(target=callback, args=(params["redirect_uri"],), kwargs=reply, daemon=True).start()
-        return True
-
-    monkeypatch.setattr(auth.webbrowser, "open", open_url)
-    return seen
-
-
-def test_full_authorization_stores_the_record_only_in_the_store(auth, fake, monkeypatch, capsys):
-    seen = fake_browser(auth, fake, monkeypatch)
-    assert auth.main(["--provider", "gmail"]) == 0
-    out = json.loads(capsys.readouterr().out)
-    assert out["stored"] is True and out["account"] == ACCOUNT and out["scope"] == SCOPE
-    assert out["secret_store"] == {"service": "openhora", "username": "mailbox-gmail"}
-    record = json.loads(auth.fake_store.values[("openhora", "mailbox-gmail")])
-    assert record["refresh_token"] == FAKE_REFRESH and record["account"] == ACCOUNT and record["scope"] == SCOPE
-    assert record["obtained_at"].endswith("Z")
-    exchange = urllib.parse.parse_qs(next(r for r in fake.requests if r["method"] == "POST")["body"].decode())
-    assert exchange["grant_type"] == ["authorization_code"] and exchange["redirect_uri"] == [seen["redirect_uri"]]
-    assert exchange["code_verifier"][0] and seen["code_challenge_method"] == "S256"
-    monkeypatch.delenv("GMAIL_REFRESH_TOKEN")  # so that --check finds the record just stored
-    assert auth.main(["--provider", "gmail", "--check"]) == 0
-    checked = capsys.readouterr()
-    assert json.loads(checked.out)["account"] == ACCOUNT and json.loads(checked.out)["source"] == "secret store"
-    for secret in SECRETS:
-        assert secret not in checked.out + checked.err + json.dumps(out)
-
-
-def test_authorization_without_the_gmail_scope_stores_nothing(auth, fake, monkeypatch):
-    fake.token_scope = "openid"
-    fake_browser(auth, fake, monkeypatch)
-    assert auth.main(["--provider", "gmail"]) == 3
-    assert auth.fake_store.writes == []
-
-
-def test_auth_check_without_a_record_is_not_configured(auth, capsys, monkeypatch):
-    monkeypatch.delenv("GMAIL_REFRESH_TOKEN")
-    assert auth.main(["--provider", "gmail", "--check"]) == 3
-    assert json.loads(capsys.readouterr().out) == {"provider": "gmail", "found": False, "stored": False}
-    auth.fake_store.values[("openhora", "mailbox-gmail")] = "not json"
-    assert auth.main(["--provider", "gmail", "--check"]) == 3
-
-
-def test_stored_record_is_read_by_the_provider(env, fake, monkeypatch):
-    """The JSON record auth.py writes is what gmail.py reads back from the store."""
-    module = load(SCRIPT, "gmail_under_test_store")
-    record = json.dumps({"refresh_token": FAKE_REFRESH, "scope": SCOPE, "account": ACCOUNT, "obtained_at": "x"})
-    resolver = module.secret_resolver()
-    store = FakeStore({("openhora", "mailbox-gmail"): record})
-    real_resolve = resolver.resolve
-    monkeypatch.setattr(resolver, "resolve", lambda name, **kw: real_resolve(
-        name, allow_store=True, environ={"GMAIL_CLIENT_ID": FAKE_CLIENT_ID, "GMAIL_CLIENT_SECRET": FAKE_CLIENT_SECRET},
-        store=store))
-    monkeypatch.setattr(module, "secret_resolver", lambda: resolver)
-    creds = module.load_credentials(test_mode=False)
-    assert creds["refresh_token"] == FAKE_REFRESH and creds["source"] == "secret store"
-    assert creds["account"] == ACCOUNT
 
 
 # --- a verb takes its own flags; --check takes no verb ---------------------------------------------------

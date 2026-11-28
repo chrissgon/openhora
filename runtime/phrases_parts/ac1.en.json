@@ -1,0 +1,7 @@
+{
+ "package": "ac1",
+ "table": {
+  "PROFILE_PROPOSED": "A change to the profile of {agent} is proposed. Read it, then accept it on the page or with this command:",
+  "PROFILE_TEMPLATE": "# {name}\n\n## Role\nOne sentence: what this agent does for the project.\n\n## How it speaks\nThe tone, the length of its replies, the words it prefers.\n\n## Never\nWhat it must never do or say.\n\n## Appearance\nHow the office draws it.\n"
+ }
+}

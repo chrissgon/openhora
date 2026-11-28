@@ -552,7 +552,7 @@ def _compose_args(ctx: dict, op: str, slots: dict, channel=None, sender=None):
     account_origin = _account_origin(slots)          # S41-7: the one named (or picked), else the project's configuration
     if not slots.get("to"):
         names = slots.get("to_names") or []
-        return _ask("to", "NW_MAIL_ASK_TO", name=_joined(names) if names else "")
+        return _ask("to", "NW_MAIL_ASK_TO", name=_joined(names)) if names else _ask("to", "NW_MAIL_ASK_TO_UNNAMED")      # no name: a whole sentence with no field, said in the language it is shown in
     to = _joined(slots["to"])
     if not slots.get("subject") and not slots.get("_ai_subject"):
         return _ask("subject", "NW_MAIL_ASK_SUBJECT", to=to)

@@ -35,7 +35,9 @@ Stage 6 (several deliveries, the brief, sub-tasks):
                                             planning agent when only its pack does); none or several: ValueError
   owner_of(path, root)                      the skill whose declared outputs hold path, or None
   delivery_tasks(route, k, flows, root, pack, prefix)   the tasks of one routed delivery
-  combine(request, routed, flows, agent_skills, root, *, pack, limits, past)   one plan from the routes of the
+  agent_for(task, agent_skills, *, imported) the agent that owns a task; an imported skill's: imported_owner (I2b: the person's `agent`,
+                                            else the agent that covers the area of its name's prefix, else planning)
+  combine(request, routed, flows, agent_skills, root, *, pack, limits, past, imported)   one plan from the routes of the
                                             deliveries, in the order listed: {"plan": build() or None, "tasks",
                                             "deliveries", "unrouted"}
   backlog_tasks(backlog_path, root=None)    the product backlog's `todo` tasks as proposed sub-tasks, each read by one
@@ -179,13 +181,57 @@ def agent_of(skill: str, agents: dict) -> str:
     return owners[0]
 
 
-def agent_for(task: dict, agents: dict):
+def imported_owner(task: dict, agents: dict, imported=None) -> tuple:
+    """(agent, why) for a task of an imported skill when area agents are configured (decision I2b; with no agents the caller
+    returns None). The person's choice first: the key `agent` of the skill's entry in `imported` ({name: entry}, the `skills` of
+    the project's imported_skills), which must be an enabled agent of `agents`. Else the area of the name: its prefix (an area has
+    one prefix, so the prefix of a workbench skill in a pack is its area; scripts/skill_import.py checks the name of a skill from
+    outside against the same prefixes). The candidates are the enabled agents other than planning whose pack holds a workbench
+    skill with that prefix: one owns the task; several are refused, never picked by order; none gives the task to the planning
+    agent, and `why` says so. ValueError names the skill, the agents and the key to set."""
+    name = task["skill"]
+    key = f"imported_skills.skills.{name}.agent"
+    chosen = ((imported or {}).get(name) or {}).get("agent")
+    if chosen:
+        if chosen not in agents:
+            raise ValueError(f"the imported skill {name} is set to the agent {chosen}, which is not an enabled agent of area_agents "
+                             f"(enabled: {', '.join(sorted(agents))}): enable it, or change {key} and accept the configuration again")
+        return chosen, f"the agent {chosen} was chosen for {name} in runtime.json"
+    prefix = name.split("-")[0]
+    covering = sorted(a for a, skills in agents.items() if a != PLANNING and any(s.split("-")[0] == prefix for s in skills))
+    if len(covering) > 1:
+        raise ValueError(f"the imported skill {name} is in the area {prefix}, which {len(covering)} enabled agents cover "
+                         f"({', '.join(covering)}): name the one that owns it with {key} and accept the configuration again")
+    if covering:
+        return covering[0], f"the agent {covering[0]} covers the area {prefix} of {name}"
+    if PLANNING not in agents:
+        raise ValueError(f"the imported skill {name} runs under the planning agent (no agent covers the area {prefix}), and "
+                         "runtime.json has no enabled planning agent")
+    return PLANNING, f"no agent covers the area {prefix}: the planning agent owns it"
+
+
+def agent_for(task: dict, agents: dict, *, imported):
     """The agent that owns a plan task. A step task (a key `step`: the name of a kind of runtime/steps.py) belongs to the runtime's own
     pseudo-agent, steps.OWNER, whatever the project's area agents are: it runs no skill and no model, so no pack holds it and none
-    needs to. Any other task: agent_of its skill when area agents are configured, else None (stages 1 to 4)."""
+    needs to. A task of an imported skill (key `imported`): imported_owner (the person's choice, else the agent of the area of its
+    name, else the planning agent), or None without area agents; `imported` (required, keyword-only, so that no caller can ignore the person's
+    `agent` choice) is the `skills` map of the project's imported_skills ({} when it lists none). `assign` also records why.
+    Any other task: agent_of its skill when area agents are configured, else None (stages 1 to 4). Who owns a task never widens
+    what it may do: the limits of an imported task are those of runtime/imported.py."""
     if task.get("step"):
         return steps.OWNER
+    if task.get("imported"):
+        return imported_owner(task, agents, imported)[0] if agents else None
     return agent_of(task["skill"], agents) if agents else None
+
+
+def assign(task: dict, agents: dict, *, imported) -> None:
+    """Set task["agent"] as agent_for gives it and, for a task of an imported skill with area agents, task["agent_why"]: the sentence
+    that says why that agent owns it (imported_owner's), which the plan's text shows and its hash covers."""
+    if task.get("imported") and agents and not task.get("step"):
+        task["agent"], task["agent_why"] = imported_owner(task, agents, imported)
+    else:
+        task["agent"] = agent_for(task, agents, imported=imported)
 
 
 def owner_of(path: str, root: str):
@@ -265,6 +311,11 @@ def scope_refusal(flow_name: str, outside: list, root: str) -> str:
     return "; and ".join(parts)
 
 
+def _is_core(skill: str, root: str) -> bool:
+    """Whether the skill is a folder of <root>/skills/."""
+    return os.path.isfile(os.path.join(root, "skills", skill, "SKILL.md"))
+
+
 def from_flow(flow: dict, root: str, pack) -> list:
     """The tasks of a flow file (flow_files.load()) as plan tasks, in its order. A task whose skill is not in pack
     raises PlanError saying which pack of packs/ holds the skills and what to add to runtime.json (scope_refusal). A flow that still
@@ -275,7 +326,8 @@ def from_flow(flow: dict, root: str, pack) -> list:
     if unfilled:
         raise PlanError(f"the flow {flow['flow']} has parameters or dates to fill ({', '.join(sorted(unfilled))}): name it, with its "
                         f"parameters, to plan it (route --request <id> --flow {flow['flow']} --param name=value)")
-    outside = [t["skill"] for t in flow["tasks"] if not t.get("step") and t["skill"] not in list(pack)]
+    foreign = {t["skill"] for t in flow["tasks"] if not t.get("step") and not _is_core(t["skill"], root)}   # a skill from outside: flow_files let it through
+    outside = [t["skill"] for t in flow["tasks"] if not t.get("step") and t["skill"] not in foreign and t["skill"] not in list(pack)]
     if outside:
         raise PlanError(scope_refusal(flow["flow"], outside, root))
     tasks = []
@@ -288,14 +340,19 @@ def from_flow(flow: dict, root: str, pack) -> list:
             except steps.StepFailure as e:
                 raise PlanError(f"the step {t['key']} of the flow {flow['flow']}: {e}") from None
             continue
-        try:
-            facts = _task_facts(t["skill"], root)
-        except (skill_meta.SkillError, manifest.ManifestError) as e:
-            raise PlanError(str(e)) from None
+        if t["skill"] in foreign:   # an imported task: its manifest is read, whole, when it runs; no web, no milestone of its own
+            facts = {"mandatory_milestone": False, "web": False}
+        else:
+            try:
+                facts = _task_facts(t["skill"], root)
+            except (skill_meta.SkillError, manifest.ManifestError) as e:
+                raise PlanError(str(e)) from None
         one = {"key": t["key"], "skill": t["skill"], "title": t["title"], "text": t["text"],
                "depends_on": list(t["depends_on"]), "milestone": bool(t["milestone"]) or facts["mandatory_milestone"], **facts}
         if received.get(t["key"]):
             one["sources"] = list(received[t["key"]])
+        if t["skill"] in foreign:
+            one["imported"] = True
         if t.get("web") is False and facts["web"]:   # the flow runs this skill without the web it requires: the run is routed so (store: web_off)
             one["web"], one["web_off"] = False, True
         tasks.append(one)
@@ -415,6 +472,9 @@ def build(request: dict, tasks: list, route, source: str, limits: dict, past: li
         lines += [f"File {k}: {v['name']} (sha256 {v['sha256']})" for k, v in (bound.get("files") or {}).items()]
         if bound.get("dates"):
             lines += [f"Dates: today {bound['dates']['today']}, week {bound['dates']['week']}, in the time zone {bound['dates']['zone']}."]
+    owned = [t for t in tasks if t.get("agent_why")]
+    if owned:   # who owns the task of a skill from outside, and why: the person's key, the area of its name, or the planning agent
+        lines += ["", "Owner of a skill from outside: " + "; ".join(f"{t['title']}: {t['agent']} ({t['agent_why']})" for t in owned) + "."]
     if any(t.get("web_off") for t in tasks):
         lines += ["", "Runs without the web although its skill requires it: " + ", ".join(t["title"] for t in tasks if t.get("web_off")) + "."]
     pace = f"Up to {limits['max_running']} tasks at a time; each" if limits.get("max_running") else "Each"
@@ -652,13 +712,13 @@ def with_sources(tasks: list, chosen: dict, forced) -> str | None:
 
 
 def combine(request: dict, routed: list, flows: dict, agent_skills: dict, root: str, *, pack, limits: dict,
-            past: list, forced=(), project_language=None) -> dict:
+            past: list, forced=(), project_language=None, imported) -> dict:
     """One plan from the routes of the deliveries, in the order listed (decision P3). routed is [{"item", "route",
     "reply"}], route None when the router asked or gave no route line, else read_route() with "checked". A delivery
     whose route is not valid goes to "unrouted" with the whole reply and gets no task. A task depends on a task of an
     earlier delivery whose skill writes one of its inputs (the artifact contract); other deliveries do not wait for
-    each other. Each task gets its agent (agent_of; None for every task when no
-    area agent is configured). The language of a delivery's tasks is the request's own (the person's choice), else the one the
+    each other. Each task gets its agent (assign: agent_of, or imported_owner for an imported skill's task, whose reason is kept in
+    `agent_why`; imported is the project's imported entries; None for every task when no area agent is configured). The language of a delivery's tasks is the request's own (the person's choice), else the one the
     router proposed for it (`language` of its route), else none; project_language is the project's setting, for the plan's line.
     Returns {"plan": build(...) or None when no task, "tasks", "deliveries", "unrouted"}."""
     several = len(routed) > 1
@@ -678,7 +738,7 @@ def combine(request: dict, routed: list, flows: dict, agent_skills: dict, root: 
             unrouted.append({"item": entry["item"], "why": refused, "reply": entry.get("reply") or ""})
             continue
         for t in mine:
-            t["agent"] = agent_for(t, agent_skills)
+            assign(t, agent_skills, imported=imported)
         language.with_language(mine, request.get("language") or route.get("language"))
         brief = mine[0]["key"] if "skill" in checked and checked["skill"] == BRIEF_SKILL else None
         deliveries.append({"item": entry["item"], "route": route["line"], "tasks": [t["key"] for t in mine],

@@ -160,7 +160,7 @@ def test_authorize_stores_one_account_record_with_its_slot_address_and_scope_and
     assert printed["stored"] is True and printed["account"] == fga.ACCOUNT and printed["slot"] == "main"
     assert printed["secret_store"] == {"service": "openhora", "username": "google-account"}
     assert printed["scope"] == sorted(fga.PLATFORM_SET)
-    assert list(store.values) == [("openhora", "google-account")], "one record, under its own name; the legacy ones are not touched"
+    assert list(store.values) == [("openhora", "google-account")], "one record, under its own name"
     record = json.loads(store.values[("openhora", "google-account")])
     assert set(record) == {"slot", "refresh_token", "client_id", "client_secret", "scope", "account", "obtained_at"}
     assert record["slot"] == "main" and record["account"] == fga.ACCOUNT and set(record["scope"].split()) == set(fga.PLATFORM_SET)
@@ -367,7 +367,7 @@ def test_forget_removes_only_the_account_record_and_says_google_was_not_told(fak
     assert auth.main(["forget"]) == 0
     out, err = capsys.readouterr()
     assert json.loads(out)["forgotten"] is True and ("openhora", "google-account") not in store.values and len(store.values) == 5
-    assert "Google was not told" in err and "legacy records were not touched" in err and fake.requests == []
+    assert "Google was not told" in err and "legacy" not in err and fake.requests == []
     assert auth.main(["forget"]) == 0, "forgetting what is not there is not an error"
     out, err = capsys.readouterr()
     assert json.loads(out)["forgotten"] is False and "nothing was stored" in err and len(store.values) == 5

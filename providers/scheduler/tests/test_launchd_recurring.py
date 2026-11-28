@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).resolve().parent.parent / "launchd.py"
-LABEL = "dev.ai-workbench.scheduler.tick"
+LABEL = "dev.openhora.scheduler.tick"
 
 # Appends the snapshotted input to the output file, then prints a JSON line.
 APPEND = ("import sys, json; open(sys.argv[2], 'a').write(open(sys.argv[1]).read() + '\\n'); "

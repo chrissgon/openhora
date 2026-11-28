@@ -97,8 +97,8 @@ def test_the_live_line_opens_a_new_card_for_the_typed_address(world, clock, monk
     assert f.says(got["say"], "RV_DONE_RECIPIENT"), got["say"]
     assert len(model.of("revise")) == 1 and model.of("compose") == [], "one revise call and no compose call"
     lines = f.card_lines(world, got)
-    assert_lines(lines[1:4], [("CARD_MAIL_FROM_ACCOUNT", {"address": SENDER_ADDRESS, "account": "google"}), ("CARD_MAIL_TO", {"addresses": NEW}), ("CARD_MAIL_SUBJECT", {"subject": f.SUBJECT})])
-    assert before[1] == lines[1] and before[3] == lines[3], "the same From and the same Subject"
+    assert_lines(lines[1:5], [("CARD_MAIL_FROM_ACCOUNT", {"address": SENDER_ADDRESS, "account": "google"}), ("CARD_MAIL_TO", {"addresses": NEW}), ("CARD_MAIL_FIRST_TIME", {"addresses": NEW}), ("CARD_MAIL_SUBJECT", {"subject": f.SUBJECT})])
+    assert before[1] == lines[1] and before[4] == lines[4], "the same From and the same Subject"
     assert f.text_of(lines) == f.text_of(before), "the same text"
     assert f.status(world, old) != "open" and f.open_cards(world) == [new]
     f.nothing_sent(world)

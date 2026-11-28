@@ -1,6 +1,6 @@
-"""Tests of the Google Drive sources (P7): a picked file is registered, read through the Drive provider (providers/documents/gdrive.py,
+"""Tests of the Google Drive sources (P7): a file named by its id is registered, read through the Drive provider (providers/documents/gdrive.py,
 the REAL provider process, against the stand-in service providers/documents/tests/fake_drive.py), converted, versioned and refreshed; a
-refresh with no change makes no version and reads no content; a native Google Doc and Sheet go through export; the Picker's picks become
+refresh with no change makes no version and reads no content; a native Google Doc and Sheet go through export; the named files become
 several sources at once; and no credential reaches a run or a file of the sources. Offline: no Google host is reached, the converter is the
 stand-in of sources_fixture.py, and the secrets of a test are made-up strings.
 
@@ -80,7 +80,7 @@ class Drive:
         """The runtime's call to the provider, run for real as a process of this interpreter against the stand-in service."""
         self.calls.append((cls, verb, list(args), kwargs))
         script = str(REPO / "providers" / "documents" / "gdrive.py")
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("GDRIVE_", "INTEGRATION_DOCUMENTS_GDRIVE"))}
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("GDRIVE_", "GOOGLE_ACCOUNT_", "INTEGRATION_DOCUMENTS_GDRIVE"))}
         env.update(self.fake.env())
         return resolve.call(cls, verb, args, root=kwargs["root"], implementation=kwargs["implementation"], timeout=kwargs["timeout"], env=env,
                             run=lambda argv: subprocess.run([sys.executable, *argv[argv.index(script):]], capture_output=True, text=True,
@@ -99,10 +99,6 @@ def drive(tmp_path, monkeypatch):
     d = Drive(tmp_path, monkeypatch)
     yield d
     d.fake.close()
-
-
-def pick(*ids):
-    return {"picked": [{"id": i, "name": "", "mime_type": ""} for i in ids], "cancelled": False}
 
 
 # --- a Drive source in the registry --------------------------------------------------------------------------------------------------
@@ -294,42 +290,43 @@ def test_a_doc_whose_markdown_export_is_not_offered_is_read_as_word_and_converte
     assert "Shorter forms." in (drive.folder / "weekly" / "1" / "converted.md").read_text()
 
 
-def test_several_picked_files_become_several_sources_and_one_that_cannot_be_read_stops_itself_alone(drive, monkeypatch):
-    drive.fake.add("1DupeFffffffffffffffffffffffffffffffffffff", "Weekly notes", fake_drive.DOC, exports={"text/markdown": b"# Other\n\nText.\n"})
-    monkeypatch.setattr(sources, "pick_drive", lambda cfg: pick(DOC, SHEET, FOLDER, NOPE, PDF, "1DupeFffffffffffffffffffffffffffffffffffff"))
-    done = ops_sources.source_drive(drive.path)
-    assert done["picked"] == 6 and done["cancelled"] is False
-    by_file = {r["file"]: r for r in done["results"]}
-    assert [by_file[i].get("source") for i in (DOC, SHEET, PDF, "1DupeFffffffffffffffffffffffffffffffffffff")] == [
-        "weekly-notes", "survey-results", "quarterly-report", "weekly-notes-2"]
-    assert all(by_file[i]["imported"] for i in (DOC, SHEET, PDF))
-    assert "folder is not a source" in by_file[FOLDER]["error"] and "source" not in by_file[FOLDER]
-    assert "pick it again" in by_file[NOPE]["error"] and "source" not in by_file[NOPE]
+def test_several_named_files_become_several_sources_and_one_that_cannot_be_read_stops_itself_alone(drive):
+    dupe = "1DupeFffffffffffffffffffffffffffffffffffff"
+    drive.fake.add(dupe, "Weekly notes", fake_drive.DOC, exports={"text/markdown": b"# Other\n\nText.\n"})
+    results = {}
+    for file_id, source_id in ((DOC, "weekly-notes"), (SHEET, "survey-results"), (FOLDER, "reports"), (NOPE, "gone"), (PDF, "quarterly-report"),
+                               (dupe, "weekly-notes-2")):
+        [results[file_id]] = ops_sources.source_drive(drive.path, file_id=file_id, source_id=source_id)["results"]
+    assert [results[i].get("source") for i in (DOC, SHEET, PDF, dupe)] == ["weekly-notes", "survey-results", "quarterly-report", "weekly-notes-2"]
+    assert all(results[i]["imported"] for i in (DOC, SHEET, PDF))
+    assert "folder is not a source" in results[FOLDER]["error"] and "source" not in results[FOLDER]
+    assert "check the file id" in results[NOPE]["error"] and "pick" not in results[NOPE]["error"] and "source" not in results[NOPE]
     assert [r["id"] for r in sources.list_catalog(drive.ctx, hashes=False)] == ["quarterly-report", "survey-results", "weekly-notes", "weekly-notes-2"]
     assert drive.ctx["store"].source_get(drive.ctx["conn"], "weekly-notes")["description"] == "Weekly notes", "the file's name is the first description"
 
 
-def test_a_file_picked_again_is_the_source_it_already_is_and_makes_no_new_version(drive, monkeypatch):
-    monkeypatch.setattr(sources, "pick_drive", lambda cfg: pick(PDF))
-    first = ops_sources.source_drive(drive.path)["results"][0]
+def test_a_file_named_again_is_the_source_it_already_is_and_makes_no_new_version(drive):
+    first = ops_sources.source_drive(drive.path, file_id=PDF, source_id="quarterly-report")["results"][0]
     reads = len(drive.reads())
-    again = ops_sources.source_drive(drive.path)["results"][0]
-    assert len(drive.reads()) == reads, "a file picked again is a refresh: Drive's version is asked and nothing is read when it matches"
+    again = ops_sources.source_drive(drive.path, file_id=PDF, source_id="quarterly-report")["results"][0]
+    assert len(drive.reads()) == reads, "a file named again is a refresh: Drive's version is asked and nothing is read when it matches"
     assert first["registered"] is True and again["registered"] is False and again["source"] == first["source"]
     assert again["imported"] is False and again.get("unchanged") is True
     assert drive.ctx["store"].source_version_count(drive.ctx["conn"], first["source"]) == 1
-    with pytest.raises(ops_core.OpsError):
-        ops_sources.source_drive(drive.path, source_id="orphan")
     with pytest.raises(ops_core.OpsError):
         ops_sources.source_drive(drive.path, file_id=PDF)
     other = ops_sources.source_drive(drive.path, file_id=PDF, source_id="elsewhere")["results"][0]
     assert "already the source quarterly-report" in other["error"]
 
 
-def test_a_cancelled_picker_makes_nothing(drive, monkeypatch):
-    monkeypatch.setattr(sources, "pick_drive", lambda cfg: {"picked": [], "cancelled": True})
-    assert ops_sources.source_drive(drive.path) == {"picked": 0, "cancelled": True, "results": []}
+def test_source_drive_without_a_file_id_is_refused_with_the_file_id_sentence(drive):
+    for kwargs in ({}, {"source_id": "orphan"}):
+        with pytest.raises(ops_core.OpsError) as refused:
+            ops_sources.source_drive(drive.path, **kwargs)
+        assert refused.value.code == 2 and "give --file-id <Drive file id> and --source <id>" in str(refused.value)
+        assert "Picker went with the legacy Drive record" in str(refused.value)
     assert sources.list_catalog(drive.ctx, hashes=False) == []
+    assert not hasattr(sources, "pick_drive") and not hasattr(sources, "_run_pick")
 
 
 def test_a_refresh_with_no_change_creates_no_version_and_reads_no_content(drive):
@@ -389,7 +386,7 @@ def test_a_file_that_became_unreadable_is_a_refusal_and_no_version(drive):
 def test_a_provider_that_fails_names_why_and_leaves_no_row(drive):
     drive.fake.token_status = 400
     [one] = ops_sources.source_drive(drive.path, file_id=PDF, source_id="quarterly")["results"]
-    assert "error" in one and "gdrive_auth.py authorize" in one["error"] and "source" not in one
+    assert "error" in one and "google_auth.py authorize" in one["error"] and "source" not in one
     assert sources.list_catalog(drive.ctx, hashes=False) == []
     for text in (json.dumps(one),):
         assert not any(secret in text for secret in SECRETS)
@@ -407,90 +404,34 @@ def test_source_drive_is_a_terminal_operation_only_and_outside_the_group_a_polic
     assert "drive" in cli.build_parser().parse_args(["source-add", "--project", "/p", "--source", "x", "--type", "drive", "--origin", DOC]).f_type
 
 
-# --- the Picker's command -------------------------------------------------------------------------------------------------------------
-
-
-def test_the_picker_is_started_with_the_minimum_environment_and_its_answer_is_read(drive, monkeypatch):
-    monkeypatch.setenv("OPENROUTER_API_KEY", "a-key-that-must-not-travel")
-    monkeypatch.setenv("NOTION_TOKEN", "a-token-that-must-not-travel")
-    monkeypatch.setenv("GDRIVE_SOURCES_TOKEN", "the-one-secret-the-picker-reads")
-    seen = {}
-
-    def run(argv, env, timeout):
-        seen.update(argv=argv, env=env, timeout=timeout)
-        return 0, json.dumps({"picked": [{"id": DOC, "name": "Weekly notes", "mime_type": fake_drive.DOC}], "cancelled": False})
-
-    got = sources.pick_drive(drive.cfg, run=run)
-    assert got["picked"][0]["id"] == DOC
-    assert seen["argv"] == ["pick"], "the verb of the Drive provider, with no argument"
-    assert seen["env"]["GDRIVE_SOURCES_TOKEN"] == "the-one-secret-the-picker-reads"
-    assert "OPENROUTER_API_KEY" not in seen["env"] and "NOTION_TOKEN" not in seen["env"]
-    assert set(seen["env"]) <= set(resolve.ENV_MINIMUM) | {"GDRIVE_SOURCES_TOKEN", "INTEGRATION_DOCUMENTS_PROVIDER"}
-    assert seen["timeout"] == sources.DRIVE_PICK_TIMEOUT
-    for bad in ((3, ""), (1, "{}"), (0, "not json"), (0, json.dumps({"picked": "x"}))):
-        with pytest.raises(sources.SourcesError) as refused:
-            sources.pick_drive(drive.cfg, run=lambda argv, env, timeout, bad=bad: bad)
-        assert refused.value.code == "drive"
-
-
-def test_the_picker_child_is_started_by_the_resolver_its_messages_reach_the_person_and_it_is_ended_when_the_time_is_up(drive, capsys):
-    script = ("import sys, time, json\nsys.stderr.write('Open this URL: http://127.0.0.1:1/start\\n'); sys.stderr.flush()\n"
-              "mode = sys.argv[1]\nif mode == 'slow':\n    time.sleep(60)\nprint(json.dumps({'picked': [], 'cancelled': True}))\n")
-
-    class Resolver:
-        def __init__(self, mode):
-            self.mode, self.seen = mode, []
-
-        def start(self, cls, verb, args, **kwargs):
-            self.seen.append((cls, verb, list(args), kwargs))
-            return subprocess.Popen([sys.executable, "-c", script, self.mode], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE, start_new_session=True)
-
-    quick = Resolver("quick")
-    code, out = sources._run_pick(quick, drive.cfg, {"PATH": "x"}, 30)
-    assert code == 0 and json.loads(out) == {"picked": [], "cancelled": True}
-    assert "Open this URL: http://127.0.0.1:1/start" in capsys.readouterr().err, "the address reaches the person as it is printed"
-    [(cls, verb, args, kwargs)] = quick.seen
-    assert (cls, verb, args) == ("integration:documents", "pick", []) and kwargs["implementation"] == "gdrive" and kwargs["env"] == {"PATH": "x"}
-    code, out = sources._run_pick(Resolver("slow"), drive.cfg, {"PATH": "x"}, 1)
-    assert code != 0 and out == "", "a Picker that does not answer is ended"
-
-    class Broken:
-        def start(self, *args, **kwargs):
-            raise OSError("no such program")
-    with pytest.raises(sources.SourcesError) as refused:
-        sources._run_pick(Broken(), drive.cfg, {}, 5)
-    assert refused.value.code == "drive"
-
-
 # --- a credential never enters a run ---------------------------------------------------------------------------------------------------
 
 
 def test_the_provider_gets_the_minimum_environment_and_the_one_secret_and_the_converter_gets_neither(drive, monkeypatch):
-    for name, value in (("GDRIVE_SOURCES_TOKEN", "t-one"), ("NOTION_SOURCES_TOKEN", "t-two"), ("OPENROUTER_API_KEY", "t-three"),
+    for name, value in (("GOOGLE_ACCOUNT_TOKEN", "t-one"), ("GDRIVE_SOURCES_TOKEN", "t-legacy"), ("NOTION_SOURCES_TOKEN", "t-two"), ("OPENROUTER_API_KEY", "t-three"),
                         ("VCS_GITHUB_TOKEN", "t-four"), ("INTEGRATION_DOCUMENTS_GDRIVE_API_BASE", "http://127.0.0.1:1")):
         monkeypatch.setenv(name, value)
-    for_drive = sources._provider_env(drive.cfg, sources.DRIVE_CLASS, (sources.DRIVE_SECRET,))
-    assert for_drive["GDRIVE_SOURCES_TOKEN"] == "t-one"
-    assert set(for_drive) <= set(resolve.ENV_MINIMUM) | {"GDRIVE_SOURCES_TOKEN", "INTEGRATION_DOCUMENTS_PROVIDER"}
+    for_drive = sources._provider_env(drive.cfg, sources.DRIVE_CLASS, sources.DRIVE_SECRETS)
+    assert for_drive["GOOGLE_ACCOUNT_TOKEN"] == "t-one" and "GDRIVE_SOURCES_TOKEN" not in for_drive, "the legacy record is not handed on"
+    assert set(for_drive) <= set(resolve.ENV_MINIMUM) | {"GOOGLE_ACCOUNT_TOKEN", "INTEGRATION_DOCUMENTS_PROVIDER"}
     assert "INTEGRATION_DOCUMENTS_GDRIVE_API_BASE" not in for_drive, "the test overrides never reach a real provider process"
     for_converter = sources._provider_env(drive.cfg, sources.CONVERTER_CLASS)
     assert not any(k.startswith("GDRIVE") or "TOKEN" in k or "KEY" in k for k in for_converter)
     for_notion = sources._provider_env(drive.cfg, sources.NOTION_CLASS, (sources.NOTION_SECRET,))
-    assert "GDRIVE_SOURCES_TOKEN" not in for_notion, "each provider is given its own secret only"
+    assert "GOOGLE_ACCOUNT_TOKEN" not in for_notion, "each provider is given its own secret only"
 
 
 def test_the_environment_of_a_run_holds_no_drive_secret_whatever_the_model_passes(drive, monkeypatch, tmp_path):
-    monkeypatch.setenv("GDRIVE_SOURCES_TOKEN", drive.fake.record_json())
+    monkeypatch.setenv("GOOGLE_ACCOUNT_TOKEN", drive.fake.record_json())
     gate = json.loads((REPO / "evals" / "eval-gate.json").read_text(encoding="utf-8"))
     passed = sorted({name for found in gate["models"].values() for name in found.get("pass_env", []) + found.get("web_pass_env", [])})
-    assert "GDRIVE_SOURCES_TOKEN" not in passed
+    assert "GOOGLE_ACCOUNT_TOKEN" not in passed
     env = lab.LAB.contained_env(str(tmp_path / "run-a"), tuple(passed))
-    assert "GDRIVE_SOURCES_TOKEN" not in env and not any(secret in json.dumps(env) for secret in SECRETS)
+    assert "GOOGLE_ACCOUNT_TOKEN" not in env and not any(secret in json.dumps(env) for secret in SECRETS)
 
 
 def test_no_secret_is_in_a_file_of_the_sources_nor_in_what_a_task_receives(drive, monkeypatch):
-    monkeypatch.setenv("GDRIVE_SOURCES_TOKEN", drive.fake.record_json())
+    monkeypatch.setenv("GOOGLE_ACCOUNT_TOKEN", drive.fake.record_json())
     for file_id, source_id in ((DOC, "weekly"), (SHEET, "survey"), (PDF, "quarterly")):
         assert ops_sources.source_drive(drive.path, file_id=file_id, source_id=source_id)["results"][0]["imported"]
     got = ops_sources.copies_for(drive.ctx, {"id": 1, "sources": ["weekly", "survey", "quarterly"]}, str(drive.tmp / "prepared"), True)
@@ -504,16 +445,16 @@ def test_no_secret_is_in_a_file_of_the_sources_nor_in_what_a_task_receives(drive
 
 
 def test_the_provider_message_of_a_failure_carries_no_secret(drive, monkeypatch):
-    monkeypatch.setenv("GDRIVE_SOURCES_TOKEN", drive.fake.record_json())
+    monkeypatch.setenv("GOOGLE_ACCOUNT_TOKEN", drive.fake.record_json())
     drive.fake.files.pop(PDF)
     [one] = ops_sources.source_drive(drive.path, file_id=PDF, source_id="quarterly")["results"]
-    assert "pick it again" in one["error"] and not any(secret in one["error"] for secret in SECRETS)
+    assert "check the file id" in one["error"] and not any(secret in one["error"] for secret in SECRETS)
 
 
 # --- the runtime's page and the interface -----------------------------------------------------------------------------------------------
 
 
-def test_the_picker_page_is_not_part_of_the_interface_and_the_runtime_page_keeps_its_policy():
+def test_the_picker_page_is_gone_and_the_runtime_page_keeps_its_policy():
     interface = REPO / "interface"
     for path in interface.rglob("*"):
         if path.is_file() and path.suffix in (".html", ".js", ".css", ".json", ".mjs"):
@@ -521,7 +462,7 @@ def test_the_picker_page_is_not_part_of_the_interface_and_the_runtime_page_keeps
             assert "gapi" not in text and "google.picker" not in text and "apis.google.com" not in text, f"{path} loads the Picker"
     assert not list(interface.rglob("*picker*")), "no file of the interface is the Picker's page"
     assert "default-src 'self'" in (REPO / "runtime" / "service.py").read_text(encoding="utf-8")
-    assert "apis.google.com" in (REPO / "providers" / "documents" / "gdrive_picker.py").read_text(encoding="utf-8"), "the page lives with the provider"
+    assert not (REPO / "providers" / "documents" / "gdrive_picker.py").exists(), "the page went with the legacy Drive record"
 
 
 def test_the_documents_object_of_the_configuration_refuses_a_provider_that_serves_sources_only(tmp_path):

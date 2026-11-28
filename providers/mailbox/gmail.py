@@ -64,9 +64,6 @@ from pathlib import Path
 
 DEFAULT_API_BASE = "https://gmail.googleapis.com"
 DEFAULT_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
-KEYRING_SERVICE = "openhora"
-KEYRING_USERNAME = "mailbox-gmail"
 HTTP_TIMEOUT_SECONDS = 60
 TEXT_LIMIT_BYTES = 100_000
 EML_LIMIT_BYTES = 50 * 1024 * 1024  # a local safety limit, not a Gmail limit
@@ -85,7 +82,6 @@ TOKEN_RE = re.compile(r"[\x21-\x7e]{1,4096}")
 # A --header-prefix, lower-cased: the characters of a header field name (an RFC 9110 token). Which prefix a
 # platform's notifications use is that platform's fact, in its data file; the provider holds none.
 HEADER_PREFIX_RE = re.compile(r"[!#$%&'*+.^_`|~0-9a-z-]+")
-AUTH_COMMAND = "uv run providers/mailbox/auth.py --provider gmail"
 
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 
@@ -116,7 +112,7 @@ def _google_module():
     return module
 
 
-# The account token (one record, the platform's scope set) is read first; the old record is the legacy fallback for one cycle.
+# The account token: one record, the platform's scope set.
 _google = _google_module()
 
 # The text helpers are shared with the e-mail channel (providers/messenger/email-imap.py): they live in providers/_email_text.py.
@@ -130,9 +126,9 @@ html_to_text_within, HTML_TEXT_SECONDS = _text.html_to_text_within, _text.HTML_T
 HELP_EPILOG = f"""\
 read only:
   No verb changes the mailbox: nothing is sent, moved, labelled, marked as read
-  or deleted; this provider sends GET requests only. The legacy authorization
-  asks only for gmail.readonly; the account token carries the platform's wider
-  set (gmail.modify) and the restriction is this script's verbs, not the scope.
+  or deleted; this provider sends GET requests only. The account token carries
+  the platform's whole scope set (gmail.modify among them) and the restriction is
+  this script's verbs, not the scope.
   So there is no --confirmed and no --dry-run.
 
 verbs:
@@ -206,13 +202,6 @@ credentials (never from files or flags; see contracts/secrets.md):
                          It carries the platform's four scopes (gmail.modify among them); this provider uses it for GET requests only,
                          and refuses a token that lacks one of the four or carries another. Revoking the app's access in the Google
                          Account stops this provider and every other one of the account at once.
-  Legacy, for one cycle, used only when no account record exists (a warning on stderr says so, once per process):
-  GMAIL_REFRESH_TOKEN    the OS secret store record (service "{KEYRING_SERVICE}",
-                         username "{KEYRING_USERNAME}") written by
-                             {AUTH_COMMAND}
-                         or, from the environment, a bare refresh token.
-  GMAIL_CLIENT_ID        the Desktop app OAuth client, needed to refresh.
-  GMAIL_CLIENT_SECRET    that client's secret.
 
 other environment variables (tests only):
   GMAIL_API_BASE         replaces {DEFAULT_API_BASE}; loopback URLs only.
@@ -304,51 +293,13 @@ def secret_resolver():
     return module
 
 
-def client_credentials(resolver, test_mode: bool) -> tuple[str, str]:
-    values = {}
-    for name in ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET"):
-        values[name] = (resolver.resolve(name, allow_store=not test_mode) or ("", ""))[0]
-    missing = [n for n, v in values.items() if not v]
-    if missing:
-        raise ProviderError(f"set {' and '.join(missing)} first: an environment variable, or the OS secret store "
-                            "(python3 providers/secrets/resolver.py --list shows how; auth.py --help has the "
-                            "Google Cloud setup)", EXIT_NOT_CONFIGURED)
-    return values["GMAIL_CLIENT_ID"], values["GMAIL_CLIENT_SECRET"]
-
-
-def legacy_credentials(resolver, test_mode: bool) -> dict | None:
-    """The legacy record (GMAIL_REFRESH_TOKEN with GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET) as {refresh_token, account, source, client_id,
-    client_secret}, or None when no refresh token is found; ProviderError when one is found and cannot be used."""
-    found = resolver.resolve("GMAIL_REFRESH_TOKEN", allow_store=not test_mode)
-    refresh_token, source, account = (found[0], found[1], None) if found else (None, "", None)
-    if refresh_token and source == "secret store":
-        try:
-            record = json.loads(refresh_token)
-            refresh_token, account = record.get("refresh_token"), record.get("account")
-        except (ValueError, AttributeError):
-            raise ProviderError(f"the stored Gmail authorization is unreadable; rerun: {AUTH_COMMAND}",
-                                EXIT_NOT_CONFIGURED)
-    if not refresh_token:
-        return None
-    client_id, client_secret = client_credentials(resolver, test_mode)
-    return {"refresh_token": refresh_token, "account": account, "source": source,
-            "client_id": client_id, "client_secret": client_secret}
-
-
 def load_credentials(test_mode: bool) -> dict:
-    """Return {refresh_token, account, source, client_id, client_secret, legacy}; EXIT_NOT_CONFIGURED if absent. The account record
-    (GOOGLE_ACCOUNT_TOKEN) is read first; `legacy` is the username of the old record that served when there was none, else None."""
-    resolver = secret_resolver()
-
-    def legacy():
-        found = legacy_credentials(resolver, test_mode)
-        return (found, found["source"]) if found else None
-
-    loaded = _google.load_account_record(resolver, test_mode, legacy=(KEYRING_USERNAME, legacy, AUTH_COMMAND), error=ProviderError)
+    """Return {refresh_token, account, source, client_id, client_secret, stored_scope}; EXIT_NOT_CONFIGURED if absent. The account
+    record (GOOGLE_ACCOUNT_TOKEN) is the only one read."""
+    loaded = _google.load_account_record(secret_resolver(), test_mode, error=ProviderError)
     record = loaded.record
     return {"refresh_token": record["refresh_token"], "account": record["account"], "source": loaded.source,
-            "client_id": record["client_id"], "client_secret": record["client_secret"], "legacy": loaded.legacy,
-            "stored_scope": record.get("scope")}
+            "client_id": record["client_id"], "client_secret": record["client_secret"], "stored_scope": record.get("scope")}
 
 
 # --- HTTP --------------------------------------------------------------------
@@ -392,70 +343,8 @@ def _short(text: object, limit: int = 300) -> str:
     return " ".join(str(text or "").split())[:limit]
 
 
-EXPIRED_HINT = (
-    "the Gmail authorization expired or was revoked. A likely cause: the Google Cloud project is still in "
-    "\"Testing\", where Google expires the authorization seven days after consent; publish the app "
-    "\"In production\" (auth.py --help). Other causes: access removed in the Google Account's third-party "
-    "access page, a Google password change (the token carries a Gmail scope), six months without use. "
-    f"Rerun: {AUTH_COMMAND}"
-)
-
-
-def token_request(token_url: str, form: dict) -> dict:
-    """POST to the token endpoint; map OAuth errors to exit codes."""
-    status, body = http("POST", token_url, {"Content-Type": "application/x-www-form-urlencoded",
-                                            "Accept": "application/json"},
-                        urllib.parse.urlencode(form).encode())
-    try:
-        data = json.loads(body or b"{}")
-    except ValueError:
-        data = {}
-    if status == 200 and isinstance(data, dict) and data.get("access_token"):
-        for key in ("access_token", "refresh_token"):
-            value = data.get(key)
-            if (key == "access_token" or value) and (not isinstance(value, str) or not TOKEN_RE.fullmatch(value)):
-                raise ProviderError(f"the token response holds a {key} of an unexpected shape; nothing was used or stored")
-        return data
-    error = _short(data.get("error")) if isinstance(data, dict) else ""
-    description = _short(data.get("error_description")) if isinstance(data, dict) else ""
-    detail = f"{error}: {description}" if description else error or "no error code"
-    if error == "invalid_grant":
-        if form.get("grant_type") == "refresh_token":
-            raise ProviderError(f"Google refused the refresh token ({detail}): {EXPIRED_HINT}", EXIT_NOT_CONFIGURED, status)
-        raise ProviderError(f"Google refused the authorization code ({detail}); rerun: {AUTH_COMMAND}",
-                            EXIT_SERVICE, status)
-    if error in ("invalid_client", "unauthorized_client"):
-        raise ProviderError(f"Google rejected the OAuth client ({detail}); check GMAIL_CLIENT_ID and "
-                            "GMAIL_CLIENT_SECRET (a Desktop app client, auth.py --help)", EXIT_NOT_CONFIGURED, status)
-    if status == 200:
-        raise ProviderError("the token response has no access_token", EXIT_SERVICE, status)
-    raise ProviderError(f"the Google token endpoint returned {status} ({detail})", EXIT_SERVICE, status)
-
-
-def refresh_access_token(token_url: str, creds: dict) -> dict:
-    return token_request(token_url, {
-        "client_id": creds["client_id"],
-        "client_secret": creds["client_secret"],
-        "grant_type": "refresh_token",
-        "refresh_token": creds["refresh_token"],
-    })
-
-
-def check_scope(granted: str | None) -> None:
-    """Refuse a token without gmail.readonly; warn when it carries more than this provider needs."""
-    scopes = set((granted or "").split())
-    if not scopes:
-        return  # the refresh response may omit scope; the API call will tell
-    if GMAIL_SCOPE not in scopes:
-        raise ProviderError(f"the token does not carry {GMAIL_SCOPE}; rerun {AUTH_COMMAND} and keep the Gmail "
-                            "box ticked on the consent screen", EXIT_NOT_CONFIGURED)
-    extra = sorted(scopes - {GMAIL_SCOPE})
-    if extra:
-        log(f"warning: the token also carries {' '.join(extra)}; this provider only needs {GMAIL_SCOPE}")
-
-
 class Gmail:
-    def __init__(self, base: str, access_token: str, command: str = AUTH_COMMAND):
+    def __init__(self, base: str, access_token: str, command: str = _google.AUTH_COMMAND):
         self.base, self.access_token, self.command = base, access_token, command
 
     def get(self, path: str, params: dict | None = None) -> dict:
@@ -530,11 +419,6 @@ def connect() -> tuple[Gmail, dict, dict]:
     """Refresh an access token; return (API client, credentials, token response)."""
     base, token_url, test_mode = endpoints()
     creds = load_credentials(test_mode)
-    if creds["legacy"]:
-        token = refresh_access_token(token_url, creds)
-        _google.hold(token["access_token"])
-        check_scope(token.get("scope"))
-        return Gmail(base, token["access_token"]), creds, token
     # The account token: the platform's whole set, refused when it lacks a scope or carries another (a refresh that omits `scope` is
     # accepted only when the record's stored scope is the set).
     token = _google.refresh_access_token(token_url, {**creds, "scope": creds["stored_scope"]}, ProviderError)
@@ -729,8 +613,7 @@ def cmd_check() -> int:
     profile = client.profile()
     out = {"ok": True, "account": profile.get("emailAddress") or creds.get("account"),
            "token_source": creds["source"], "scope": token.get("scope")}
-    if not creds["legacy"]:     # the account record: its scope when the refresh response left it out, and the record that served
-        out.update({"scope": token.get("scope") or creds["stored_scope"], "record": "account"})
+    out.update({"scope": token.get("scope") or creds["stored_scope"], "record": "account"})   # the scope the record holds when the refresh left it out
     emit(out)
     return EXIT_OK
 

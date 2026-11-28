@@ -11,6 +11,7 @@ Skills never keep state inside this repository. Everything they produce for a pr
     │   ├── state.md              # phase, artifact status, decisions, open questions (schema: state.md)
     │   ├── runtime.json          # the agent runtime's configuration, written by the person who sets it up (schema: runtime.md)
     │   ├── instructions.md       # the person's standing instructions for the project: plain Markdown, written only by the person, read into the prompt of every model run (runtime.md, "Standing instructions"; no skill declares it)
+    │   ├── agents/<agent>.md     # an agent's profile, written only by the person (runtime.md, "Agent profiles"; no skill declares it)
     │   ├── policies/<policy>.json # the bounds of a standing approval of the task runtime, written by the person (approve-policy binds its hash)
     │   ├── flows/<name>.json     # a flow of the project's own: data the task runtime reads (runtime/flow_files.py; the workbench's own flows are flows/<name>.json of this repository); written by the person; no skill declares it
     │   ├── briefs/<topic>.md     # shared-understanding briefs written by core-clarify
@@ -57,6 +58,7 @@ The vocabulary is closed. A new name is added to this table in the pull request 
 | `<artifact>` | the name of a visual artifact |
 | `<screen>` | one screen of an artifact |
 | `<task>` | a kebab-case name of the task or of the symptom |
+| `<agent>` | the key of an entry of `area_agents` in `docs/workbench/runtime.json` |
 | `<change>` | the task id, else the branch name, else the pull request number |
 | `<date>` | `YYYY-MM-DD`; a second file of the same day ends in `-2`, a third in `-3` |
 | `<post>` | `<date>-<slug>` |
@@ -75,6 +77,7 @@ An input that no skill owns is listed here, or the validator reports it. `Provid
 | `docs/marketing/launch-plan.md` | planned: mkt-launch-plan |
 | `docs/workbench/runtime.json` | user |
 | `docs/workbench/instructions.md` | user |
+| `docs/workbench/agents/<agent>.md` | user |
 | `docs/workbench/policies/<policy>.json` | user |
 
 ## Owning skills

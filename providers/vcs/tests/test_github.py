@@ -640,16 +640,16 @@ def test_vcs_github_token_wins_over_github_token(env, fake):
     assert "w" * 36 not in str(fake.requests[0])
 
 
-# --- the ledger lives in a data folder; a ledger at its old place in the cache folder is copied once ---
+# --- the ledger lives in a data folder named openhora; nothing is read from the old cache folder ---
 
 def default_ledger_env(env, tmp_path):
     """The environment without a ledger override: (env, new ledger path, old ledger path)."""
     e = {k: v for k, v in env.items() if k != "VCS_GITHUB_LEDGER"}
     e["XDG_DATA_HOME"] = str(tmp_path / "data")
     if sys.platform == "darwin":
-        new = tmp_path / "home" / "Library" / "Application Support" / "ai-workbench" / "vcs-github.json"
+        new = tmp_path / "home" / "Library" / "Application Support" / "openhora" / "vcs-github.json"
     else:
-        new = tmp_path / "data" / "ai-workbench" / "vcs-github.json"
+        new = tmp_path / "data" / "openhora" / "vcs-github.json"
     return e, new, tmp_path / "cache" / "ai-workbench" / "vcs-github.json"
 
 
@@ -664,31 +664,42 @@ def test_default_ledger_is_in_the_data_folder_not_the_cache(env, fake, comment_f
     assert len(fake.patches()) == 1
 
 
-def test_old_ledger_is_copied_on_first_use_and_its_alert_is_not_dismissed_again(env, fake, comment_file, tmp_path):
+def test_data_home_ends_in_openhora():
+    module = load_module()
+    assert module.data_home().name == "openhora"
+
+
+def test_no_ledger_is_read_from_the_old_cache(env, fake, comment_file, tmp_path):
+    """A ledger planted in the old cache folder is ignored: nothing is copied, and its key is not replayed. The one-time
+    move command (scripts/rename_move.py) is what carries a ledger across."""
     e, new, old = default_ledger_env(env, tmp_path)
-    # The dismissal happened before the move: the provider of that time recorded it in the cache folder.
     first = run(dismiss_args(comment_file, "--confirmed"), {**env, "VCS_GITHUB_LEDGER": str(old)})
     assert first.returncode == 0 and len(fake.patches()) == 1 and not new.exists()
     before = old.read_bytes()
     proc = run(dismiss_args(comment_file, "--confirmed"), e)
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(proc.stdout)["replayed"] is True
-    assert len(fake.patches()) == 1  # not dismissed twice
-    assert "ledger moved" in proc.stderr and str(old) in proc.stderr and str(new) in proc.stderr
-    assert json.loads(new.read_text())["entries"] == json.loads(before)["entries"]
-    assert old.read_bytes() == before  # never edited, never deleted
-    again = run(dismiss_args(comment_file, "--confirmed"), e)
-    assert json.loads(again.stdout)["replayed"] is True and "ledger moved" not in again.stderr
-    assert len(fake.patches()) == 1 and old.read_bytes() == before
+    assert "ledger moved" not in proc.stderr and json.loads(proc.stdout).get("replayed") is not True
+    assert len(fake.patches()) == 2 and old.read_bytes() == before and new.is_file()
 
 
-def test_old_ledger_that_is_not_json_stops_the_run(env, fake, comment_file, tmp_path):
+def test_an_old_cache_ledger_with_no_new_one_is_said_once_on_stderr_and_names_the_move_command(env, fake, comment_file, tmp_path):
     e, new, old = default_ledger_env(env, tmp_path)
     old.parent.mkdir(parents=True)
-    old.write_text("{not json")
-    proc = run(dismiss_args(comment_file, "--confirmed"), e)
-    assert proc.returncode == 1 and "cannot be copied" in proc.stderr
-    assert fake.patches() == [] and not new.exists() and old.read_text() == "{not json"
+    old.write_text('{"version": 1, "entries": {}}')
+    proc = run(dismiss_args(comment_file, "--dry-run"), e)
+    assert proc.returncode == 0, proc.stderr
+    lines = [line for line in proc.stderr.splitlines() if "rename_move.py" in line]
+    assert len(lines) == 1 and str(old) in lines[0] and "nothing reads it" in lines[0]
+    clean_env = {**e, "XDG_CACHE_HOME": str(tmp_path / "empty-cache")}
+    assert "rename_move.py" not in run(dismiss_args(comment_file, "--dry-run"), clean_env).stderr
+    new.parent.mkdir(parents=True)
+    new.write_text('{"version": 1, "entries": {}}')
+    assert "rename_move.py" not in run(dismiss_args(comment_file, "--dry-run"), e).stderr, "once the new ledger exists the old one is no news"
+
+
+def test_the_provider_has_no_ledger_migration():
+    module = load_module()
+    assert not hasattr(module, "ledger_migrate") and not hasattr(module, "old_ledger_path")
 
 
 # --- VS7: the contract says what this provider does ------------------------------------------------

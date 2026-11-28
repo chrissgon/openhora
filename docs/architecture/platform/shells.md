@@ -124,8 +124,9 @@ Built in stage 9 with the service: the operations `config`, `task`, `flows`, `st
 | Floor | `#/p/<id>/floor/<agent>[/<tab>[/<pending id>]]` | Agent, Inbox, Desk, Tasks |
 | Lobby | `#/p/<id>/lobby[/<tab>[/<pending id>]]` | Conversation, Inbox, Desk, Tasks, Agent |
 | Control room | `#/p/<id>/control[/<tab>]` | Skills, Costs, Connections |
+| Office | `#/p/<id>/office` | - |
 
-`<id>` is the 12-character project id of the service; the Desk of a floor or of the Lobby takes a document as `/desk/<percent-encoded path>`; an unknown hash is the City, and the page opens on the City after the token whatever the number of projects; Escape and Back go up one level from the Building to the City with one project too. The folders of `interface/js/` are the router, `data.js` (what the City reads), `watch.js`, `api.js` (the one client), `scene/` (the 3D engine and its builders), `frame/` (header, project switcher, cards, bar, terminal-command component), `floor/` (the Floor's panel and the decision cards, the files that send a write), `cards/` (the plan card the Lobby draws), `views/` (one module per screen), `markdown.js` with `markdown-view.js`; beside `js/`, `interface/vendor/` holds two third-party libraries, copied unchanged. The rules the pages keep, each with the test that holds it (`runtime/tests/test_interface_files.py` unless a file is named):
+`<id>` is the 12-character project id of the service; the Desk of a floor or of the Lobby takes a document as `/desk/<percent-encoded path>`; an unknown hash is the City, and the page opens on the City after the token whatever the number of projects; Escape and Back go up one level from the Building to the City with one project too. The folders of `interface/js/` are the router, `data.js` (what the City reads), `watch.js`, `api.js` (the one client), `scene/` (the 3D engine and its builders), `frame/` (header, project switcher, cards, bar, terminal-command component), `floor/` (the Floor's panel and the decision cards, the files that send a write), `cards/` (the plan card the Lobby draws), `views/` (one module per screen), `office/` (the Office's model, room, walk, canvas and ported path finder), `markdown.js` with `markdown-view.js`; beside `js/`, `interface/vendor/` holds two third-party libraries, copied unchanged. The rules the pages keep, each with the test that holds it (`runtime/tests/test_interface_files.py` unless a file is named):
 
 - **The change signal.** `js/watch.js` reads `GET /versions` every second (`EVERY_MS`) while the document is visible and reloads everything the page shows when a number moved; after 30 quiet seconds (`SAFETY_MS`) it reloads once; a failed read is tried again after 10 seconds (`RETRY_MS`); nothing is asked while the document is hidden, and one reload happens when it is visible again; any POST the page sends is followed by a reload (`api.onWrite`). `test_the_page_is_kept_current_by_the_watcher_and_asks_nothing_while_hidden`, and in `test_interface_live.py` `test_the_watcher_reads_every_second_while_visible_and_reloads_only_when_the_number_moves`, `test_the_watcher_asks_nothing_while_hidden_and_reloads_once_on_return`, `test_the_watcher_makes_one_full_reload_after_thirty_quiet_seconds_and_a_reload_starts_the_count_again`, `test_the_watcher_says_a_failed_read_backs_off_to_ten_seconds_and_reloads_when_the_service_is_back`.
 - **A configuration not accepted.** The screen keeps the last data it read, dimmed by one class on the frame (`is-unaccepted`), and a band shows the service's sentence with its command; a screen that never read the project shows the placeholder. `test_interface_plates_meters.py`, `test_the_page_keeps_the_floor_dims_it_and_shows_the_command_in_the_band_while_the_configuration_is_not_accepted`, `test_the_not_accepted_dim_is_one_class_with_opacity_and_no_pointer_actions_on_the_scene`.
@@ -353,6 +354,11 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `instructions` | - | `instructions_read` |
 | `instructions-set` | `--text \| --text-file` `--base-sha256` | `instructions_set` |
 | `instructions-add` | `--line` `--base-sha256` | `instructions_add` |
+| `profile` | `--agent` | `profile_read` |
+| `profile-set` | `--agent` `--text \| --text-file` `--base-sha256` | `profile_set` |
+| `profile-propose` | `--agent` `--text \| --text-file` `--base-sha256` | `profile_propose` |
+| `profile-accept` | `--agent` `--sha256` | `profile_accept` |
+| `profile-reject` | `--agent` `--sha256` | `profile_reject` |
 | `routines` | `[--id]` | `routines_read` |
 | `routine-create` | `--name` `--flow` `[--param]` `[--every]` `[--at]` `[--weekday]` `[--minutes]` `[--model]` `[--provider]` `[--window-seconds]` `[--consent]` `[--warning-sha256]` | `routine_create` |
 | `routine-change` | `--id` `[--flow]` `[--param]` `[--every]` `[--at]` `[--weekday]` `[--minutes]` `[--model]` `[--provider]` `[--window-seconds]` `[--consent]` `[--warning-sha256]` | `routine_change` |
@@ -474,6 +480,11 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/instructions` | `instructions` | - | none | - | - |
 | POST | `/projects/{p}/instructions` | `instructions-set` | - | every other argument | - | - |
 | POST | `/projects/{p}/instructions/add` | `instructions-add` | - | every other argument | - | - |
+| GET | `/projects/{p}/agents/{name}/profile` | `profile` | `agent` from `{name}` | none | - | - |
+| POST | `/projects/{p}/agents/{name}/profile` | `profile-set` | `agent` from `{name}` | every other argument | - | - |
+| POST | `/projects/{p}/agents/{name}/profile/propose` | `profile-propose` | `agent` from `{name}` | every other argument | - | - |
+| POST | `/projects/{p}/agents/{name}/profile/accept` | `profile-accept` | `agent` from `{name}` | every other argument | - | - |
+| POST | `/projects/{p}/agents/{name}/profile/reject` | `profile-reject` | `agent` from `{name}` | every other argument | - | - |
 | POST | `/projects/{p}/requests/{id}/files` | `stage-file` | `request_id` from `{id}` | every other argument | `file` | file upload |
 | POST | `/projects/{p}/requests` | `request` | - | every other argument | - | - |
 | POST | `/projects/{p}/requests/{id}/route` | `route` | `request_id` from `{id}` | every other argument | - | - |

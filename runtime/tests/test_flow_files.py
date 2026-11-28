@@ -152,3 +152,23 @@ def test_a_flow_in_the_wrong_order_is_refused_with_the_task_that_only_comes_late
     skills = real_info(*{sk for _, sk, _ in tasks})
     found = flow_files.dependency_problems(chain(*tasks), skills)
     assert f"task {reader} reads {path}, which only a later task {later} writes: reorder the tasks" in found
+
+
+def test_a_project_flow_accepts_a_skill_the_project_lists_and_a_workbench_flow_never_does(tmp_path):
+    (tmp_path / "skills" / "demo-skill").mkdir(parents=True)
+    (tmp_path / "skills" / "demo-skill" / "SKILL.md").write_text("---\nname: demo-skill\n---\n")
+    data = {"flow": "tidy", "title": "Tidy", "tasks": [{"key": "a", "skill": "ops-tidy-notes", "title": "A", "text": "tidy."}]}
+    project = tmp_path / "project"
+    (project / "docs" / "workbench" / "flows").mkdir(parents=True)
+    (project / "docs" / "workbench" / "flows" / "tidy.json").write_text(json.dumps(data))
+    (tmp_path / "flows").mkdir()
+    (tmp_path / "flows" / "tidy-core.json").write_text(json.dumps(dict(data, flow="tidy-core")))
+    listing = project / "docs" / "workbench" / "runtime.json"
+    with pytest.raises(flow_files.FlowError, match="is not under skills/"):   # not listed: refused
+        flow_files.load("tidy", str(tmp_path), str(project))
+    listing.write_text(json.dumps({"imported_skills": {"home": "/outside/skills", "skills": {"ops-tidy-notes": {}}}}))
+    loaded = flow_files.load("tidy", str(tmp_path), str(project))
+    assert loaded["origin"] == "project" and loaded["tasks"][0]["skill"] == "ops-tidy-notes"
+    assert set(loaded["tasks"][0]) == {"key", "skill", "title", "text", "depends_on", "milestone"}   # nothing is added to the task
+    with pytest.raises(flow_files.FlowError, match="is not under skills/"):   # a flow of the workbench never accepts one
+        flow_files.load("tidy-core", str(tmp_path), str(project))
