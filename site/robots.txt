@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://openhora.dev/sitemap.xml

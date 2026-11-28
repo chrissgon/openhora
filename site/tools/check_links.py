@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""List the GitHub links of the site's pages that point at a path of the repository's main branch, and say which of them do not resolve.
+"""List the GitHub links of the site's pages and of its llms.txt that point at a path of the repository's main branch, and say which of them do not resolve.
 
-Every https://github.com/chrissgon/openhora/blob/main/<path> and /tree/main/<path> link in the href of a page is checked against the files
+Every https://github.com/chrissgon/openhora/blob/main/<path> and /tree/main/<path> link in the href of a page, or a Markdown link of llms.txt, is checked against the files
 of the repository: `git ls-files` of the checkout this tool is in, or a list of paths given with --files. Offline: nothing is fetched.
 A blob link must name a file; a tree link must name a folder (a path that some file lies under) or a file. A fragment (#L10) or a query is ignored.
 
@@ -20,6 +20,7 @@ from urllib.parse import unquote
 
 REPO_URL = "https://github.com/chrissgon/openhora"
 LINK = re.compile(r'''\bhref\s*=\s*["']''' + re.escape(REPO_URL) + r'''/(blob|tree)/main/([^"'#?]*)''')
+MD_LINK = re.compile(r'\]\(' + re.escape(REPO_URL) + r'/(blob|tree)/main/([^)#?\s]*)')
 
 
 def parse_args():
@@ -55,6 +56,10 @@ def main():
     for page in sorted(args.site.glob("*.html")):
         for kind, raw in LINK.findall(page.read_text(encoding="utf-8")):
             found.setdefault((kind, unquote(raw).strip("/")), set()).add(page.name)
+    llms = args.site / "llms.txt"
+    if llms.is_file():
+        for kind, raw in MD_LINK.findall(llms.read_text(encoding="utf-8")):
+            found.setdefault((kind, unquote(raw).strip("/")), set()).add("llms.txt")
     missing = 0
     lines = []
     for (kind, path), pages in sorted(found.items()):

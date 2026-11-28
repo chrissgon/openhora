@@ -11,6 +11,7 @@
 //      source.html of the archive), apart from the edits the hand-off itself orders (TEXT_EDITS below);
 //   3. at 1280 and 375 px wide, in light and in dark, no horizontal scroll appears: not on the page,
 //      and not in any element that scrolls sideways (a code block must wrap).
+//   4. beyond the hand-off: the claims picker keeps the page still (W4), the files for search engines (W6) and llms.txt (W3).
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -184,7 +185,7 @@ const TEXT_EDITS = {
 
 // ---------------------------------------------------------------- static server
 function serve() {
-  const types = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".json": "application/json", ".svg": "image/svg+xml", ".webp": "image/webp", ".woff2": "font/woff2", ".mjs": "text/javascript" };
+  const types = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".json": "application/json", ".svg": "image/svg+xml", ".webp": "image/webp", ".woff2": "font/woff2", ".mjs": "text/javascript", ".txt": "text/plain; charset=utf-8", ".xml": "application/xml; charset=utf-8" };
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://x");
     let rel = decodeURIComponent(url.pathname);
@@ -731,10 +732,10 @@ describe("headers: every page and the tour run under the deploy's Content-Securi
     assert.equal(HEADERS["X-Content-Type-Options"], "nosniff");
     assert.equal(HEADERS["Referrer-Policy"], "same-origin");
   });
-  test("no page has an inline script, an inline style element or an inline handler", () => {
+  test("no page has an inline script (a JSON-LD data block is not one), an inline style element or an inline handler", () => {
     for (const p of PAGES) {
       const html = fs.readFileSync(path.join(SITE, p.file), "utf8");
-      assert.ok(!/<script(?![^>]*\bsrc=)[^>]*>/i.test(html), `${p.file}: an inline script`);
+      assert.ok(!/<script(?![^>]*\bsrc=)(?![^>]*\btype="application\/ld\+json")[^>]*>/i.test(html), `${p.file}: an inline script`);
       assert.ok(!/<style[\s>]/i.test(html), `${p.file}: a style element`);
       assert.ok(!/\son[a-z]+\s*=/i.test(html.replace(/<pre[\s\S]*?<\/pre>/gi, "")), `${p.file}: an inline handler`);
     }
@@ -1040,10 +1041,10 @@ describe("text contrast, WCAG AA, light and dark (DEV-21, M-37)", () => {
     for (const mode of MODES) {
       await page.setup(WIDTHS[0], mode, { reduced: true });
       await page.goto(base + "/");
-      const n = await page.eval(`document.querySelectorAll(".claim > input").length`);
+      const n = await page.eval(`document.querySelectorAll(".claim-row > input").length`);
       assert.equal(n, 7);
       for (let i = 0; i < n; i++) {
-        await page.eval(`document.querySelectorAll(".claim > input")[${i}].click()`);
+        await page.eval(`document.querySelectorAll(".claim-row > input")[${i}].click()`);
         const r = await page.eval(CONTRAST);
         assert.deepEqual(r.fail, [], `home claim ${i + 1}, ${mode}: text pairs under AA`);
       }
@@ -1337,7 +1338,7 @@ describe("links and routes match the flows (DEV-20); GitHub links are checked by
   const CHECK = path.join(SITE, "tools", "check_links.py");
   const run = (args, cwd = SITE) => new Promise((resolve) => { const c = spawn("python3", [CHECK, ...args], { cwd }); let o = "", e = ""; c.stdout.on("data", (d) => (o += d)); c.stderr.on("data", (d) => (e += d)); c.on("close", (code) => resolve({ code, o, e })); });
 
-  test("every GitHub link of the pages names a path that this checkout has (tools/check_links.py reports none missing)", async () => {
+  test("every GitHub link of the pages and of llms.txt names a path that this checkout has (tools/check_links.py reports none missing)", async () => {
     const r = await run(["--only-missing"]);
     assert.equal(r.code, 0, r.o + r.e);
     assert.match(r.o, /SUMMARY\tchecked=\d+\tmissing=0/);
@@ -1360,6 +1361,18 @@ describe("links and routes match the flows (DEV-20); GitHub links are checked by
       assert.ok(lines.some((l) => l.startsWith("SUMMARY") && l.includes("checked=4") && l.includes("missing=2")), `summary line: ${r.o}`);
       const ok = await run(["--site", dir, "--files", path.join(dir, "files.txt"), "--only-missing"]);
       assert.ok(!/^OK/m.test(ok.o), "--only-missing lists no OK line");
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test("tools/check_links.py also reads llms.txt: its found and missing GitHub paths are listed under llms.txt, offline", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "links-llms-"));
+    try {
+      fs.writeFileSync(path.join(dir, "llms.txt"), "# x\n\n- [README.md](https://github.com/chrissgon/openhora/blob/main/README.md)\n- [gone](https://github.com/chrissgon/openhora/tree/main/nowhere)\n");
+      fs.writeFileSync(path.join(dir, "paths.txt"), "README.md\n");
+      const r = await run(["--site", dir, "--files", path.join(dir, "paths.txt")]);
+      assert.equal(r.code, 1, "exit code is 1 when a link is missing");
+      assert.match(r.o, /^OK\tblob\tREADME\.md\tllms\.txt$/m);
+      assert.match(r.o, /^MISSING\ttree\tnowhere\tllms\.txt$/m);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 });
@@ -1420,4 +1433,204 @@ describe("social preview", () => {
       }
     });
   }
+});
+
+// ---------------------------------------------------------------- the claims picker keeps the page still (W4, chrissgon/openhora#887)
+// A pick must not scroll the page: the picked claim stays where it was on the screen, at 1280 and 375 px, with motion on (smooth scrolling).
+// On the phone the artifact of the picked claim opens right below it, and an artifact that closes above it does not pull the page up.
+describe("home: picking a claim keeps the page where it is (W4)", () => {
+  const label = (k) => `document.querySelector('label.claim-row[for="claim-${k}"]')`;
+  const settle = async () => { let last = null, same = 0; for (let i = 0; i < 40 && same < 3; i++) { const y = await page.eval("scrollY"); same = y === last ? same + 1 : 0; last = y; await new Promise((r) => setTimeout(r, 100)); } };
+  const place = async (k) => { await page.eval(`(() => { const l = ${label(k)}; scrollTo({ top: l.getBoundingClientRect().top + scrollY - 160, behavior: "instant" }); })()`); await settle(); };
+  const pick = async (k) => {
+    const [x, y] = await page.eval(`(() => { const r = ${label(k)}.querySelector("h3").getBoundingClientRect(); return [r.left + Math.min(40, r.width / 2), r.top + r.height / 2]; })()`);
+    await page.mouseClick(x, y);
+    await settle();
+  };
+  const state = (k) => page.eval(`(() => { const l = ${label(k)}, a = document.getElementById("art-${k}"), i = document.getElementById("claim-${k}");
+    return { top: l.getBoundingClientRect().top, y: scrollY, checked: i.checked, ring: i.matches(":focus-visible"), shown: getComputedStyle(a).display !== "none",
+      gap: a.getBoundingClientRect().top - l.getBoundingClientRect().bottom }; })()`);
+
+  test("home claims: each radio is inside its own label, the first one checked", () => {
+    const html = read("index.html");
+    for (let k = 1; k <= 7; k++) assert.match(html, new RegExp(`<label class="claim-row" for="claim-${k}">\\s*<input type="radio" name="claim" id="claim-${k}" value="${k}"${k === 1 ? " checked" : ""} aria-controls="art-${k}">`), `claim ${k}`);
+    assert.equal((html.match(/<input type="radio" name="claim"/g) || []).length, 7);
+  });
+
+  for (const size of WIDTHS) {
+    test(`home claims at ${size.width} px: a pick keeps the picked claim in place, down the list and back up`, async () => {
+      await page.setup(size, "light");
+      await page.goto(base + "/");
+      for (const k of [2, 3, 4, 5, 6, 7, 5, 3, 1]) {
+        await place(k);
+        const before = await state(k);
+        await pick(k);
+        const after = await state(k);
+        assert.ok(after.checked, `claim ${k} at ${size.width} px: not picked`);
+        assert.ok(!after.ring, `claim ${k} at ${size.width} px: a mouse pick shows the focus ring`);
+        assert.ok(after.shown, `claim ${k} at ${size.width} px: its artifact is not shown`);
+        assert.ok(Math.abs(after.top - before.top) <= 2, `claim ${k} at ${size.width} px: the picked claim moved from ${before.top} to ${after.top}`);
+        if (size.mobile) assert.ok(after.gap >= -1 && after.gap <= 2, `claim ${k} at 375 px: the artifact does not open right below the claim (gap ${after.gap})`);
+        else assert.ok(Math.abs(after.y - before.y) <= 2, `claim ${k} at 1280 px: the page scrolled from ${before.y} to ${after.y}`);
+      }
+    });
+  }
+
+  test("home claims without script, at 1280 px: a pick does not scroll the page", async () => {
+    await page.setup(WIDTHS[0], "light");
+    await page.scripts(false);
+    try {
+      await page.goto(base + "/", { scripts: false });
+      for (const k of [6, 2]) {
+        await place(k);
+        const before = await state(k);
+        await pick(k);
+        const after = await state(k);
+        assert.ok(after.checked && after.shown, `claim ${k}: not picked`);
+        assert.ok(Math.abs(after.y - before.y) <= 2, `claim ${k}: the page scrolled from ${before.y} to ${after.y}`);
+      }
+    } finally { await page.scripts(true); }
+  });
+});
+
+// ---------------------------------------------------------------- the files for search engines (W6, chrissgon/openhora#889)
+describe("search engines (W6)", () => {
+  const ORIGIN = "https://openhora.dev";
+  const get = (route) => new Promise((resolve, reject) => http.get(base + route, (r) => { let b = ""; r.setEncoding("utf8"); r.on("data", (d) => (b += d)); r.on("end", () => resolve({ status: r.statusCode, type: r.headers["content-type"] || "", body: b })); }).on("error", reject));
+
+  test("robots.txt lets every crawler in, disallows nothing and names the sitemap", () => {
+    const lines = read("robots.txt").split("\n").map((l) => l.trim());
+    assert.ok(lines.includes("User-agent: *") && lines.includes("Allow: /"), "User-agent: * and Allow: /");
+    assert.deepEqual(lines.filter((l) => /^Disallow:\s*\S/i.test(l)), [], "nothing is disallowed: /demo/ is kept out by its noindex header, which a crawler must be allowed to read");
+    assert.ok(lines.includes(`Sitemap: ${ORIGIN}/sitemap.xml`));
+  });
+
+  test("sitemap.xml lists the canonical URL of each page, in the order of the navigation, and not /demo/ or the 404 page", () => {
+    const xml = read("sitemap.xml");
+    assert.ok(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'), "the XML declaration and the sitemap namespace");
+    assert.deepEqual([...xml.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1]), ROUTES.map((r) => ORIGIN + r));
+  });
+
+  test("every URL of the sitemap answers 200, and robots.txt, sitemap.xml and llms.txt are served with their type", async () => {
+    for (const m of read("sitemap.xml").matchAll(/<loc>([^<]*)<\/loc>/g)) assert.equal((await get(new URL(m[1]).pathname)).status, 200, m[1]);
+    for (const [route, type] of [["/robots.txt", "text/plain"], ["/sitemap.xml", "application/xml"], ["/llms.txt", "text/plain"]]) {
+      const r = await get(route);
+      assert.equal(r.status, 200, route);
+      assert.ok(r.type.startsWith(type), `${route} is served as ${r.type}`);
+    }
+  });
+
+  test("netlify.toml marks /demo/ noindex in a table of its own, and serves llms.txt as UTF-8 text", () => {
+    const tables = fs.readFileSync(path.join(REPO, "netlify.toml"), "utf8").split(/^\s*\[\[headers\]\]\s*$/m).slice(1);
+    const table = (p) => tables.filter((t) => new RegExp(`^\\s*for\\s*=\\s*"${p.replace(/[.*]/g, "\\$&")}"\\s*$`, "m").test(t));
+    const demo = table("/demo/*");
+    assert.equal(demo.length, 1, "one [[headers]] table for /demo/*");
+    assert.match(demo[0], /^\s*X-Robots-Tag\s*=\s*"noindex"\s*$/m);
+    assert.doesNotMatch(demo[0], /Content-Security-Policy/);
+    const llms = table("/llms.txt");
+    assert.equal(llms.length, 1, "one [[headers]] table for /llms.txt");
+    assert.match(llms[0], /^\s*Content-Type\s*=\s*"text\/plain; charset=utf-8"\s*$/m);
+  });
+
+  test("Home carries one JSON-LD block in its head, WebSite and SoftwareSourceCode, with only what the page states; no other page has one", () => {
+    const home = read("index.html");
+    const want = { "@context": "https://schema.org", "@graph": [
+      { "@type": "WebSite", name: "openhora", url: `${ORIGIN}/` },
+      { "@type": "SoftwareSourceCode", name: "openhora", description: home.match(/<meta name="description" content="([^"]*)">/)[1], url: `${ORIGIN}/`,
+        codeRepository: "https://github.com/chrissgon/openhora", license: "https://github.com/chrissgon/openhora/blob/main/LICENSE" }] };
+    for (const p of PAGES) {
+      const blocks = [...read(p.file).matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)];
+      if (p.file !== "index.html") { assert.equal(blocks.length, 0, `${p.file} has a JSON-LD block`); continue; }
+      assert.equal(blocks.length, 1, "index.html has one JSON-LD block");
+      assert.ok(blocks[0].index < home.indexOf("</head>"), "the block is in the head");
+      assert.deepEqual(JSON.parse(blocks[0][1]), want);
+    }
+    assert.ok(fs.existsSync(path.join(REPO, "LICENSE")), "the licence the block names exists");
+  });
+});
+
+// ---------------------------------------------------------------- llms.txt (W3, chrissgon/openhora#886)
+// site/llms.txt is written by hand (llmstxt.org format) and states nothing the pages do not state: a page's link text is its title and its
+// description its meta description; a differentiator's link text is its heading on Home; every other description and link text is found word
+// for word in the static text of a page, never inside a generated facts block (its figures change with each snapshot). tools/check_links.py
+// checks its GitHub links. A change of a page that this file quotes fails here: change the file with it.
+describe("llms.txt (W3)", () => {
+  const ORIGIN = "https://openhora.dev";
+  const REPO_URL = "https://github.com/chrissgon/openhora";
+  const ROUTE_FILE = { "/": "index.html", "/proof": "proof.html", "/first-steps": "first-steps.html", "/how-it-is-built": "how-it-is-built.html", "/interface": "interface.html", "/glossary": "glossary.html" };
+  const ENT = { nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', rarr: "\u2192" };
+  const decodeEntities = (s) => s.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&([a-z]+);/g, (m, n) => ENT[n] ?? m);
+  const norm = (s) => decodeEntities(s).replace(/\s+/g, " ").trim();
+  // Two readings of each page (tags removed, tags turned into spaces), so a sentence is found whether or not markup sits inside it, and its meta description.
+  const TEXTS = Object.values(ROUTE_FILE).flatMap((f) => {
+    const html = read(f).replace(/<!-- facts:begin ([a-z0-9-]+) -->[\s\S]*?<!-- facts:end \1 -->/g, "\u0001").replace(/<(script|style|template)\b[\s\S]*?<\/\1>/gi, "");
+    return [norm(html.replace(/<[^>]+>/g, "")), norm(html.replace(/<[^>]+>/g, " ")), norm((html.match(/<meta name="description" content="([^"]*)">/) || [, ""])[1])];
+  });
+  const titleOf = (f) => decodeEntities(read(f).match(/<title>(.*?)<\/title>/)[1]).replace(/ · openhora$/, "");
+  const metaOf = (f) => decodeEntities(read(f).match(/<meta name="description" content="([^"]*)">/)[1]);
+  const CLAIMS = Object.fromEntries([...read("index.html").matchAll(/<h3>([^<]+)<\/h3><p>(?:(?!<\/p>)[\s\S])*<\/p><a class="go" href="\/proof#([^"]+)"/g)].map((m) => [m[2], decodeEntities(m[1])]));
+  const LLMS = read("llms.txt");
+  const LINES = LLMS.split("\n");
+  const ITEM = /^- \[([^\]]+)\]\(([^)\s]+)\)(?:: (.+))?$/;
+  const ITEMS = LINES.map((l) => l.match(ITEM)).filter(Boolean).map(([, text, url, desc]) => ({ text, url, desc }));
+
+  test("llms.txt: an H1, the summary of Home, then only H2 headings and link items", () => {
+    assert.equal(Object.keys(CLAIMS).length, 7, "the seven claims of Home were read");
+    assert.equal(LINES[0], "# openhora");
+    const rest = LINES.slice(1).filter((l) => l.trim());
+    assert.equal(rest[0], "> " + metaOf("index.html"));
+    assert.deepEqual(rest.slice(1).filter((l) => !/^## \S/.test(l) && !ITEM.test(l)), [], "a line that is neither an H2 nor a link item (no free prose: every sentence is quoted from a page)");
+    assert.ok(LLMS.endsWith("\n") && !/[ \t]$/m.test(LLMS), "ends with a newline, no trailing spaces");
+  });
+
+  test("llms.txt: every page under its title with its meta description, and every differentiator under its heading on Home", () => {
+    const routes = new Set(), anchors = new Set(), bad = [];
+    for (const { text, url, desc } of ITEMS) {
+      if (!url.startsWith(ORIGIN + "/")) continue;
+      const [route, frag] = url.slice(ORIGIN.length).split("#");
+      const file = ROUTE_FILE[route];
+      if (!file) { bad.push(`${url}: not a page of the site`); continue; }
+      if (frag) {
+        if (!new RegExp(`\\sid="${frag}"`).test(read(file))) bad.push(`${url}: ${file} has no #${frag}`);
+        if (route === "/proof") { anchors.add(frag); if (CLAIMS[frag] !== text) bad.push(`${url}: the text is not the heading on Home, ${JSON.stringify(CLAIMS[frag])}`); }
+        continue;
+      }
+      routes.add(route);
+      if (text !== titleOf(file)) bad.push(`${url}: the text is not the page title ${JSON.stringify(titleOf(file))}`);
+      if (desc !== metaOf(file)) bad.push(`${url}: the description is not the page's meta description`);
+    }
+    assert.deepEqual(bad, []);
+    assert.deepEqual([...routes].sort(), Object.keys(ROUTE_FILE).sort(), "every page of the site");
+    assert.deepEqual([...anchors].sort(), Object.keys(CLAIMS).sort(), "the seven differentiators");
+    assert.ok(!ITEMS.some(({ url }) => /\/demo\b|404/.test(url)), "no link to /demo/ or to the 404 page");
+  });
+
+  test("llms.txt states nothing the pages do not state: every description and link text is quoted from a page, outside the generated blocks", () => {
+    const found = (s) => TEXTS.some((t) => t.includes(s));
+    const bad = [];
+    for (const { text, url, desc } of ITEMS) {
+      const gh = url.match(/^https:\/\/github\.com\/chrissgon\/openhora\/(?:blob|tree)\/main\/(.+)$/);
+      const isPath = gh && text.replace(/\/$/, "") === gh[1].replace(/\/$/, "");
+      if (!isPath && !found(text)) bad.push(`link text ${JSON.stringify(text)}`);
+      if (desc && !found(desc.replace(/`/g, ""))) bad.push(`description ${JSON.stringify(desc)}`);
+    }
+    assert.deepEqual(bad, [], "quote the page word for word, or drop the words; never reword or add");
+  });
+
+  test("llms.txt: every URL is the site, the repository, a heading of README.md or a repository path, and every path a code span names exists", () => {
+    const files = spawnSync("git", ["ls-files"], { cwd: REPO, encoding: "utf8" }).stdout.split("\n").filter(Boolean);
+    const folders = new Set(files.flatMap((f) => { const parts = f.split("/").slice(0, -1); return parts.map((_, i) => parts.slice(0, i + 1).join("/")); }));
+    const slugs = new Set([...fs.readFileSync(path.join(REPO, "README.md"), "utf8").matchAll(/^#{1,6} (.+)$/gm)].map((m) => m[1].trim().toLowerCase().replace(/[^\w\- ]/g, "").replace(/ /g, "-")));
+    const bad = [];
+    for (const { url, desc } of ITEMS) {
+      if (url.startsWith(REPO_URL + "#")) { if (!slugs.has(url.slice(REPO_URL.length + 1))) bad.push(`${url}: README.md has no such heading`); }
+      else if (!(url.startsWith(ORIGIN + "/") || url === REPO_URL || /^https:\/\/github\.com\/chrissgon\/openhora\/(blob|tree)\/main\/./.test(url))) bad.push(`${url}: not a URL of the site or of the repository`);
+      for (const span of (desc || "").matchAll(/`([^`]+)`/g)) for (const tok of span[1].split(/\s+/)) {
+        if (!tok.includes("/") || /^(<|-|https?:)/.test(tok)) continue;
+        const p = tok.replace(/\/$/, "");
+        if (!files.includes(p) && !folders.has(p)) bad.push(`${tok}: no such path in this checkout`);
+      }
+    }
+    assert.deepEqual(bad, []);
+  });
 });

@@ -425,11 +425,12 @@ code { overflow-wrap: anywhere; }
 .linkrow { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; font: 400 var(--fs-small)/1.5 var(--font-mono); }
 .ext::after { content: " \2197"; }
 
-/* ---------- the seven claims (pick one; CSS-only) ---------- */
+/* ---------- the seven claims (pick one; CSS-only; site.js keeps the picked claim still, W4) ---------- */
 .claims { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
 .claims-list { grid-column: 1; border-right: 1px solid var(--pui-border); }
 .claim { display: contents; }
-.claim > input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.claim-row > input { position: absolute; top: 22px; left: 24px; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.js .claims { overflow-anchor: none; }
 .claim-row { grid-column: 1; position: relative; display: grid; grid-template-columns: 3.25rem minmax(0, 1fr); gap: 0; padding: 22px 32px 22px 0; border-bottom: 1px solid var(--pui-border); border-right: 1px solid var(--pui-border); cursor: pointer; transition: background-color .2s ease; }
 .claim-row:hover { background: color-mix(in srgb, var(--pui-bg-muted) 60%, transparent); }
 .claim-row .idx { padding-left: 24px; font: 700 var(--fs-small)/1.9 var(--font-mono); color: var(--pui-text-muted); }
@@ -438,14 +439,14 @@ code { overflow-wrap: anywhere; }
 .claim-row .go { display: inline-block; margin-top: 10px; font: 400 .8125rem/1.5 var(--font-mono); }
 .claim-row .state { position: absolute; right: 24px; top: 24px; font: 700 .75rem/1 var(--font-mono); color: var(--pui-theme); opacity: 0; }
 .claim-row::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; background: var(--pui-theme); transform: scaleY(0); transform-origin: top; transition: transform .3s var(--ease); }
-.claim > input:checked + .claim-row { background: var(--pui-bg-muted); }
-.claim > input:checked + .claim-row::before { transform: scaleY(1); }
-.claim > input:checked + .claim-row h3 { color: var(--pui-text); }
-.claim > input:checked + .claim-row p { color: var(--pui-text); }
-.claim > input:checked + .claim-row .state { opacity: 1; }
-.claim > input:focus-visible + .claim-row { outline: 2px solid var(--site-focus-ring); outline-offset: -4px; }
+.claim-row:has(> input:checked) { background: var(--pui-bg-muted); }
+.claim-row:has(> input:checked)::before { transform: scaleY(1); }
+.claim-row:has(> input:checked) h3 { color: var(--pui-text); }
+.claim-row:has(> input:checked) p { color: var(--pui-text); }
+.claim-row:has(> input:checked) .state { opacity: 1; }
+.claim-row:has(> input:focus-visible) { outline: 2px solid var(--site-focus-ring); outline-offset: -4px; }
 .art { grid-column: 2; grid-row: 1 / span 8; align-self: start; position: sticky; top: calc(var(--site-header-height) + 24px); display: none; padding: 32px 48px 40px; }
-.claim > input:checked ~ .art { display: block; }
+.claim:has(> .claim-row > input:checked) > .art { display: block; }
 .art-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .art-head .label { color: var(--pui-text); }
 .art .stack-v { display: grid; gap: 14px; }
@@ -454,10 +455,10 @@ code { overflow-wrap: anywhere; }
 .art .glow { width: 360px; height: 280px; right: -40px; top: 40px; opacity: .55; z-index: -1; }
 .art .linkrow { padding-top: 14px; border-top: 1px dashed var(--pui-border); margin-top: 18px; }
 @media (prefers-reduced-motion: no-preference) {
-  .claim > input:checked ~ .art .term, .claim > input:checked ~ .art .anim { animation: rise .45s var(--ease) both; }
-  .claim > input:checked ~ .art .term + .term { animation-delay: .12s; }
-  .claim > input:checked ~ .art .typeline { animation: type .8s steps(var(--steps, 30)) .25s both; }
-  .claim > input:checked ~ .art .out { animation: rise .3s var(--ease) both; animation-delay: calc(1.1s + var(--i, 0) * 110ms); }
+  .claim:has(> .claim-row > input:checked) > .art .term, .claim:has(> .claim-row > input:checked) > .art .anim { animation: rise .45s var(--ease) both; }
+  .claim:has(> .claim-row > input:checked) > .art .term + .term { animation-delay: .12s; }
+  .claim:has(> .claim-row > input:checked) > .art .typeline { animation: type .8s steps(var(--steps, 30)) .25s both; }
+  .claim:has(> .claim-row > input:checked) > .art .out { animation: rise .3s var(--ease) both; animation-delay: calc(1.1s + var(--i, 0) * 110ms); }
 }
 
 /* claim 2: the hash check */
@@ -472,8 +473,8 @@ code { overflow-wrap: anywhere; }
 .scan { position: relative; }
 .scan::after { content: ""; position: absolute; inset: -2px -4px; border-radius: 4px; background: var(--theme-wash); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pui-theme) 45%, transparent); transform-origin: left; transform: scaleX(0); }
 @media (prefers-reduced-motion: no-preference) {
-  .claim > input:checked ~ .art .scan::after { animation: scan 1.3s cubic-bezier(.5,.1,.3,1) 1.1s both; }
-  .claim > input:checked ~ .art .verdict { animation: pop .4s var(--ease) 2.45s both; }
+  .claim:has(> .claim-row > input:checked) > .art .scan::after { animation: scan 1.3s cubic-bezier(.5,.1,.3,1) 1.1s both; }
+  .claim:has(> .claim-row > input:checked) > .art .verdict { animation: pop .4s var(--ease) 2.45s both; }
 }
 
 /* claim 7: the mode ladder */
@@ -491,8 +492,8 @@ code { overflow-wrap: anywhere; }
 .ladder .way.up b svg { color: var(--pui-theme); }
 .marker { position: absolute; left: 4px; width: 4px; border-radius: 2px; background: var(--pui-theme); }
 @media (prefers-reduced-motion: no-preference) {
-  .claim > input:checked ~ .art .ladder li.now { animation: demote 1.4s var(--ease) 1s both; }
-  .claim > input:checked ~ .art .ladder li.to { animation: promote 1.4s var(--ease) 1s both; }
+  .claim:has(> .claim-row > input:checked) > .art .ladder li.now { animation: demote 1.4s var(--ease) 1s both; }
+  .claim:has(> .claim-row > input:checked) > .art .ladder li.to { animation: promote 1.4s var(--ease) 1s both; }
 }
 
 /* ---------- closing ---------- */
