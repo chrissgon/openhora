@@ -401,7 +401,7 @@ def test_video_catalogue_lists_for_the_terminal_and_the_page_and_refuses_the_res
     assert {b["name"] for b in shown["blocks"] if b["addable"]} == {"oh:keyword", "oh:list", "oh:number", "oh:quote", "hf:count-up", "hf:spring-pop", "hf:testimonial-card",
                                                                         "hf:text-shimmer", "hf:char-slam-explode", "hf:lt-mask-reveal",
                                                                         "oh:mark", "oh:sticker", "oh:nametag",
-                                                                        "oh:cutaway", "oh:screenshot", "oh:pip", "oh:split", "oh:keyword-slab", "oh:focus-card"}      # P2c: the keyword slab is one more choice for the keyword preset; the three review-only blocks of V9a-1 are addable at review; the picture layouts since V9b-3a; the default engine is ffmpeg since PF-b, which draws pip and split
+                                                                        "oh:cutaway", "oh:screenshot", "oh:pip", "oh:split", "oh:keyword-slab", "oh:focus-card", "oh:title-card"}      # P2c: the keyword slab is one more choice for the keyword preset; the three review-only blocks of V9a-1 are addable at review; the picture layouts since V9b-3a; the default engine is ffmpeg since PF-b, which draws pip and split
     assert ops_media_catalogue.video_catalogue(world["path"], "terminal") == shown and ops_media_catalogue.video_catalogue(world["path"], "page") == shown
     assert ops.video_catalogue(world["path"]) == shown
     for channel in ("mcp", "messaging", "other"):

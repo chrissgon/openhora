@@ -11,6 +11,7 @@ import pytest
 import renderer_kit as K
 import _edl
 import _render
+import _vocab
 from _text import Refusal
 from _vocab import load_data, load_vocabulary
 from test_transitions_edl import beats_of, entry, synthetic_edl
@@ -41,8 +42,8 @@ def test_the_default_backdrop_is_blur_and_the_row_holds_the_entrys_final_frames(
     assert resolve([card("a1", 4, 9, backdrop="blur")])["blurs"] == tl["blurs"]
 
 
-@pytest.mark.parametrize("backdrop", ["solid", "none"])
-def test_solid_and_none_give_no_row_and_the_timeline_has_no_blurs_key(backdrop):
+@pytest.mark.parametrize("backdrop", ["none"])
+def test_none_gives_no_row_and_the_timeline_has_no_blurs_key(backdrop):
     tl = resolve([card("a1", 4, 9, backdrop=backdrop)])
     assert "blurs" not in tl and len(tl["beats"]) == 1
 
@@ -66,7 +67,7 @@ def test_a_beat_clipped_by_the_next_one_gives_the_clipped_frames_and_a_dropped_o
 
 def test_a_text_beat_with_a_backdrop_parameter_is_clipped_by_a_picture_and_its_row_follows():
     vocab = copy.deepcopy(VOCAB)
-    vocab["presets"]["list"]["params"]["backdrop"] = {"type": "choice", "values": ["blur", "solid", "none"], "default": "blur"}
+    vocab["presets"]["list"]["params"]["backdrop"] = {"type": "choice", "values": ["blur", "none"], "default": "blur"}
     tl = resolve([entry("a1", "cutaway", {"asset": "a1"}, 8, 10)], [entry("k1", "list", {"items": "One"}, 4, 12)], vocab=vocab)
     beats = {b["id"]: b for b in tl["beats"]}
     assert beats["k1"].get("clipped")
@@ -108,7 +109,7 @@ def test_the_committed_defaults_are_accepted_and_each_bound_is_refused():
 
 
 def test_the_choice_names_and_the_review_preset_agree():
-    assert _edl.BACKDROPS == ("blur", "solid", "none")
+    assert _edl.BACKDROPS == ("blur", "none")      # a solid colour was removed on 2026-11-28 (P4c)
     spec = VOCAB["presets"]["focus_card"]["params"]["backdrop"]
     assert tuple(spec["values"]) == _edl.BACKDROPS and spec["default"] == "blur"
     assert DATA["backdrop"]["blur"] == {"sigma": 40, "darken": 0.5, "saturation": 0.5}      # the maintainer's pick (P4-5, "Desfoque medio")
@@ -123,7 +124,7 @@ def test_the_renders_answer_names_each_blurred_span_and_only_then():
 
 def test_the_plan_of_a_render_has_a_blurs_key_only_when_a_beat_blurs():
     edl = synthetic_edl()
-    for layouts, expect in (([card("a1", 4, 9)], True), ([card("a1", 4, 9, backdrop="solid")], False), ([], False)):
+    for layouts, expect in (([card("a1", 4, 9)], True), ([card("a1", 4, 9, backdrop="none")], False), ([], False)):
         beats = beats_of(layouts=layouts)
         tl = _edl.resolve_timeline(edl, beats, VOCAB, DATA)
         plan = _render.compose_plan(DATA, edl, tl, {"a1": {"kind": "png", "width": 64, "height": 64}}, {}, "/in/rec")
@@ -165,7 +166,27 @@ def test_a_dry_run_with_a_card_names_the_blurred_span_and_draws_the_stage_and_on
     assert (card["preset"], card["block"]) == ("focus_card", "oh:focus-card") and (card["start_frame"], card["end_frame"]) == (row["start_frame"], row["end_frame"])
     graph = with_card["ffmpeg_argv"][with_card["ffmpeg_argv"].index("-filter_complex") + 1]
     assert "[bk_out]" in graph and "gblur=sigma=40:steps=3" in graph
-    solid = dry_run(kit_docs, tmp_path / "b", monkeypatch, {"backdrop": "solid"})
-    assert "blurs_drawn" not in solid and "bk_" not in " ".join(solid["ffmpeg_argv"])
+    sharp = dry_run(kit_docs, tmp_path / "b", monkeypatch, {"backdrop": "none"})
+    assert "blurs_drawn" not in sharp and "bk_" not in " ".join(sharp["ffmpeg_argv"])
     none = dry_run(kit_docs, tmp_path / "c", monkeypatch, {}, layouts=False)
     assert "blurs_drawn" not in none and "bk_" not in " ".join(none["ffmpeg_argv"])
+
+
+# ---------------------------------------------------------------- the solid colour was removed (2026-11-28, P4c)
+
+@pytest.mark.parametrize("preset,params", [("focus_card", {"asset": "a1"}), ("title_card", {"text": "Interest"})])
+def test_a_beats_file_asking_for_a_solid_backdrop_is_refused_with_the_closed_value_code_and_never_mapped(preset, params):
+    vocab_entry = VOCAB["presets"][preset]["params"]["backdrop"]
+    assert vocab_entry["values"] == ["blur", "none"] and vocab_entry["default"] == "blur"
+    err = refused(_edl.check_beats, beats_of(layouts=[entry("a1", preset, dict(params, backdrop="solid"), 4, 9)]), synthetic_edl(), VOCAB)
+    assert err.code == "bad_choice" and err.field.endswith(".params.backdrop")
+    for good in ("blur", "none"):
+        assert _vocab.check_params(VOCAB, preset, dict(params, backdrop=good))["backdrop"] == good
+    assert refused(_vocab.check_params, VOCAB, preset, dict(params, backdrop="solid")).code == "bad_choice"
+
+
+def test_a_title_card_blurs_by_default_and_a_none_backdrop_gives_no_row():
+    tl = resolve([entry("a1", "title_card", {"text": "Interest"}, 4, 9)])
+    (beat,) = tl["beats"]
+    assert tl["blurs"] == [{"id": "a1", "start_frame": beat["start_frame"], "end_frame": beat["end_frame"]}]
+    assert "blurs" not in resolve([entry("a1", "title_card", {"text": "Interest", "backdrop": "none"}, 4, 9)])

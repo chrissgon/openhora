@@ -1,0 +1,64 @@
+{
+ "schema_version": 1,
+ "name": "oh:title-card",
+ "kind": "layout",
+ "preset": "title_card",
+ "band": "frame",
+ "may_cross_face": true,
+ "license": [
+  "MIT"
+ ],
+ "source": "openhora",
+ "use_when": "one keyword the speaker says is shown large on a full-screen card, with the speaker's own shot behind it, blurred",
+ "params": {
+  "text": {
+   "type": "text",
+   "max": 40,
+   "required": true
+  },
+  "note": {
+   "type": "text",
+   "max": 60
+  },
+  "style": {
+   "type": "choice",
+   "values": [
+    "a",
+    "b",
+    "c"
+   ],
+   "default": "c"
+  },
+  "color": {
+   "type": "color"
+  },
+  "backdrop": {
+   "type": "choice",
+   "values": [
+    "blur",
+    "none"
+   ],
+   "default": "blur"
+  }
+ },
+ "samples": [
+  {
+   "text": "Interest"
+  },
+  {
+   "text": "Stop splitting every single purchase now",
+   "note": "Before you swipe the card",
+   "style": "b"
+  },
+  {
+   "text": "Promo\u00e7\u00e3o s\u00f3 hoje, j\u00e1!",
+   "note": "O que ningu\u00e9m te conta",
+   "style": "a",
+   "backdrop": "none"
+  }
+ ],
+ "natural_duration": 2.0,
+ "implementations": {
+  "renderat": "renderat.html"
+ }
+}

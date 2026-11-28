@@ -9,7 +9,7 @@
   "MIT"
  ],
  "source": "openhora",
- "use_when": "one short phrase the speaker says should stand out, with a drawn underline, circle or arrow",
+ "use_when": "one short phrase the speaker says should stand out, with a drawn underline, circle, arrow, X or strike",
  "params": {
   "text": {
    "type": "text",
@@ -22,6 +22,8 @@
     "underline",
     "circle",
     "arrow",
+    "cross",
+    "strike",
     "none"
    ],
    "default": "underline"
@@ -43,6 +45,15 @@
   {
    "text": "Start here",
    "mark": "arrow"
+  },
+  {
+   "text": "Pay in full",
+   "mark": "cross"
+  },
+  {
+   "text": "The old way",
+   "mark": "strike",
+   "color": "accent"
   }
  ],
  "natural_duration": 1.2,

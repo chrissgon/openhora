@@ -25,7 +25,8 @@
     "bulb",
     "question",
     "exclaim",
-    "eye"
+    "eye",
+    "cross"
    ],
    "required": true
   },
@@ -51,6 +52,9 @@
    "glyph": "question",
    "side": "left",
    "color": "accent"
+  },
+  {
+   "glyph": "cross"
   }
  ],
  "natural_duration": 0.8,

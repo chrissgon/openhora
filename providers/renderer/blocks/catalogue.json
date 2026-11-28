@@ -460,7 +460,6 @@
      "type": "choice",
      "values": [
       "blur",
-      "solid",
       "none"
      ]
     },
@@ -493,7 +492,7 @@
     },
     {
      "asset": "slot-1",
-     "backdrop": "solid",
+     "backdrop": "none",
      "label": "A small picture",
      "stamp": "check"
     }
@@ -644,6 +643,8 @@
       "underline",
       "circle",
       "arrow",
+      "cross",
+      "strike",
       "none"
      ]
     },
@@ -670,10 +671,19 @@
     {
      "mark": "arrow",
      "text": "Start here"
+    },
+    {
+     "mark": "cross",
+     "text": "Pay in full"
+    },
+    {
+     "color": "accent",
+     "mark": "strike",
+     "text": "The old way"
     }
    ],
    "source": "openhora",
-   "use_when": "one short phrase the speaker says should stand out, with a drawn underline, circle or arrow"
+   "use_when": "one short phrase the speaker says should stand out, with a drawn underline, circle, arrow, X or strike"
   },
   {
    "band": "card",
@@ -987,7 +997,8 @@
       "bulb",
       "question",
       "exclaim",
-      "eye"
+      "eye",
+      "cross"
      ]
     },
     "side": {
@@ -1013,13 +1024,83 @@
      "color": "accent",
      "glyph": "question",
      "side": "left"
+    },
+    {
+     "glyph": "cross"
     }
    ],
    "source": "openhora",
    "use_when": "a drawn symbol pops beside the speaker's point"
+  },
+  {
+   "band": "frame",
+   "engines": [
+    "ffmpeg"
+   ],
+   "kind": "layout",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": true,
+   "name": "oh:title-card",
+   "namespace": "oh",
+   "natural_duration": 2.0,
+   "params": {
+    "backdrop": {
+     "default": "blur",
+     "type": "choice",
+     "values": [
+      "blur",
+      "none"
+     ]
+    },
+    "color": {
+     "type": "color"
+    },
+    "note": {
+     "max": 60,
+     "type": "text"
+    },
+    "style": {
+     "default": "c",
+     "type": "choice",
+     "values": [
+      "a",
+      "b",
+      "c"
+     ]
+    },
+    "text": {
+     "max": 40,
+     "required": true,
+     "type": "text"
+    }
+   },
+   "preset": "title_card",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "text": "Interest"
+    },
+    {
+     "note": "Before you swipe the card",
+     "style": "b",
+     "text": "Stop splitting every single purchase now"
+    },
+    {
+     "backdrop": "none",
+     "note": "O que ningu\u00e9m te conta",
+     "style": "a",
+     "text": "Promo\u00e7\u00e3o s\u00f3 hoje, j\u00e1!"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "one keyword the speaker says is shown large on a full-screen card, with the speaker's own shot behind it, blurred"
   }
  ],
- "blocks_sha256": "0daff9f2bcbe699694b8cbefb6273f6b2fffc6765c1145b474b4dea7ef503a91",
+ "blocks_sha256": "30fde1e660e9f6cc68a96e6c274788288a39a4b1a1a5308079f990ca3552cbe5",
  "engines": {
   "ffmpeg": {
    "presets": {
@@ -1035,7 +1116,8 @@
     "pip": "oh:pip",
     "quote": "hf:testimonial-card",
     "split": "oh:split",
-    "sticker": "oh:sticker"
+    "sticker": "oh:sticker",
+    "title_card": "oh:title-card"
    },
    "runtimes": [
     "renderat",

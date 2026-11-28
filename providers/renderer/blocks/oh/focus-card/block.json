@@ -32,7 +32,6 @@
    "type": "choice",
    "values": [
     "blur",
-    "solid",
     "none"
    ],
    "default": "blur"
@@ -51,7 +50,7 @@
    "asset": "slot-1",
    "label": "A small picture",
    "stamp": "check",
-   "backdrop": "solid"
+   "backdrop": "none"
   }
  ],
  "natural_duration": 1.5,

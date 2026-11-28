@@ -19,6 +19,9 @@ html, body { margin:0; padding:0; background:transparent; width:1080px; height:1
 'use strict';
 // One drawn symbol pops in beside the speaker's point, inside the band the face box leaves above it (data.zones.card = [top, bottom]). The
 // twelve glyphs are paths written here: no font and no image is loaded. The side sets its centre (150, 540 or 930 px) and its fixed tilt.
+// The thirteenth glyph, `cross` (P4c, the maintainer's pick of P4-6), is not an icon: a big X alone, two diagonals with round caps, `half` px from its centre
+// (`CX`, `CY`), `stroke` px wide, under a white outline and a dark one, tilted `tilt` degrees; it pops in over `pop` s (ease-out-back, `overshoot`) and, over the
+// last `exit` s, shrinks to 0.65 and fades. It ignores the side and the band: it is drawn over the whole frame, over the speaker's face too (2026-11-24: nothing is refused for that).
 // The symbol is at most 220 px and never taller than the band allows, so the pop's overshoot stays inside it. The driver measures the
 // element marked data-zone and fails the render when it touches the face box. Pure function of (t, data): every style is set here.
 function col(v) { return v.charAt(0) === '#' ? v : 'var(--c-' + v + ')'; }
@@ -27,6 +30,7 @@ function easeInCubic(x) { return x * x * x; }
 function clamp(x) { return Math.max(0, Math.min(1, x)); }
 const SIZE = 220;
 const BAND_SHARE = 0.7;   // the share of the band the symbol fills at rest: the overshoot (about 10 percent) and the tilt then stay inside the band
+const CROSS = { cx: 540, cy: 820, half: 230, stroke: 120, tilt: -7, pop: 0.3, overshoot: 2.2, exit: 0.22, white: 138, dark: 156, shrink: 0.65 };
 const SIDES = { left: { x: 150, tilt: -8 }, center: { x: 540, tilt: 0 }, right: { x: 930, tilt: 8 } };
 const ICONS = {
   'check': [['path', { d: 'M4 12.5l5 5L20 6.5', fill: 'none', 'stroke-width': 3 }]],
@@ -56,11 +60,41 @@ function icon(svg, name, color) {
     svg.appendChild(el);
   });
 }
+// The cross: a full-frame svg whose group is moved, tilted and scaled about the X's centre; three strokes, the outlines first.
+function drawCross(svg, color, t, duration) {
+  const NS = 'http://www.w3.org/2000/svg';
+  svg.replaceChildren();
+  svg.setAttribute('viewBox', '0 0 1080 1920');
+  svg.setAttribute('width', '1080');
+  svg.setAttribute('height', '1920');
+  svg.style.left = '0px';
+  svg.style.top = '0px';
+  svg.style.transform = 'none';
+  svg.style.filter = 'none';
+  svg.style.fill = 'none';
+  const g = document.createElementNS(NS, 'g');
+  const out = clamp((duration - t) / CROSS.exit);
+  const pop = easeOutBack(clamp(t / CROSS.pop), CROSS.overshoot);
+  g.setAttribute('transform', 'translate(' + CROSS.cx + ' ' + CROSS.cy + ') rotate(' + CROSS.tilt + ') scale(' + (pop * (CROSS.shrink + (1 - CROSS.shrink) * out)).toFixed(4) + ')');
+  const d = 'M ' + (-CROSS.half) + ' ' + (-CROSS.half) + ' L ' + CROSS.half + ' ' + CROSS.half + ' M ' + CROSS.half + ' ' + (-CROSS.half) + ' L ' + (-CROSS.half) + ' ' + CROSS.half;
+  [['var(--c-bg)', CROSS.dark], ['#FFFFFF', CROSS.white], [color, CROSS.stroke]].forEach(function (s) {
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    path.style.stroke = s[0];
+    path.setAttribute('stroke-width', String(s[1]));
+    path.setAttribute('stroke-linecap', 'round');
+    g.appendChild(path);
+  });
+  svg.appendChild(g);
+  svg.style.opacity = out.toFixed(3);
+}
 window.renderAt = function (t, data) {
   const P = data.params;
   const z = data.zones.card;
   const bandH = z[1] - z[0];
   const svg = document.getElementById('st');
+  if (P.glyph === 'cross') { svg.dataset.zone = 'card'; drawCross(svg, col(P.color || 'accent'), t, data.duration); return; }
   const side = SIDES[P.side || 'right'];
   const size = Math.min(SIZE, bandH * BAND_SHARE);
   icon(svg, P.glyph, col(P.color || 'accent'));
