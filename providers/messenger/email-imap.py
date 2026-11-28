@@ -86,6 +86,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from datetime import datetime, timezone
 from email import message_from_bytes, policy
 from email.parser import BytesParser
@@ -115,6 +116,7 @@ CHILD_SLOW, CHILD_UNREADABLE, CHILD_NO_PART = 3, 4, 6  # exit codes of the child
 FILES_MAX = 10                     # files of a message that are listed (the bridge's ATTACHMENTS_MAX)
 PARTS_MAX = 200                    # MIME parts visited at most when the files are looked for
 FILE_NAME_MAX = 1024               # characters of a file name kept
+FILE_TYPE_MAX = 127                # characters of a part's media type kept (a longer one is null: a part's headers are not bounded by HEADER_VALUE_MAX)
 REF = re.compile(r"([1-9][0-9]{0,9}):([1-9][0-9]{0,9}):([1-9][0-9]?)")      # <uidvalidity>:<uid>:<file number>, full match
 TEXT_SECONDS = 3.0                 # the budget of the child that makes the text of a message
 TEXT_PART_MAX = 200_000            # characters of a text part that are read
@@ -504,8 +506,10 @@ def text_and_forward_in_child(raw: bytes):
         found = json.loads(done.stdout.decode("utf-8"))
         text, forwarded, files = found["text"], found["forwarded"], found["files"]
         if not isinstance(text, str) or not isinstance(forwarded, bool) or not isinstance(files, list) or len(files) > FILES_MAX \
-                or not all(isinstance(f, dict) and set(f) == {"part", "name", "type", "size"} and type(f["part"]) is int and type(f["size"]) is int
-                           and (f["name"] is None or isinstance(f["name"], str)) and isinstance(f["type"], str) for f in files):
+                or not all(isinstance(f, dict) and set(f) == {"part", "name", "type", "size"} and type(f["part"]) is int and 1 <= f["part"] <= FILES_MAX
+                           and type(f["size"]) is int and f["size"] >= 0
+                           and (f["name"] is None or (isinstance(f["name"], str) and len(f["name"]) <= FILE_NAME_MAX))
+                           and (f["type"] is None or (isinstance(f["type"], str) and len(f["type"]) <= FILE_TYPE_MAX)) for f in files):
             raise ValueError("not the shape of the child's answer")
     except (KeyError, TypeError, UnicodeDecodeError):
         raise ValueError("the child's answer is not the shape it writes") from None
@@ -595,12 +599,24 @@ def message_parts(msg):
     return found
 
 
+def clean_file_name(named):
+    """A file name as the bridge keeps one (runtime/messaging_provider.py `clean_attachment_name`, copied here: a provider imports nothing of the runtime):
+    control, format, separator, surrogate, private-use and unassigned characters become a space, so does any invisible mark of EXTRA_INVISIBLE, white space is
+    collapsed, only the last path component is kept (`/` and `\\`), at most FILE_NAME_MAX characters; None for none or for a name that leaves nothing."""
+    if not named:
+        return None
+    text = EXTRA_INVISIBLE.sub("", str(named)[:4 * FILE_NAME_MAX])
+    text = "".join(" " if unicodedata.category(c) in ("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp") else c for c in text)
+    text = " ".join(text.replace("\\", "/").split("/")[-1].split())
+    return text[:FILE_NAME_MAX] or None
+
+
 def message_file_parts(msg) -> list:
     """[(file, part)] for the files of a message, as `message_files` lists them: the one function numbers the files for the update and for the fetch.
     A file is `{"part": <1-based number among the files>, "name", "type", "size"}`, at most FILES_MAX, in order. A part is a file
     when it is not multipart, is not under an attached message, is not the part taken as the text of the message (the plain or the HTML body), and either
     has the disposition `attachment`, or has a name and no Content-ID (an inline PDF with a name is one; a signature image that the text points to with
-    `cid:` is not). `size` is that of the decoded bytes; `name` has control and invisible characters removed and is cut to FILE_NAME_MAX, null when empty
+    `cid:` is not). `size` is that of the decoded bytes; `name` is cleaned as the bridge cleans one (clean_file_name) and cut to FILE_NAME_MAX, null when empty
     or unreadable. Runs in the child, where a part of a hostile message can take minutes to read."""
     bodies = [msg.get_body(preferencelist=("plain",)), msg.get_body(preferencelist=("html",))]
     files = []
@@ -614,8 +630,9 @@ def message_file_parts(msg) -> list:
             named = None
         if not (disposition == "attachment" or (bool(named) and part.get("Content-ID") is None)):
             continue
-        name = EXTRA_INVISIBLE.sub("", CONTROLS.sub("", str(named)))[:FILE_NAME_MAX] if named else None
-        files.append(({"part": len(files) + 1, "name": name or None, "type": part.get_content_type(), "size": len(part.get_payload(decode=True) or b"")}, part))
+        name = clean_file_name(named)
+        kind = part.get_content_type()
+        files.append(({"part": len(files) + 1, "name": name, "type": kind if len(kind) <= FILE_TYPE_MAX else None, "size": len(part.get_payload(decode=True) or b"")}, part))
         if len(files) >= FILES_MAX:
             break
     return files

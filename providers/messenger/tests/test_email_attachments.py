@@ -149,9 +149,50 @@ def test_a_name_with_control_and_invisible_characters_is_cleaned_and_an_rfc_2231
     update = listed(mime([file_part(params="filename*=utf-8''Zurich%20plan.pdf"),
                           file_part(params="filename*=utf-8''a%01b%C2%85c%EF%B8%8Fd.pdf"),
                           file_part(params="filename*=utf-8''%01%EF%B8%8F"),
-                          file_part(params="filename*=utf-8''" + "n" * 3000)]))
+                          file_part(params="filename*=utf-8''" + "n" * 3000),
+                          file_part(params="filename*=utf-8''line%0Aone%E2%80%AEfdp.exe"),
+                          file_part(params="filename*=utf-8''..%2F..%2Fetc%2Fpasswd"),
+                          file_part(params="filename*=utf-8''C%3A%5CUsers%5Cx%5Cplan.pdf"),
+                          file_part(params="filename*=utf-8''a%E2%80%A8b%20%20%09c.pdf")]))
     names = [f["name"] for f in update["attachments"]]
-    assert names[:3] == ["Zurich plan.pdf", "abcd.pdf", None] and len(names[3]) == provider.FILE_NAME_MAX
+    assert names[:3] == ["Zurich plan.pdf", "a b cd.pdf", None] and len(names[3]) == provider.FILE_NAME_MAX
+    assert names[4] == "line one fdp.exe", "a line break and a bidirectional override become a space"
+    assert names[5] == "passwd" and names[6] == "plan.pdf", "only the last path component is kept"
+    assert names[7] == "a b c.pdf"
+    clean = mp.clean_attachment_name
+    assert all(clean(n) == n for n in names if n), "the bridge would change none of them"
+
+
+def test_a_part_type_over_127_characters_is_sent_as_null_and_a_hostile_part_header_never_reaches_the_update_line():
+    big = "application/" + "a" * 400_000
+    data = mime([file_part(ctype=big), file_part(PDF, "Ok.pdf")])
+    assert len(data) < provider.MAX_SIZE
+    update = listed(data)
+    assert [(f["name"], f["type"]) for f in update["attachments"]] == [("Q3 plan.pdf", None), ("Ok.pdf", "application/pdf")]
+    assert len(json.dumps(update)) < 4000
+    assert mp.valid_update(update) is not None
+    assert len(listed(mime([file_part(ctype="application/" + "a" * 115)]))["attachments"][0]["type"]) == 127
+
+
+@pytest.mark.parametrize("file", [
+    {"part": 0, "name": None, "type": "a/b", "size": 1}, {"part": 11, "name": None, "type": "a/b", "size": 1},
+    {"part": True, "name": None, "type": "a/b", "size": 1}, {"part": 1, "name": "n" * 1025, "type": "a/b", "size": 1},
+    {"part": 1, "name": None, "type": "a/" + "b" * 126, "size": 1}, {"part": 1, "name": None, "type": "a/b", "size": -1},
+    {"part": 1, "name": None, "type": 5, "size": 1}, {"part": 1, "name": None, "type": "a/b", "size": 1, "extra": 1}])
+def test_the_parent_refuses_a_child_answer_whose_file_is_out_of_bounds(monkeypatch, file):
+    class Done:
+        returncode = 0
+        stdout = json.dumps({"text": "x", "forwarded": False, "files": [file]}).encode()
+    monkeypatch.setattr(provider.subprocess, "run", lambda *a, **k: Done)
+    assert inspect(mime([file_part()])) == (None, "unparsable")
+
+
+def test_a_file_in_a_nested_multipart_is_listed_and_one_in_an_attached_message_is_not():
+    nested = ['Content-Type: multipart/mixed; boundary="B3"', "", "--B3", *file_part(PDF, "Deep.pdf"), "--B3--"]
+    deeper = ['Content-Type: multipart/mixed; boundary="B4"', "", "--B4", "Content-Type: text/plain", "", "x", "--B4", *nested, "--B4--"]
+    update = listed(mime([nested, file_part(DOCX, "Top.docx", "application/octet-stream"), deeper, inner_message(file_part(PDF, "Inner.pdf"))]))
+    assert [f["name"] for f in update["attachments"]] == ["Deep.pdf", "Top.docx", "Deep.pdf"] and update["forwarded"] is True
+    assert provider.part_in_child(mime([nested]), 1) == PDF
 
 
 def test_a_part_with_no_name_that_is_an_attachment_is_a_file_with_name_null():
