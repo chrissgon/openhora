@@ -23,8 +23,7 @@ PREVIOUS_SCOPES once both accounts carry the five.
   check_platform_scope    a token response (the authorization and every refresh) must carry exactly the five (or, for a provider that does not
                           read tasks, exactly the four); a refresh that omits `scope` is accepted only when the record's stored scope is one of them
   parse_account_record    the one JSON record (slot, refresh token, client, scope, account, date) of the secret GOOGLE_ACCOUNT_TOKEN
-  load_account_record     the account record first, a provider's legacy record (its old exact rule) when the account record is absent, with
-                          one warning on stderr per process when the legacy one was used
+  load_account_record     the account record, or `error` (exit 3) with the authorize command named when there is none
   token_request, refresh_access_token   the token endpoint (the only POST this module sends), OAuth errors mapped to exit codes
   get_json                one GET with a bearer token to a checked address (the profile, at authorization)
   hold, scrub             every credential this process held is replaced by <hidden> in any text a provider prints
@@ -74,9 +73,8 @@ CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 ADDRESS_RE = re.compile(r"[^@\s]{1,64}@[^@\s]{1,253}")
 
 _SECRET_VALUES = []   # every credential this process held: replaced by <hidden> in any text before it is printed
-_WARNED = set()       # the legacy usernames already warned about in this process
 
-Loaded = namedtuple("Loaded", "record source legacy")   # legacy: the username of the legacy record that served, or None for the account record
+Loaded = namedtuple("Loaded", "record source")
 
 
 class AccountError(Exception):
@@ -162,7 +160,7 @@ def parse_account_record(text, error=AccountError) -> dict:
         record = None
     if not isinstance(record, dict) or not all(isinstance(record.get(k), str) and record[k] for k in RECORD_TEXTS):
         raise error(f"the stored Google account authorization ({SECRET}, store username {KEYRING_USERNAME}) is unreadable or incomplete; "
-                    f"no older record takes its place; run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
+                    f"run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
     for key in RECORD_TEXTS:
         if any(ch.isspace() or not ch.isprintable() for ch in record[key]):
             raise error(f"the Google account authorization ({SECRET}, store username {KEYRING_USERNAME}) holds a {key} with whitespace or "
@@ -192,50 +190,24 @@ def check_slot(slot, error=AccountError) -> str:
 def find_account_record(resolver, test_mode, slot=MAIN_SLOT, error=AccountError):
     """(the record's JSON text, where it was found) through the secret resolver, or None when the record is ABSENT. The slot main is
     GOOGLE_ACCOUNT_TOKEN. A record that is there and cannot be read now (the OS secret store is locked or unavailable, the credentials
-    directory or its file is not safe: any state but "missing") is not absent: `error` (exit 3) with the lookup's own detail, and no
-    legacy record takes its place."""
+    directory or its file is not safe: any state but "missing") is not absent: `error` (exit 3) with the lookup's own detail,."""
     check_slot(slot, error)
     found = resolver.resolve_state(SECRET, allow_store=not test_mode)
     if found.state == "found":
         return found.value, found.source
     if found.state != "missing":
         raise error(f"the Google account authorization ({SECRET}, store username {KEYRING_USERNAME}) cannot be read ({found.state}): "
-                    f"{one_line(found.detail, 300) or 'no detail'}; no older record takes its place", EXIT_NOT_CONFIGURED)
+                    f"{one_line(found.detail, 300) or 'no detail'}", EXIT_NOT_CONFIGURED)
     return None
 
 
-def legacy_warning(username) -> None:
-    """One line on stderr, once per process and username, when a provider used its old record."""
-    if username in _WARNED:
-        return
-    _WARNED.add(username)
-    print(f"warning: using the legacy record {username}; run {AUTH_COMMAND} to move to the account token", file=sys.stderr)
-
-
-def load_account_record(resolver, test_mode, slot=MAIN_SLOT, legacy=None, error=AccountError) -> Loaded:
-    """The record a Google provider signs in with: the account record when there is one (an unreadable one is an error, not a reason to fall
-    back: the legacy record is used only when the account record is ABSENT, and which record served is decided by the secret it was found
-    under), else the provider's legacy record, else `error` (exit 3).
-
-    `legacy` is (username, loader, command) of that provider (`command`: the authorize command of its legacy record, named in the message
-    when nothing is found): loader() returns (record, source) in the same shape as an account record (refresh_token,
-    client_id, client_secret, and whatever else the provider keeps), None when its old record is absent, and raises `error` when it is present
-    but unusable. The legacy path keeps the provider's old exact scope check: the caller knows which record served from `Loaded.legacy`."""
+def load_account_record(resolver, test_mode, slot=MAIN_SLOT, error=AccountError) -> Loaded:
+    """The record a Google provider signs in with: the account record, or `error` (exit 3) when there is none. A record that is there and
+    cannot be read now is an error of its own, with the lookup's detail (find_account_record)."""
     found = find_account_record(resolver, test_mode, slot, error)
     if found:
-        return Loaded(parse_account_record(found[0], error), found[1], None)
-    legacy_command = ""
-    if legacy is not None:
-        username, loader, command = legacy
-        legacy_command = f" (or, for the legacy record of this provider, run {command})"
-        got = loader()
-        if got is not None:
-            record, source = got
-            hold(*(record.get(k) for k in RECORD_TEXTS))
-            legacy_warning(username)
-            return Loaded(record, source, username)
-    raise error(f"no Google account authorization: run {AUTH_COMMAND}{legacy_command}, or export {SECRET} (the JSON record)",
-                EXIT_NOT_CONFIGURED)
+        return Loaded(parse_account_record(found[0], error), found[1])
+    raise error(f"no Google account authorization: run {AUTH_COMMAND}, or export {SECRET} (the JSON record)", EXIT_NOT_CONFIGURED)
 
 
 # --- the token endpoint --------------------------------------------------------------------------------------------------------

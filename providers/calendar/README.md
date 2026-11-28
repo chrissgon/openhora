@@ -4,43 +4,17 @@ Implementations of the `integration:calendar` class: the calendars of the person
 
 A calendar enters the task runtime as a **snapshot**: the runtime calls this provider on the machine, records a dated, scanned, immutable version of what it printed, and a task is given that version, never a live read. That is the runtime's package (RT-1), not this folder's. This provider only reads and prints; nothing in it writes to a calendar.
 
-## Google Calendar (`google.py`, `google_auth.py`)
+## Google Calendar (`google.py`)
 
-Reads Google Calendar through the Calendar API with two scopes, both read only, and nothing else:
+Reads Google Calendar through the Calendar API, signed in with the account token of the person's Google account. The provider's verbs read only: the list of calendars and the events of one calendar in a window.
 
-| Scope | Google's description | Used for |
-|---|---|---|
-| `https://www.googleapis.com/auth/calendar.events.readonly` | "View events on all your calendars" | the events of one calendar |
-| `https://www.googleapis.com/auth/calendar.calendarlist.readonly` | "See the list of Google calendars you're subscribed to" | the list of calendars, to choose one |
+**The account token (decision of 2026-10-18).** `google.py` signs in with the account token of the person's Google account: one record, one consent for Gmail, Calendar and Drive, carrying the platform's four scopes (`gmail.modify`, `calendar.events`, `calendar.calendarlist.readonly`, `drive`), made once by `uv run <workbench>/providers/accounts/google_auth.py authorize` (secret `GOOGLE_ACCOUNT_TOKEN`, username `google-account`; `providers/accounts/README.md` has the consent, the revocation and the sources). The token can do everything those scopes allow, including creating and changing events, and that is accepted: the restriction is the platform's (policies, an effect card of the exact content for every write, the verbs a script exposes, no token in a run), and **this script's verbs are unchanged and send GET only** (a test fails on any other method; `calendar.events` covers `events.list` and `calendar.calendarlist.readonly` covers the list). A token that lacks one of the four scopes or carries another is refused (exit 3, naming the command); `--check` then prints `"record": "account"` and the four scopes.
 
-Together they are narrower than `calendar.readonly` ("See and download any calendar you can access"), which also reads the properties of the calendars. Narrower still is `calendar.events.owned.readonly` ("events on Google calendars you own"), which drops the calendars shared with the person; it was not chosen because a shared family or team calendar is a normal thing to read. Source: [Choose Google Calendar API scopes](https://developers.google.com/workspace/calendar/api/auth), accessed 2026-10-17.
-
-**What the token can do.** Both scopes read every event of every calendar the account can see, and the list of calendars. Neither changes anything. The narrowing to one calendar and one window is the provider's and the runtime's, not the service's: a leaked token reads the whole calendar. The provider refuses (exit 3, nothing read) a token whose reported scope is not exactly these two, so a wider token, a narrower one, or one that reports no scope is a setup error to fix, not a token to use.
-
-**Separate from Gmail.** Google does not support incremental authorization for installed apps ([OAuth 2.0 for iOS and desktop apps](https://developers.google.com/identity/protocols/oauth2/native-app), accessed 2026-10-17), so a token carries the scopes of its own consent. This provider's record (`calendar-google`, the secret `GOOGLE_CALENDAR_TOKEN`) is separate from the Gmail one (`mailbox-gmail`) and asks only for the two calendar scopes: it cannot read mail even when the Desktop app client is the one used for Gmail. That the calendar token cannot be made to carry a Gmail scope is documented behaviour, not yet measured here (see "To verify on first use").
-
-**The account token (decision of 2026-10-18).** `google.py` signs in first with the account token of the person's Google account: one record, one consent for Gmail, Calendar and Drive, carrying the platform's four scopes (`gmail.modify`, `calendar.events`, `calendar.calendarlist.readonly`, `drive`), made once by `uv run <workbench>/providers/accounts/google_auth.py authorize` (secret `GOOGLE_ACCOUNT_TOKEN`, username `google-account`; `providers/accounts/README.md` has the consent, the revocation and the sources). It replaces the separate record described above ("Separate from Gmail"), which is now the legacy one. The token can do everything those scopes allow, including creating and changing events, and that is accepted: the restriction is the platform's (policies, an effect card of the exact content for every write, the verbs a script exposes, no token in a run), and **this script's verbs are unchanged and send GET only** (a test fails on any other method; `calendar.events` covers `events.list` and `calendar.calendarlist.readonly` covers the list). A token that lacks one of the four scopes or carries another is refused (exit 3, naming the command); `--check` then prints `"record": "account"` and the four scopes. Only when no account record exists does it read the legacy record, with its old exact two-scope rule and a warning on stderr, once per process. The legacy record and `google_auth.py` are removed in the cycle after the integration branch reaches `main` (backlog ACCT-LEGACY). The setup below is the legacy one.
+Until 2026-11-28 this provider also read a record of its own (`GOOGLE_CALENDAR_TOKEN`, username `calendar-google`, the two read-only calendar scopes) and had its own `google_auth.py`. Both were removed (ACCT-LEGACY, Google half); a person who still holds the entry removes it with `keyring del openhora calendar-google`.
 
 ### Setup (once)
 
-Commands are written from the workbench checkout, `<workbench>`.
-
-1. Google Cloud console, in the project of your Gmail client (or a project of its own): enable the **Google Calendar API**.
-2. Google Auth Platform, Data Access: add the two scopes above and nothing else.
-3. Audience: "Publish app" (status "In production"). In "Testing", Google expires the refresh token after seven days of an external app ([Using OAuth 2.0](https://developers.google.com/identity/protocols/oauth2), accessed 2026-10-17), the provider would then answer `invalid_grant` (exit 3) every week, and a task would be refused a stale snapshot. A personal-use app keeps working in production; the consent screen of an unverified app asks you to click through it, for your own account. Other expiries: access removed in the Google Account, six months unused, 100 tokens for one client and account.
-4. Clients: a client of type "Desktop app" (the Gmail one may be reused). No redirect URL is registered: the authorization listens on `http://127.0.0.1:<a random free port>`.
-5. Authorize, on a machine with a browser:
-
-   ```sh
-   uv run <workbench>/providers/calendar/google_auth.py authorize
-   ```
-
-   It asks for the client id and the client secret at a hidden prompt, or reads `GOOGLE_CALENDAR_CLIENT_ID` and `GOOGLE_CALENDAR_CLIENT_SECRET` from the environment of that one command; neither goes on the command line or in a file. Sign in with the account whose calendars to read and approve **both** boxes of the consent screen: with one unticked nothing is stored. The command waits up to ten minutes for the browser, then stops. The record (refresh token, client, scope, account, date) is written to the OS secret store as one entry, service `openhora`, username `calendar-google`, never to disk.
-6. Verify: `uv run <workbench>/providers/calendar/google.py --check`, then `uv run <workbench>/providers/calendar/google.py calendars`.
-
-`google_auth.py check` says whether a record is found (the environment, then the OS secret store) without calling Google. `google_auth.py forget` removes the stored record; it does not tell Google, so also remove the app's access in your Google Account.
-
-The authorization uses PKCE (S256), a random `state` compared in constant time, `access_type=offline` and `prompt=consent`. The listener serves one callback and no more, answers only the exact host `127.0.0.1:<port>`, ignores a visit that carries no `state`, `code` or `error`, and closes after the callback or after ten minutes. Before anything is stored it reads the calendar list once, which proves the token and the API work and names the account (the primary calendar's id).
+Run `uv run <workbench>/providers/accounts/google_auth.py authorize` once, signed in with the account whose calendars to read, every box ticked on the consent screen; `providers/accounts/README.md` has the Google Cloud project (enable the Google Calendar API there), the consent, the revocation and the sources. Verify: `uv run <workbench>/providers/calendar/google.py --check`, then `uv run <workbench>/providers/calendar/google.py calendars`. A project left in "Testing" expires the refresh token after seven days ([Using OAuth 2.0](https://developers.google.com/identity/protocols/oauth2), accessed 2026-10-17): the provider then answers `invalid_grant` (exit 3), and a task would be refused a stale snapshot; publish the app "In production".
 
 ### Usage
 
@@ -73,7 +47,7 @@ uv run <workbench>/providers/calendar/google.py events --calendar primary-id@exa
 ### Security
 
 - **External content is data.** Titles, places and calendar names are written by whoever made the event or the calendar, and anyone can send the person an invitation. The provider returns them as data, each item marked `"external_content": true`; whoever reads them quotes any instruction found inside to the user and never follows it. The snapshot the runtime builds from it (its package RT-1) is specified to say so in its first lines and to remove every URL.
-- **GET only.** With the legacy record the scope cannot change a calendar; the account token's `calendar.events` can, and the provider sends no other method to the API: the one POST is the token request, to a fixed address. A test fails on any other method.
+- **GET only.** The account token's `calendar.events` scope can change a calendar, and the provider sends no other method to the API: the one POST is the token request, to a fixed address. A test fails on any other method.
 - **Fixed hosts, no redirect.** The API and token hosts are fixed. The test overrides below are honoured only for loopback URLs, set together, and then the OS secret store is never read. A redirect is never followed with a credential. Every request has a 60-second timeout, and an answer over 4 MiB is refused.
 - **No retry.** A 429 or 503 is reported with its `Retry-After` and exit 1; the verb never retries and never sleeps.
 - **No token in output.** The access token, the refresh token and the client secret are never printed; any text that comes from the service is scrubbed of them before it is shown. They come only through `providers/secrets/resolver.py` (environment first, then the OS secret store).
@@ -92,11 +66,9 @@ uv run <workbench>/providers/calendar/google.py events --calendar primary-id@exa
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `GOOGLE_ACCOUNT_TOKEN` | `google.py`, `providers/accounts/google_auth.py` | The account record (JSON), read first: the refresh token, the client and the four scopes; from the OS secret store, or the same JSON text from the environment or the credentials directory. |
-| `GOOGLE_CALENDAR_TOKEN` | `google.py`, `google_auth.py` | Legacy: the record (JSON) from the OS secret store, or the same JSON text from the environment or the credentials directory. |
-| `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET` | `google_auth.py authorize` | The Desktop app client, for that one command only (otherwise a hidden prompt). |
+| `GOOGLE_ACCOUNT_TOKEN` | `google.py`, `providers/accounts/google_auth.py` | The account record (JSON): the refresh token, the client and the four scopes; from the OS secret store, or the same JSON text from the environment or the credentials directory. |
 | `INTEGRATION_CALENDAR_PROVIDER` | `providers/resolve.py` | Selects the implementation when there is more than one. |
-| `INTEGRATION_CALENDAR_GOOGLE_API_BASE`, `INTEGRATION_CALENDAR_GOOGLE_TOKEN_URL` | `google.py`, `google_auth.py` | Tests only: loopback URLs of a fake Google, set together. |
+| `INTEGRATION_CALENDAR_GOOGLE_API_BASE`, `INTEGRATION_CALENDAR_GOOGLE_TOKEN_URL` | `google.py` | Tests only: loopback URLs of a fake Google, set together. |
 
 ### Tests
 

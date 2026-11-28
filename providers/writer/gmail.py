@@ -181,7 +181,7 @@ def open_session(account: str):
     """(the API base, an access token, the record) from the account record: the whole platform set, or exit 3; and only when the token belongs to `account` (the
     address the document names), or exit 1 with nothing read or changed. There is no legacy record for a writer."""
     base, token_url, test_mode = endpoints()
-    loaded = _google.load_account_record(secret_resolver(), test_mode, legacy=None, error=ProviderError)
+    loaded = _google.load_account_record(secret_resolver(), test_mode, error=ProviderError)
     _google.hold(*(loaded.record[k] for k in _google.RECORD_TEXTS))
     mine = loaded.record.get("account")
     if not isinstance(mine, str) or mine.casefold() != account.casefold():
@@ -458,7 +458,7 @@ def fetch(base: str, token: str, message: str, meta: bool):
 
 def cmd_check(args) -> int:
     base, token_url, test_mode = endpoints()
-    loaded = _google.load_account_record(secret_resolver(), test_mode, legacy=None, error=ProviderError)
+    loaded = _google.load_account_record(secret_resolver(), test_mode, error=ProviderError)
     _google.hold(*(loaded.record[k] for k in _google.RECORD_TEXTS))
     data = _google.refresh_access_token(token_url, loaded.record, ProviderError)
     _SECRET_VALUES.append(data["access_token"])

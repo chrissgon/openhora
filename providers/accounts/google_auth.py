@@ -22,9 +22,9 @@
               and exits 3, and the Tasks providers say "authorize again" (run `authorize` once).
   forget      removes the stored record from the OS secret store. It does not call Google: also remove the app's access in your Google
               Account (its third-party access page), which is the one switch that stops every reader and writer of the account at once.
-              The old records (mailbox-gmail, gmail-client-id, gmail-client-secret, calendar-google, gdrive-sources) are never touched by
-              this command or by any code: remove each with `uv run --with keyring==25.7.0 keyring del openhora <username>` once
-              `check` passes and each reader has worked with the account record.
+              The old records (mailbox-gmail, gmail-client-id, gmail-client-secret, calendar-google, gdrive-sources) are no longer read by any
+              code and are never touched by this command or by any code: remove each with
+              `uv run --with keyring==25.7.0 keyring del openhora <username>`.
 
 --account <slot> names the account (default main). Only main exists in this version; another slot needs a registry row of its own
 (backlog ACCT-SLOT).
@@ -49,7 +49,7 @@ Sources (Google's own documentation, accessed 2026-10-18):
 
 Google Cloud setup (once), at https://console.cloud.google.com, in the project of your Gmail client (the Desktop app client is reused):
   1. APIs and services, Library: enable the Gmail API, the Google Calendar API, the Google Drive API and the Google Tasks API.
-  2. Google Auth Platform, Data Access, "Add or remove scopes": the five above (and enable the Google Tasks API in step 1). Keep the old scopes listed until the legacy records are gone.
+  2. Google Auth Platform, Data Access, "Add or remove scopes": the five above (and enable the Google Tasks API in step 1).
   3. Audience: "In production" (in "Testing" Google expires the authorization every seven days). Do not submit the app for verification: a
      personal-use app under 100 users works unverified, and the consent screen asks you to click through "Google hasn't verified this app".
   4. Run: uv run <workbench>/providers/accounts/google_auth.py authorize
@@ -350,7 +350,7 @@ def forget(slot: str) -> int:
     print(json.dumps({"provider": PROVIDER, "forgotten": removed, "slot": slot,
                       "secret_store": {"service": KEYRING_SERVICE, "username": KEYRING_USERNAME}}, indent=2))
     log("Google was not told: remove the app's access in your Google Account (its third-party access page) so the refresh token stops "
-        "working there too. The legacy records were not touched." if removed else
+        "working there too." if removed else
         "nothing was stored in the OS secret store; a value in the environment is not touched.")
     return EXIT_OK
 

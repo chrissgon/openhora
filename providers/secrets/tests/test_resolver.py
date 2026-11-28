@@ -100,10 +100,10 @@ def test_the_environment_answer_has_no_service():
 
 def test_report_says_which_service_answered_and_never_carries_a_value():
     store = ServiceStore({("ai-workbench", "github"): SENTINEL, ("openhora", "notion"): SENTINEL})
-    rows = {r["name"]: r for r in res.report(environ={"GMAIL_CLIENT_ID": SENTINEL}, store=store)}
+    rows = {r["name"]: r for r in res.report(environ={"LINKEDIN_CLIENT_SECRET": SENTINEL}, store=store)}
     assert rows["VCS_GITHUB_TOKEN"]["found"] is False and rows["VCS_GITHUB_TOKEN"]["service"] is None
     assert rows["NOTION_TOKEN"]["found"] and rows["NOTION_TOKEN"]["service"] == "openhora"
-    assert rows["GMAIL_CLIENT_ID"]["found"] and rows["GMAIL_CLIENT_ID"]["service"] is None
+    assert rows["LINKEDIN_CLIENT_SECRET"]["found"] and rows["LINKEDIN_CLIENT_SECRET"]["service"] is None
     assert rows["LINKEDIN_CLIENT_ID"]["found"] is False and rows["LINKEDIN_CLIENT_ID"]["service"] is None
     assert SENTINEL not in json.dumps(list(rows.values()))
 
@@ -134,11 +134,11 @@ def test_the_command_that_stores_a_secret_names_the_new_service_only():
 
 
 def test_store_is_skipped_when_not_allowed_or_unavailable():
-    store = FakeStore({"gmail-client-id": "x"})
-    assert res.resolve("GMAIL_CLIENT_ID", allow_store=False, environ={}, store=store) is None
+    store = FakeStore({"linkedin-client-secret": "x"})
+    assert res.resolve("LINKEDIN_CLIENT_SECRET", allow_store=False, environ={}, store=store) is None
     assert store.asked == []
-    assert res.resolve("GMAIL_CLIENT_ID", environ={}, store=None) is None
-    assert res.resolve("GMAIL_CLIENT_ID", environ={}, store=FakeStore(fail=True)) is None
+    assert res.resolve("LINKEDIN_CLIENT_SECRET", environ={}, store=None) is None
+    assert res.resolve("LINKEDIN_CLIENT_SECRET", environ={}, store=FakeStore(fail=True)) is None
 
 
 def test_unregistered_names_are_refused():
@@ -167,9 +167,9 @@ def run(*args, env=None):
 
 
 def test_cli_check_and_list_print_no_value():
-    found = run("--check", "GMAIL_CLIENT_ID", env={"GMAIL_CLIENT_ID": SENTINEL})
+    found = run("--check", "LINKEDIN_CLIENT_SECRET", env={"LINKEDIN_CLIENT_SECRET": SENTINEL})
     assert found.returncode == 0 and SENTINEL not in found.stdout + found.stderr
-    assert json.loads(found.stdout)["source"] == "environment (GMAIL_CLIENT_ID)"
+    assert json.loads(found.stdout)["source"] == "environment (LINKEDIN_CLIENT_SECRET)"
     listed = run("--list", env={name: SENTINEL for name in res.REGISTRY})
     assert listed.returncode == 0 and SENTINEL not in listed.stdout + listed.stderr
     assert run("--check", "NOT_A_SECRET").returncode == 2
@@ -247,8 +247,8 @@ def test_a_name_registered_twice_joins_its_readers_and_must_agree_on_the_lookup(
     with pytest.raises(ValueError, match="already registered"):
         res.register([{**DEMO, "store_username": "elsewhere"}])
     with pytest.raises(ValueError, match="already registered"):
-        res.register([{**DEMO, "name": "GMAIL_CLIENT_ID"}])  # a core secret cannot be pointed at another store entry
-    assert registry["GMAIL_CLIENT_ID"].store_username == "gmail-client-id"
+        res.register([{**DEMO, "name": "LINKEDIN_CLIENT_SECRET"}])  # a core secret cannot be pointed at another store entry
+    assert registry["LINKEDIN_CLIENT_SECRET"].store_username == "linkedin-client-secret"
 
 
 @pytest.mark.parametrize("entries", [
@@ -310,7 +310,7 @@ def test_the_subprocess_helper_never_reaches_a_mapping_under_the_real_home(tmp_p
     home = tmp_path / "home"
     (home / ".config" / "openhora").mkdir(parents=True)
     mapping = home / ".config" / "openhora" / "password-manager.json"
-    names = ("VCS_GITHUB_TOKEN", "NOTION_TOKEN", "GMAIL_CLIENT_ID", "LINKEDIN_CLIENT_ID")
+    names = ("VCS_GITHUB_TOKEN", "NOTION_TOKEN", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_CLIENT_ID")
     mapping.write_text(json.dumps({"backend": "1password", "references": {n: "op://Example Vault/item/credential" for n in names}}),
                        encoding="utf-8")
     mapping.chmod(0o600)

@@ -1,5 +1,5 @@
 """A stand-in for the Google Calendar API and the Google token endpoint on 127.0.0.1, for the offline tests of
-providers/calendar/google.py and google_auth.py. Not a test file, and never a copy of the live service: it serves exactly the two
+providers/calendar/google.py. Not a test file, and never a copy of the live service: it serves exactly the two
 calls the provider's docstring names (calendarList list, events list), keeps a few fictional calendars in memory, and refuses what the
 reference says the service refuses (a missing or wrong bearer token, a timeMin or timeMax without a time zone offset, orderBy=startTime
 without singleEvents=true, a calendar the account does not hold). No real account, key or event is ever involved: the credentials of a
@@ -32,7 +32,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly"
 LIST_SCOPE = "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
-BOTH_SCOPES = f"{EVENTS_SCOPE} {LIST_SCOPE}"
+BOTH_SCOPES = f"{EVENTS_SCOPE} {LIST_SCOPE}"   # the two scopes of the retired Calendar-only record: the account token's refresh is refused with them
+GMAIL_MODIFY = "https://www.googleapis.com/auth/gmail.modify"
+CALENDAR_EVENTS = "https://www.googleapis.com/auth/calendar.events"
+DRIVE = "https://www.googleapis.com/auth/drive"
+TASKS = "https://www.googleapis.com/auth/tasks"
+PREVIOUS_SET = f"{GMAIL_MODIFY} {CALENDAR_EVENTS} {LIST_SCOPE} {DRIVE}"
+PLATFORM_SET = f"{PREVIOUS_SET} {TASKS}"       # the scope set of the account token (providers/_google.py)
 CLIENT_ID = "123456789012-fakeclientid.apps.example"
 CLIENT_SECRET = "fake-client-secret-not-real"
 REFRESH_TOKEN = "fake-refresh-token-not-real"
@@ -68,7 +74,7 @@ class FakeGoogleCalendar:
     def __init__(self):
         self.calendars = {}                  # id -> {"summary", "primary", "accessRole", "events": [...]}
         self.requests, self.token_forms, self.methods = [], [], []
-        self.scope_granted = BOTH_SCOPES     # what the token endpoint says it granted
+        self.scope_granted = PLATFORM_SET    # what the token endpoint says it granted
         self.omit_scope = False              # answer a token with no scope field at all
         self.token_status = 200              # set 400 and token_error to answer an OAuth error
         self.token_error = {"error": "invalid_grant", "error_description": "Token has been expired or revoked."}
@@ -246,7 +252,7 @@ class FakeGoogleCalendar:
         return ev
 
     def record(self, **over):
-        record = {"refresh_token": REFRESH_TOKEN, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "scope": BOTH_SCOPES,
+        record = {"slot": "main", "refresh_token": REFRESH_TOKEN, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "scope": PLATFORM_SET,
                   "account": ACCOUNT, "obtained_at": "2026-10-17T08:00:00Z"}
         record.update(over)
         return record
@@ -257,7 +263,7 @@ class FakeGoogleCalendar:
     def env(self, **over):
         """What the provider's process needs to talk to this fake and find its authorization in the environment."""
         return {"INTEGRATION_CALENDAR_GOOGLE_API_BASE": self.base, "INTEGRATION_CALENDAR_GOOGLE_TOKEN_URL": self.token_url,
-                "GOOGLE_CALENDAR_TOKEN": self.record_json(**over)}
+                "GOOGLE_ACCOUNT_TOKEN": self.record_json(**over)}
 
     def api_requests(self):
         return [r for r in self.requests if r[1].startswith("/calendar/")]

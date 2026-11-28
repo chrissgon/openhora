@@ -82,7 +82,7 @@ Usage:
   python3 runtime/cli.py source-import --project <dir> --source <id> (--file <path> | --url <Notion page address or id>) [--origin <text>] [--description <text>]
   python3 runtime/cli.py source-refresh --project <dir> --source <id> [--file <path>]
   python3 runtime/cli.py source-describe --project <dir> --source <id> [--description <text>]
-  python3 runtime/cli.py source-drive --project <dir> [--file-id <Drive file id> --source <id>] [--description <text>]
+  python3 runtime/cli.py source-drive --project <dir> --file-id <Drive file id> --source <id> [--description <text>]
   python3 runtime/cli.py source-onedrive --project <dir> (--search <text> | --folder <path> | --item <drive id>/<item id> [--item ...] [--source <id>]) [--description <text>]
   python3 runtime/cli.py source-mail --project <dir> --source <id> [--origin gmail:box=<inbox|important|starred|unread>;days=<1-31>;max=<1-100> | outlook:box=<inbox|unread>;days=<1-31>;max=<1-100>] [--description <text>]
   python3 runtime/cli.py source-calendar --project <dir> --source <id> [--origin google:calendar=<id>;past=<0-7>;ahead=<0-31> | outlook:calendar=<default|id>;past=<0-7>;ahead=<0-31>] [--description <text>]
@@ -412,13 +412,12 @@ source-refresh  makes a new version: from a new file (--file), from the Notion p
           changed in the sources folder (the files are hashed against the record; a changed one is sniffed, converted and scanned
           again, and becomes a version labelled as yours, which a task that starts on its own never receives).
 source-describe  sets your description of a source, which the planner reads with its catalog; no --description clears it.
-source-drive  makes Google Drive files sources. It opens the Picker on a one-shot page on 127.0.0.1 (the command prints the address and
-          opens your browser): you choose one or more FILES, never a folder (a picked folder gives the app nothing inside it), and each
-          becomes a source, named from the file, with its first version imported (a Google Doc as Markdown, a Sheet as a workbook, Slides
-          as a PDF, any other file as it is, then the same converter, scan and rows as a file of yours). With --file-id and --source, one
-          file you picked before is imported or refreshed. source-refresh asks Drive for the file's version and reads it only when it
-          moved. Needs the one-time authorization: uv run providers/documents/gdrive_auth.py authorize. The scope, drive.file, lets the
-          app read and write the files you pick, so it is not read-only; the runtime asks for reads only.
+source-drive  makes a Google Drive file a source, by its id (the part of the file's address after /d/): --file-id and --source <id> import it
+          (a Google Doc as Markdown, a Sheet as a workbook, Slides as a PDF, any other file as it is, then the same converter, scan and rows as a
+          file of yours), or refresh it when it already is that source. Never a folder. source-refresh asks Drive for the file's version and
+          reads it only when it moved. Needs the one-time authorization of your Google account: uv run
+          providers/accounts/google_auth.py authorize. The account token's drive scope can read and change any file of the account, so it reads any
+          file id you name; the runtime asks for reads only.
 source-onedrive  makes OneDrive files sources. There is no picker: you choose in the terminal. --search <text> (or --folder <path> from the root
           of your OneDrive) lists up to 25 candidates, numbered, with name, folder, size, date and the <drive id>/<item id> to give back, and
           registers nothing; then --item <drive id>/<item id> (repeat it for several files; --source <id> names the source of exactly one) makes
@@ -436,13 +435,13 @@ source-mail  makes a window of your mailbox a source: a SNAPSHOT, read once by t
           message with what looks like a credential left out on its own and counted by date and sender domain, attachments listed by name, type and
           size and never opened. No run reads your mailbox: a task is given the text of the version its plan chose, and a snapshot older than 26
           hours is never given to a task that starts on its own. A source keeps its origin: another window is another source. Needs the one-time
-          authorization of the reader (uv run providers/mailbox/auth.py --provider gmail, or providers/mailbox/outlook_auth.py authorize). The
-          token reads your whole mailbox (gmail.readonly, Mail.Read) and changes none; the narrowing to the box and the days is the runtime's.
+          authorization of the reader (uv run providers/accounts/google_auth.py authorize for Gmail, or providers/mailbox/outlook_auth.py authorize). The
+          token reads your whole mailbox (the Gmail scope of your Google account, Mail.Read) and the runtime asks for reads only; the narrowing to the box and the days is the runtime's.
 source-calendar  makes one calendar's window a source, the same way: --origin names the reader (google or outlook), the calendar (an id, primary
           or default) and the days before today and after it, such as google:calendar=primary;past=0;ahead=14. The text lists each day's events
           with time, title, place, who organises, your answer, cancelled, online meeting and recurring; no description and no attendee. Titles
-          and places are text somebody else wrote, shown as data. Needs the one-time authorization of the reader (providers/calendar/google_auth.py
-          authorize, or providers/calendar/outlook_auth.py authorize). Read only.
+          and places are text somebody else wrote, shown as data. Needs the one-time authorization of the reader (uv run providers/accounts/google_auth.py
+          authorize for Google Calendar, or providers/calendar/outlook_auth.py authorize). Read only.
 sources   the catalog of the sources: each one's newest version (name, type, size, date, sheets and columns with sample values,
           first headings), your description, and whether its files changed outside the runtime. It calls no model.
 attachments  the files people sent through a messaging app that wait for your answer (what each is, the source it would become, when it expires), the

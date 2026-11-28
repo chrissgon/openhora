@@ -583,7 +583,7 @@ OPERATIONS = (
               {"name": "source_id", "kind": "str", "flag": "source", "label": "source id"},
               {"name": "description", "kind": "str"}),
      "channels": ("terminal",), "model": False,
-     "help": "make Google Drive files sources: the Picker opens on a one-shot page on 127.0.0.1 and you choose one or more files (never a folder); each becomes a source and its first version is imported; with --file-id and --source, one file already picked is imported or refreshed",
+     "help": "make one Google Drive file a source: --file-id <the id in the file's address> and --source <id>; its first version is imported, and run again it is refreshed",
      "natural": {"class": "G", "since": 1, "order": 66, "privacy": "account", "cost": "provider",
                  "what": "make Drive files sources",
                  "about": "Make files of the person's Google Drive sources of the project.",

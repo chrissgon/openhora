@@ -158,36 +158,6 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "the app's primary client secret",
            ("providers/publisher/auth.py",),
            store_username="linkedin-client-secret"),
-    Secret("GMAIL_REFRESH_TOKEN",
-           "read the user's Gmail (search and read messages, never change them)",
-           "OAuth scope https://www.googleapis.com/auth/gmail.readonly only (providers/mailbox/auth.py)",
-           ("providers/mailbox/gmail.py", "providers/mailbox/auth.py"),
-           store_username="mailbox-gmail",
-           set_local="uv run providers/mailbox/auth.py --provider gmail (writes the record after the browser consent)",
-           note="the store holds a JSON record written by providers/mailbox/auth.py (refresh_token, scope, "
-                "obtained_at, account); from the environment, the bare refresh token"),
-    Secret("GMAIL_CLIENT_ID",
-           "the Google Cloud OAuth client (Desktop app) that authorizes and refreshes the Gmail access",
-           "a Desktop app OAuth client in a project with the Gmail API and only the gmail.readonly scope",
-           ("providers/mailbox/auth.py", "providers/mailbox/gmail.py"),
-           store_username="gmail-client-id"),
-    Secret("GMAIL_CLIENT_SECRET",
-           "that Google OAuth client's secret, used by the authorization and every token refresh",
-           "the Desktop app client's secret",
-           ("providers/mailbox/auth.py", "providers/mailbox/gmail.py"),
-           store_username="gmail-client-secret"),
-    Secret("GOOGLE_CALENDAR_TOKEN",
-           "read the events and the list of calendars of the person's Google Calendar, for the calendar sources they chose (and nothing else)",
-           "OAuth scopes https://www.googleapis.com/auth/calendar.events.readonly and "
-           "https://www.googleapis.com/auth/calendar.calendarlist.readonly only (providers/calendar/google_auth.py): they read every event of "
-           "every calendar the account can see and the list of calendars, and change nothing; the narrowing to a calendar and a window is the "
-           "runtime's, not the service's",
-           ("providers/calendar/google.py", "providers/calendar/google_auth.py"),
-           store_username="calendar-google",
-           set_local="uv run providers/calendar/google_auth.py authorize (writes the record after the browser consent)",
-           note="one JSON record (refresh_token, client_id, client_secret, scope, account, obtained_at) written by "
-                "providers/calendar/google_auth.py; the Desktop app client travels with the refresh token so that this is the only entry, "
-                "and it is a record of its own, apart from the Gmail one; from the environment, the same JSON text"),
     Secret("GOOGLE_ACCOUNT_TOKEN",
            "sign in to the person's own Google account for every Google provider of the platform: the Gmail, Calendar, Drive and Tasks readers, "
            "and the writers of later packages only through an approved effect of the exact content",
@@ -207,8 +177,7 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            set_local="uv run providers/accounts/google_auth.py authorize (writes the record after the browser consent)",
            note="one JSON record (slot, refresh_token, client_id, client_secret, scope, account, obtained_at) written by "
                 "providers/accounts/google_auth.py; the Desktop app client travels with the refresh token so that this is the only entry; "
-                "the three Google readers read it first and fall back for one cycle to their own records (GMAIL_REFRESH_TOKEN with the "
-                "client, GOOGLE_CALENDAR_TOKEN, GDRIVE_SOURCES_TOKEN), with a warning on stderr; revoking the app's access in the Google "
+                "the three Google readers read nothing else (the records they had before it are no longer read); revoking the app's access in the Google "
                 "Account stops them all; from the environment, the same JSON text"),
     Secret("NOTION_TOKEN",
            "read and write the task board and the documents of a project on Notion",
@@ -222,16 +191,6 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "sources: a separate integration from the one behind NOTION_TOKEN, which can write",
            ("providers/documents/notion.py",),
            store_username="notion-sources"),
-    Secret("GDRIVE_SOURCES_TOKEN",
-           "read the Google Drive files the person picked as sources of a project (their content and version)",
-           "OAuth scope https://www.googleapis.com/auth/drive.file only (providers/documents/gdrive_auth.py): it lets the app read and "
-           "write every file the person picked in the Picker, so it is not read-only; the provider sends GET requests only",
-           ("providers/documents/gdrive.py", "providers/documents/gdrive_auth.py"),
-           store_username="gdrive-sources",
-           set_local="uv run providers/documents/gdrive_auth.py authorize (writes the record after the browser consent)",
-           note="one JSON record (refresh_token, client_id, client_secret, api_key, project_number, scope, obtained_at) written by "
-                "providers/documents/gdrive_auth.py; the Desktop app client and the Picker's API key travel with the refresh token so "
-                "that this is the only entry; from the environment, the same JSON text"),
     Secret("ONEDRIVE_SOURCES_TOKEN",
            "read the OneDrive files the person chose as sources of a project (their content and version)",
            "Microsoft Graph delegated Files.Read only (providers/documents/onedrive_auth.py): it reads every file of the person's own "

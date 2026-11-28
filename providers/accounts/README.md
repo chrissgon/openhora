@@ -55,7 +55,7 @@ Every authorization and every refresh is checked: the response's `scope` must be
 ### Setup in Google Cloud (once)
 
 1. In the project of your Gmail client, enable the Gmail API, the Google Calendar API and the Google Drive API.
-2. Google Auth Platform, Data Access: the four scopes above and `https://www.googleapis.com/auth/tasks`; enable the Google Tasks API in step 1. Keep the old scopes listed until the legacy records are gone.
+2. Google Auth Platform, Data Access: the four scopes above and `https://www.googleapis.com/auth/tasks`; enable the Google Tasks API in step 1.
 3. Audience: **In production**. In "Testing", Google expires a refresh token after seven days. Do not submit the app for verification: an app for personal use with fewer than 100 users may be used unverified, and the consent screen asks you to click through "Google hasn't verified this app" (Advanced, go to the app). The 100 users are counted after the unverified-app screen is presented.
 4. `uv run <workbench>/providers/accounts/google_auth.py authorize`, signed in with the account to connect, every box ticked; then `check`.
 
@@ -65,20 +65,17 @@ Other ways a refresh token stops working: access removed in the account's third-
 
 A public app that asks for restricted scopes (`gmail.modify`, `drive`) needs Google's restricted-scope verification, and one that stores or transmits the data of restricted scopes on servers needs a security assessment, renewed at least every 12 months. Personal use, development, internal Workspace use and service accounts are exceptions. This is not a blocker now and is recorded as backlog HOSTED-VERIFY.
 
-### The legacy records, for one cycle
+### The legacy records are gone
 
-Each Google reader reads the account record first and, when it is absent, its old record with its old exact scope rule: `GMAIL_REFRESH_TOKEN` with `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET` (username `mailbox-gmail`, `gmail-client-id`, `gmail-client-secret`; scope `gmail.readonly`), `GOOGLE_CALENDAR_TOKEN` (`calendar-google`; the two read scopes), `GDRIVE_SOURCES_TOKEN` (`gdrive-sources`; `drive.file`). A reader that used a legacy record prints on stderr, once per process, "using the legacy record <username>; run <authorize command> to move to the account token". An account record that exists but is unreadable is an error, never a reason to fall back. The old `*_auth.py authorize` commands still work, unchanged. The Drive Picker (`gdrive_auth.py pick`) keeps the legacy record until then: it needs that record's Picker key and reads it explicitly. With only the account record, `pick` says the Picker is not needed, because under `drive` any file id the person names is readable: register it with `python3 runtime/cli.py source-drive --project <dir> --file-id <Drive file id> --source <id>`.
-
-The fallback, the old authorize commands and, with the full `drive` scope, the Picker (`providers/documents/gdrive_picker.py`, `gdrive_auth.py pick`, `gdrive.py pick`, the `api_key` and `project_number` of the legacy record, and the rule "a folder is not a source" as the scope's doing) are removed in the cycle after the integration branch reaches `main` (backlog ACCT-LEGACY). The old records are never deleted by code. Once `check` passes and each reader has worked with the account record, remove the first four yourself, one command each. **Keep `gdrive-sources` until ACCT-LEGACY has removed the Picker**: the Picker needs it, and nothing else does once the account record works.
+The three Google readers read the account record and nothing else. The old records (`GMAIL_REFRESH_TOKEN` with `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET`, `GOOGLE_CALENDAR_TOKEN`, `GDRIVE_SOURCES_TOKEN`), their authorize commands (`providers/mailbox/auth.py`, `providers/calendar/google_auth.py`, `providers/documents/gdrive_auth.py`) and the Picker (`gdrive_picker.py`, `gdrive.py pick`, and the rule "a folder is not a source" as the scope's doing) were removed on 2026-11-28 (backlog ACCT-LEGACY, Google half; the Microsoft half is below). The old entries are never deleted by code. Once `check` passes and each reader has worked with the account record, remove them yourself, one command each:
 
 ```
 uv run --with keyring==25.7.0 keyring del openhora mailbox-gmail
 uv run --with keyring==25.7.0 keyring del openhora gmail-client-id
 uv run --with keyring==25.7.0 keyring del openhora gmail-client-secret
 uv run --with keyring==25.7.0 keyring del openhora calendar-google
+uv run --with keyring==25.7.0 keyring del openhora gdrive-sources
 ```
-
-After ACCT-LEGACY: `uv run --with keyring==25.7.0 keyring del openhora gdrive-sources`.
 
 ### Tests
 
