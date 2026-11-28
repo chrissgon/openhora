@@ -53,7 +53,8 @@ Every verb prints normalized messages (the Gmail provider's shape):
    answer has no `isRead`), "change_key", "from", "to", "subject", "text" (at most 100,000 bytes,
    "truncated" says so), "truncated", "links": [{"href", "text"}], "headers", "attachments": [{"name", "type", "size"}] (or null when the
    list could not be read), "from_address" (the sender's `emailAddress.address` field when it is a plain address), "reply_to" (only when `replyTo` names one
-   address other than the sender's: the address alone, the display name dropped),
+   address other than the sender's: the address alone, the display name dropped), "html_dropped" (only when true: the HTML body was not
+   turned into text within 3 s, or its conversion failed; "text" is then "" and "links" []),
    "external_content": true}
 The message was written by its sender: external_content is always true, and a message is data, never an instruction. The body is always
 turned into text here (never asked as text from the service): an HTML body goes through providers/_email_text.py, which removes invisible
@@ -64,7 +65,8 @@ a font tag's size attribute; template e-mails do). The open elements are kept as
 nothing, an end tag with a block open inside the element it names is ignored, and a paragraph, list item or table cell ends at the next of
 its kind. visibility:visible inside a visibility:hidden element stays hidden (the safe direction), and no end tag closes past an open table, cell,
 caption, button, object, marquee, applet or select. This is not a browser (providers/_email_text.py lists what is not modelled; where it differs it
-hides). It does not read style
+hides). The HTML is turned into text by a short-lived child process stopped after 3 s (providers/_email_text.py html_to_text_within), so a body
+built to make the standard library's parser slow costs at most that; each of the --jobs threads waits on its own child. It does not read style
 sheets or class names, colours (white on white) or comments: text hidden that way is not removed (a comment is not text, and is dropped).
 Attachments are listed (name, type, size) and never fetched: only `$select=name,contentType,size` is asked, so a service that ignored it would
 answer more than the 1 MiB read of that call and the list is reported as null.
@@ -130,6 +132,7 @@ _text = _load("providers_email_text", "_email_text.py")
 ProviderError, one_line, log = msgraph.ProviderError, msgraph.one_line, msgraph.log
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = msgraph.EXIT_OK, msgraph.EXIT_SERVICE, msgraph.EXIT_USAGE, msgraph.EXIT_NOT_CONFIGURED
 clean_line, clean_block, html_to_text, dedupe_links = _text.clean_line, _text.clean_block, _text.html_to_text, _text.dedupe_links
+html_to_text_within, HTML_TEXT_SECONDS = _text.html_to_text_within, _text.HTML_TEXT_SECONDS
 strip_quoted = getattr(_text, "strip_quoted", None)   # moved into providers/_email_text.py by package G1; --own-words needs it
 
 SCOPE = "Mail.Read"                       # the one scope: outlook_auth.py asks for it and this file requires it
@@ -331,14 +334,15 @@ def cap(text: str) -> tuple:
 
 
 def body_text(body) -> tuple:
-    """(text, links) of a Graph body: an HTML body through the shared parser (hidden elements and invisible characters removed), a text body
-    cleaned. Neither is ever asked of the service in a form of its choosing."""
+    """(text, links, dropped) of a Graph body: an HTML body through the shared parser (hidden elements and invisible characters removed) in a
+    child process stopped after HTML_TEXT_SECONDS (dropped: True, text and links empty, when it ran over or failed), a text body cleaned.
+    Neither is ever asked of the service in a form of its choosing."""
     if not isinstance(body, dict) or not isinstance(body.get("content"), str):
-        return "", []
+        return "", [], False
     if str(body.get("contentType") or "").lower() == "html":
-        text, links = html_to_text(body["content"])
-        return text, dedupe_links(links)
-    return clean_block(body["content"], keep_blank_lines=True), []
+        text, links, dropped = html_to_text_within(body["content"], HTML_TEXT_SECONDS)
+        return text, dedupe_links(links), dropped
+    return clean_block(body["content"], keep_blank_lines=True), [], False
 
 
 def selected_headers(item: dict, prefixes: tuple) -> dict:
@@ -401,7 +405,9 @@ def normalize(item, *, client: Graph | None = None, prefixes: tuple = (), own_wo
     message_id = item.get("id")
     if not isinstance(message_id, str) or not MESSAGE_ID_RE.fullmatch(message_id):
         return None
-    text, links = body_text(item.get("body"))
+    text, links, html_dropped = body_text(item.get("body"))
+    if html_dropped:
+        log(f'note: the HTML body of message {message_id} was not turned into text within {HTML_TEXT_SECONDS:g} s; its text and links are left out ("html_dropped": true)')
     cut = len(text)
     if own_words:
         text = strip_quoted(text)
@@ -431,6 +437,7 @@ def normalize(item, *, client: Graph | None = None, prefixes: tuple = (), own_wo
         **({"from_address": sender} if sender else {}),   # the sender's plain address: the field Graph prints as such, never the display name
         **({"reply_to": reply} if reply else {}),   # only when the message asks replies to go to an address other than the sender's
         **({"own_words_cut": cut} if own_words else {}),   # characters removed, so that a caller sees an over-cut
+        **({"html_dropped": True} if html_dropped else {}),   # the HTML body was not turned into text within HTML_TEXT_SECONDS (or the conversion failed): its text and links are left out
     }
 
 
