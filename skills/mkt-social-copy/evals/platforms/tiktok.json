@@ -16,14 +16,14 @@
       ],
       "assertions": [
         {
-          "text": "A file docs/marketing/content/2038-11-15-*.md exists with the lines `Network: tiktok` and `Format: video`, and a ```script block above its ```post block",
+          "text": "A file docs/marketing/content/2038-11-15-*.md exists whose header names the network TikTok (in any letter case, with or without a list dash) and the format video, and whose ```script block stands above its ```post block",
           "tags": [
             "format"
           ]
         },
         "The script covers the three habits of docs/notes/budget-month.md and one beat shows the 340 euros with its label, in lines the person says in the first person",
         {
-          "text": "No beat of the ```script block holds a time in any form: no timestamp, no duration, no range, no field named start, end, at or duration",
+          "text": "No beat of the ```script block holds a timing of the video: no timestamp, no duration or range of a beat or of the video, and no field named start, end, at or duration; a number of minutes or days that docs/notes/budget-month.md states and the person says in a line is content, not a timing",
           "tags": [
             "guard"
           ]
