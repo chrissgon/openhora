@@ -127,3 +127,49 @@ def test_a_run_lines_cpu_platform_must_be_the_image_platform_of_its_event_line()
     assert about(run_line(cpu_platform="linux/amd64")) == []
     assert about(run_line(cpu_platform="linux/arm64")) == [message]
     assert about(run_line()) == []  # a line written before the key
+
+
+# --- the git index is left out of the run hash (T26) ---------------------------------------------------------
+
+def test_the_git_index_is_left_out_of_the_run_hash(run_dir):
+    indexes = [run_dir / "cwd" / ".git" / "index", run_dir / "cwd" / "sub" / ".git" / "index",
+               run_dir / "cwd" / ".git" / "worktrees" / "x" / "index"]
+    for path in indexes:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"one")
+    before = er.run_record_hash(str(run_dir))
+    for path in indexes:
+        path.write_bytes(b"another, longer")
+    assert er.run_record_hash(str(run_dir)) == before
+
+
+def test_other_files_named_index_and_the_rest_of_the_git_folder_stay_in_the_run_hash(run_dir):
+    plain, head = run_dir / "cwd" / "index", run_dir / "cwd" / ".git" / "HEAD"
+    head.parent.mkdir()
+    plain.write_bytes(b"one")
+    head.write_bytes(b"ref: refs/heads/main\n")
+    before = er.run_record_hash(str(run_dir))
+    plain.write_bytes(b"two")
+    changed_plain = er.run_record_hash(str(run_dir))
+    assert changed_plain != before
+    head.write_bytes(b"ref: refs/heads/main2\n")
+    assert er.run_record_hash(str(run_dir)) != changed_plain
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_a_plain_git_status_does_not_change_the_run_hash(run_dir):
+    import subprocess
+    cwd = run_dir / "cwd"
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
+
+    def git(*args):
+        subprocess.run(["git", "-c", "init.defaultBranch=main", "-c", "user.name=Test", "-c", "user.email=test@mail.example",
+                        "-c", "commit.gpgsign=false", *args], check=True, cwd=cwd, env=env, capture_output=True)
+
+    git("init")
+    git("add", "a.txt")
+    git("commit", "-m", "first")
+    before = er.run_record_hash(str(run_dir))
+    os.utime(cwd / "a.txt", (1_900_000_000, 1_900_000_000))
+    git("status")
+    assert er.run_record_hash(str(run_dir)) == before

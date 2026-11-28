@@ -25,7 +25,7 @@ SHARED = (
     "ProviderError", "acquire_lock", "archive_finished", "argument_file", "changed_since_approval",
     "copy_verified", "cut_note", "differs", "execute", "iso", "job_dir", "keep_tail", "kill_group", "last_firing",
     "load_command_file", "log", "main", "now", "orphan_group", "parse_iso", "pinned_python", "private_dir", "read_job",
-    "record_firing", "record_group", "release_lock", "run_one_shot", "runs_path", "sha256", "snapshot_argv",
+    "record_changed_since_approval", "record_firing", "record_group", "release_lock", "run_one_shot", "runs_path", "sha256", "snapshot_argv",
     "split_argument", "tail", "test_mode", "trim_in_place", "unverified_file", "validate_id", "wait_for_lock",
     "write_job", "write_private",
 )

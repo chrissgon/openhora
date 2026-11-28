@@ -176,6 +176,24 @@
     sha256(text.value).then(function (h) { current = h; paint(); });
   });
 
+  /* The claims picker of Home (W4). A click on a claim checks its radio without the browser's scroll to the focused radio,
+     and keeps the picked claim where it was on the screen when an artifact above it closes (one column, on the phone).
+     Without this script the picker works the same, and the browser may scroll to the radio it focuses. */
+  document.querySelectorAll(".claims .claim-row").forEach(function (label) {
+    var input = label.querySelector("input");
+    if (!input) return;
+    label.addEventListener("click", function (e) {
+      if (e.target === input || e.target.closest("a")) return; /* the radio's own click (Space) and the link keep their default */
+      e.preventDefault();
+      var before = label.getBoundingClientRect().top;
+      input.checked = true;
+      var active = document.activeElement;
+      if (active && active !== input && active.name === input.name) input.focus({ preventScroll: true }); /* focus follows only when it was on the picker */
+      var moved = label.getBoundingClientRect().top - before;
+      if (Math.abs(moved) >= 1) window.scrollBy({ top: moved, left: 0, behavior: "instant" });
+    });
+  });
+
   /* A target heading takes the focus (Proof and Glossary anchors). */
   var focusTarget = function () {
     var id = decodeURIComponent(location.hash.slice(1));

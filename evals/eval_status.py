@@ -9,7 +9,7 @@ Usage:
   python3 evals/eval_status.py hash --skill <name>
   python3 evals/eval_status.py evidence [--skill <name> | --file <path>]
   python3 evals/eval_status.py gate --skill <name> [--model <id>]
-  python3 evals/eval_status.py inventory --write | --check
+  python3 evals/eval_status.py inventory --write [--commit <ref>] | --check
   python3 evals/eval_status.py measurement --kind grader|execution|infrastructure --cause "<why>"
                                [--skills <name>,...|all] [--models <id>,...|all] [--date YYYY-MM-DD]
   python3 evals/eval_status.py measurement --close --cause "<why>" [--date YYYY-MM-DD]
@@ -62,12 +62,12 @@ removed on 2026-10-15 (see the top of this file), and nothing reads one that is 
   raw output (eval_run.py run_usage); absent when no count could be read whole.
   "cpu_platform" is the CPU platform the run's container ran on (linux/arm64 or linux/amd64: evidence is made on
   either); "platform" names a social platform and never this. "upstream" names, for each model that ran through a
-  key proxy, the provider its entry pins or the route's host; "image_source" says whether the image was pulled
+  key proxy, the provider its entry pins or the route's host (the configuration's pin, not one observed in the responses; the provider's quantization is not pinned); "image_source" says whether the image was pulled
   ("published": "image_digest" is the platform manifest's repo digest) or built here ("local": the image id).
   "local_model" names, for a local model (evals/local_models.py), what served it: the sha256 of its weights, their
   llama.cpp file type, the context the server ran with, the accelerator, the model server image's manifest digest and
   version line, and the hash of the server's arguments (the run id, the weights path and the user replaced by constants).
-  "run_sha256" is a hash of what the run left and a re-grading would read (eval_run.py run_record_hash).
+  "run_sha256" is a hash of what the run left and a re-grading would read (eval_run.py run_record_hash; the git index left out).
 
 A run line with "platform" is a run of a case of that platform's case file, skills/<name>/evals/platforms/
 <platform>.json (eval_run.py --platform; the plan's decision 14c): it belongs to a partial test and to a run
@@ -152,8 +152,8 @@ The band of a skill on one model (the skill's own row is the lead model's, the f
 that applies:
   needs a test  (a) no full test of the current major version, and no closed pool, passes the gate (none at or
                 above the measurement floor, or the gate cannot be computed); (b) a guard assertion (tagged guard or
-                guard:<effect>) has no with-skill run in the current set, or a confirmed failure there
-                ("guard_failed"); (c) the newest full test, or the newest closed pool, fails the gate, or a case
+                guard:<effect>) has no graded with-skill run in the current set (a timeout line is none), or a confirmed failure there
+                ("guard_failed"); (c) the newest full test, or the newest closed pool, fails the gate (its command runs the baseline in full first when the baseline has fewer runs per case than "runs" and only the tolerance fails), or a case
                 changed again after it
   watch         no with-skill lab line in the current set; or the current set holds runs of guard-only cases
                 alone; or the pessimistic score is under 0.70; or three or more Y changes (the version file)
@@ -224,6 +224,10 @@ Commands:
              commit they were generated at. --check exits 1 when the tables differ from what would be generated
              now, the commit line aside. They are a published snapshot: no pull request has to regenerate them, and
              the validator reports tables behind the evidence as a warning, never as an error.
+             --commit <ref> stamps that commit in place of HEAD, so that a snapshot made on a branch can name the
+             head of the branch it lands on (a squash merge drops the branch's own commits); it is refused, with
+             nothing written, unless skills/ and evals/ there are those of the working tree (no tracked
+             difference, no untracked file).
   measurement  commits a change of a file the measurement fingerprint covers as one of the three kinds of the
              reliability model's section 8, and rewrites the gate file: --kind grader raises the measurement
              version and the floor; --kind execution raises the version and appends an epoch dated --date (today,
@@ -2713,6 +2717,18 @@ def assertion_counts(cases, ref_current, baselines):
     return rows, (round(sum(diffs) / len(diffs), 4) if diffs else None)
 
 
+def thin_baseline_command(skill, cases, gate, runs, threshold):
+    """The command that runs a thin baseline in full when a failed gate could pass on it with no change to the skill:
+    the gate's baseline has fewer lines per case than `runs` and the mean with the skill is at the threshold, so that
+    only the tolerance fails (T26). None otherwise. gate is a computed gate (gate_of, or a closed pool's) with "with"
+    and "baseline_runs"; cases the skill's current cases."""
+    n = gate.get("baseline_runs")
+    if n is None or n >= runs or gate.get("with") is None or not load_measure().at_threshold(gate["with"], threshold):
+        return None
+    every = ",".join(sorted(cases, key=_case_key))
+    return f"python3 evals/eval_run.py --skill {skill} --cases {every} --baseline"
+
+
 def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None, pool_rule=None):
     """The band of one skill on the subject model (the first of lab_models, or the model given), with its cause and the
     command that clears it, the score, the gate, the guards, the field columns and a row per model (the model's sections
@@ -2768,13 +2784,23 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None, 
     progress = f" ({route['current']['progress']})" if route else ""
     causes = []  # (kind, text, command), in the order of the model's section 5
 
+    def failed_gate_command(g, fix):
+        """A failed gate's command: after the fix, or first the baseline in full when that alone could clear it (T26)."""
+        runs_n = event_config(cfg)["runs"]
+        retry = None if community else thin_baseline_command(skill, cases, g, runs_n, cfg.get("threshold", 0.8))
+        if retry is None:
+            return f"after the fix: {fix}"
+        return (f"{retry} (the baseline has {g['baseline_runs']} of {runs_n} runs per case: run it in full first; "
+                f"if the gate still fails, after the fix: {fix})")
+
     # needs a test (a) and (c): the gate of the newest full test of the current major version, or of the pool that decides.
     if decided:
         if not decided["gate"]["passed"]:
             causes.append(("gate failed", f"the pooled gate of {decided['xy']} fails (with the skill "
                            f"{decided['gate']['with']:.3f}, baseline {decided['gate']['baseline']:.3f}; the first {decided['runs']} "
                            f"lines of each case, {decided['counted']} of {decided['lines']}, dated {decided['from']} to {decided['to']}"
-                           + (", baseline expired" if decided["frozen"] else "") + ")", f"after the fix: {run_next}"))
+                           + (", baseline expired" if decided["frozen"] else "") + ")",
+                           f"after the fix: {run_next}" if decided["frozen"] else failed_gate_command(decided["gate"], run_next)))
     elif community:
         causes.append(("no passing full test", COMMUNITY_NO_POOL + progress, run_next))
     elif not measured_fulls:
@@ -2783,7 +2809,7 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None, 
         causes.append(("no passing full test", why + (" and no closed pool" if route else "") + progress, run_next))
     elif gate.get("computed") and not gate["passed"]:
         causes.append(("gate failed", f"the newest full test of {gate['version']} fails the gate (with the skill "
-                       f"{gate['with']:.3f}, baseline {gate['baseline']:.3f})", f"after the fix: {run_full}"))
+                       f"{gate['with']:.3f}, baseline {gate['baseline']:.3f})", failed_gate_command(gate, run_full)))
     elif not gate.get("computed") and gate.get("note") == "baseline expired":
         if not gate.get("passed"):
             causes.append(("gate failed", f"the newest full test of {gate['version']} failed the gate (baseline expired)",
@@ -2798,7 +2824,8 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None, 
     for cid, case in cases.items():
         lines = [l for l in ref_current if str(l["case"]) == cid]
         for pos in guards_of(case):
-            state = "not run" if not lines else ("failed" if any(pos in (l.get("guard_failed") or []) for l in lines) else "passed")
+            graded = [l for l in lines if l.get("outcome") == "graded"]  # a timeout line was not graded: it says nothing of a guard (T26)
+            state = "failed" if any(pos in (l.get("guard_failed") or []) for l in lines) else "passed" if graded else "not run"
             guards.append({"case": cid, "assertion": pos, "state": state})
             (failed if state == "failed" else not_run if state == "not run" else []).append(f"{cid}.{pos}")
     if failed or not_run:
@@ -3280,6 +3307,7 @@ def all_status(root=ROOT, only=None, local_base=None):
     return out
 
 
+STAMP_INPUTS = ("skills", "evals")  # everything the snapshot tables are computed from (T33)
 STAMP_RE = re.compile(r"^Generated at commit `[^`]*` by `python3 evals/eval_status\.py inventory --write`\.$", re.M)
 
 
@@ -3327,7 +3355,38 @@ def _community_cell(figures):
             + (" (community only)" if figures.get("community_only") else ""))
 
 
-def inventory_block(root=ROOT):
+def stamp_commit(root, ref):
+    """The 12-hex commit `inventory --write --commit <ref>` stamps, so that a snapshot made on a branch can name the head
+    of the branch it lands on (a squash merge drops the branch's own commits; T33). Accepted only when skills/ and evals/
+    (STAMP_INPUTS, everything the tables are computed from) at that commit are those of the working tree: no tracked
+    difference, staged or not, and no untracked file git does not ignore. Refused with die (2: not a commit, not a git
+    checkout, an option-like ref; 1: the inputs differ or cannot be compared), with nothing written. Strict on purpose
+    (a changed test under evals/tests/ also refuses): the saving of a narrower list is not shown. Known limit: the field
+    columns' contributor caps read authors from the history of HEAD (evidence_authors), which this does not compare; the
+    repository merges by squash and keeps the pull request's author, so no figure changes in practice."""
+    if ref.startswith("-"):
+        die(f"--commit {ref!r} is not a commit. See --help.", 2)
+    if git_out(root, "rev-parse", "--is-inside-work-tree") is None:
+        die("--commit needs a git checkout; this folder is not one.", 2)
+    full = git_out(root, "rev-parse", "--verify", "--quiet", ref + "^{commit}")
+    if full is None or not full.strip():
+        die(f"--commit {ref!r} names no commit in this checkout.", 2)
+    full = full.strip()
+    short = git_out(root, "rev-parse", "--short=12", full)
+    short = short.strip() if short else full[:12]
+    changed = git_out(root, "diff", "--name-only", full, "--", *STAMP_INPUTS)
+    untracked = git_out(root, "ls-files", "--others", "--exclude-standard", "--", *STAMP_INPUTS)
+    if changed is None or untracked is None:
+        die(f"--commit {ref}: cannot compare skills/ and evals/ with {short} (git failed).", 1)
+    files = [f for f in changed.splitlines() + untracked.splitlines() if f.strip()]
+    if files:
+        die(f"--commit {ref}: skills/ and evals/ differ between {short} and this working tree ({len(files)} file(s), the first "
+            f"{files[0]}); a snapshot names a commit whose inputs are the ones it was read from. Regenerate it once the "
+            "evidence is on that branch, or without --commit.", 1)
+    return short
+
+
+def inventory_block(root=ROOT, stamp=None):
     """The two snapshot tables of the reliability model's section 10, with the commit they were generated at:
     the band table (one row per skill, on the first lab model, the order of the summary row; its field column sums every
     model) and the model table (one row per skill and model that has any evidence, the lab models in order): the same
@@ -3335,8 +3394,10 @@ def inventory_block(root=ROOT):
     model's own; none decides for another."""
     data = all_status(root)
     ref = subject_model(load_gate(root))
-    head = git_out(root, "rev-parse", "--short=12", "HEAD")
-    lines = [f"Generated at commit `{head.strip() if head else 'none'}` by `python3 evals/eval_status.py inventory --write`.", "",
+    if stamp is None:
+        head = git_out(root, "rev-parse", "--short=12", "HEAD")
+        stamp = head.strip() if head else "none"
+    lines = [f"Generated at commit `{stamp}` by `python3 evals/eval_status.py inventory --write`.", "",
              "| Skill | Version | Band | Cause | Score | Mean | Runs (N) | Last full test | Field: uses, judged, mean (self-reported) |",
              "|-------|---------|------|-------|-------|------|----------|----------------|-------------------------------------------|"]
     for r in data["skills"]:
@@ -3379,8 +3440,8 @@ def inventory_block(root=ROOT):
     return "\n".join(lines)
 
 
-def inventory_text(root=ROOT):
-    """Return (current text, text with the tables regenerated). Raises ValueError when the markers are missing."""
+def inventory_text(root=ROOT, stamp=None):
+    """Return (current text, text with the tables regenerated; stamp names the commit in place of HEAD). Raises ValueError when the markers are missing."""
     path = os.path.join(root, INVENTORY_REL)
     try:
         with open(path, encoding="utf-8") as f:
@@ -3390,7 +3451,7 @@ def inventory_text(root=ROOT):
     a, b = text.find(BEGIN), text.find(END)
     if a == -1 or b == -1 or b < a:
         raise ValueError(f"{INVENTORY_REL} lacks the markers {BEGIN} and {END}")
-    return text, text[:a + len(BEGIN)] + "\n" + inventory_block(root) + "\n" + text[b:]
+    return text, text[:a + len(BEGIN)] + "\n" + inventory_block(root, stamp) + "\n" + text[b:]
 
 
 def inventory_current(root=ROOT):
@@ -3410,7 +3471,7 @@ def main(argv, root=None):
         return 0
     opts, flags, i = {}, set(), 0
     while i < len(rest):
-        if rest[i] in ("--skill", "--skill-dir", "--file", "--kind", "--cause", "--skills", "--models", "--date", "--class", "--model"):
+        if rest[i] in ("--skill", "--skill-dir", "--file", "--kind", "--cause", "--skills", "--models", "--date", "--class", "--model", "--commit"):
             if i + 1 >= len(rest):
                 die(f"{rest[i]} needs a value.")
             opts[rest[i][2:]] = rest[i + 1]
@@ -3429,6 +3490,8 @@ def main(argv, root=None):
         die("--kind, --cause, --skills, --models and --close go with the measurement command. See --help.")
     if "class" in opts and cmd != "bump":
         die("--class goes with the bump command. See --help.")
+    if "commit" in opts and (cmd != "inventory" or "--write" not in flags):
+        die("--commit goes with inventory --write. See --help.")
     if "model" in opts and cmd != "gate":
         die("--model goes with the gate command. See --help.")
     if "date" in opts and cmd not in ("measurement", "bump", "migrate-versions"):
@@ -3555,8 +3618,9 @@ def main(argv, root=None):
     if cmd == "inventory":
         if len(flags) != 1:
             die("inventory needs exactly one of --write or --check.")
+        stamp = stamp_commit(root, opts["commit"]) if "commit" in opts else None
         try:
-            text, new = inventory_text(root)
+            text, new = inventory_text(root, stamp)
         except ValueError as e:
             die(str(e), 1)
         current = STAMP_RE.sub("", text) == STAMP_RE.sub("", new)

@@ -1,0 +1,43 @@
+# openhora
+
+> openhora is an open, self-hosted workbench of skills, agents and flows that let an AI build a digital solution.
+
+## Pages
+
+- [openhora](https://openhora.dev/): openhora is an open, self-hosted workbench of skills, agents and flows that let an AI build a digital solution.
+- [Proof](https://openhora.dev/proof): Each of openhora's seven differentiators beside an artifact on main that verifies it.
+- [First steps](https://openhora.dev/first-steps): Where to install openhora, what you need, and what to do after installing.
+- [How openhora is built](https://openhora.dev/how-it-is-built): Security and versatility claims of openhora, each with the repository file that states or enforces it.
+- [Interface](https://openhora.dev/interface): The local interface of openhora: a small low-poly city of your projects, the view onto the task runtime.
+- [Glossary](https://openhora.dev/glossary): One definition per term, as the openhora site uses it.
+
+## The seven differentiators
+
+- [Proof decides the model and the autonomy](https://openhora.dev/proof#proof-decides-the-model-and-the-autonomy): In openhora, recorded test evidence, not a person's opinion, decides what may happen without a person and which model `auto` picks for a skill; a model you name runs supervised until it is proven or you consent.
+- [Approval of the exact content before any side effect](https://openhora.dev/proof#approval-of-the-exact-content-before-any-side-effect): Anything that changes the outside world (a post, a pull request, a commit) is shown to the person as exact content with its hash, and runs only after the person approves that hash.
+- [A harness-agnostic core, with adapters](https://openhora.dev/proof#a-harness-agnostic-core-with-adapters): The skills do not belong to one AI tool. Everything specific to a tool lives in an adapter folder; adding a tool does not edit the core.
+- [Artifacts over invocation](https://openhora.dev/proof#artifacts-over-invocation): What a step produces is a file in your project that the next step, another skill and a person can read.
+- [Open, self-hosted, no telemetry](https://openhora.dev/proof#open-self-hosted-no-telemetry): MIT licence; runs on your own machine; sends nothing to openhora.
+- [Results are published whether they pass or not](https://openhora.dev/proof#results-are-published-whether-they-pass-or-not): The evidence for each skill is committed in the repository, including the results that did not pass.
+- [The person can always take power away](https://openhora.dev/proof#the-person-can-always-take-power-away): From the page, a person can stop an agent or lower its mode at once; widening what an agent may do is done only in the terminal.
+
+## First steps
+
+- [Install](https://github.com/chrissgon/openhora#install): the steps live in the README, on main
+- [runtime/README.md](https://github.com/chrissgon/openhora/blob/main/runtime/README.md): `uv run --with keyring==25.7.0 python3 runtime/service.py --project <dir>`
+
+## Repository
+
+- [README.md](https://github.com/chrissgon/openhora/blob/main/README.md)
+- [AGENTS.md](https://github.com/chrissgon/openhora/blob/main/AGENTS.md): the rules: a harness-agnostic core; open-closed adapters
+- [contracts/](https://github.com/chrissgon/openhora/tree/main/contracts)
+- [contracts/project-layout.md](https://github.com/chrissgon/openhora/blob/main/contracts/project-layout.md): the table of owning skills
+- [contracts/environment.md](https://github.com/chrissgon/openhora/blob/main/contracts/environment.md): the side-effect vocabulary, and the rule that an approval binds a hash of the payload
+- [contracts/runtime.md](https://github.com/chrissgon/openhora/blob/main/contracts/runtime.md): limits L6, L14 to L17; the four contained-run restrictions R1 to R4
+- [interface/README.md](https://github.com/chrissgon/openhora/blob/main/interface/README.md): no CDN, no font host, no analytics, no remote import; the service binds 127.0.0.1 by default
+- [LICENSE](https://github.com/chrissgon/openhora/blob/main/LICENSE): MIT
+
+## Optional
+
+- [docs/inventory.md](https://github.com/chrissgon/openhora/blob/main/docs/inventory.md): the “Evaluation status” band table and per-model table
+- [evals/eval-gate.json](https://github.com/chrissgon/openhora/blob/main/evals/eval-gate.json)
