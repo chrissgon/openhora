@@ -46,6 +46,17 @@
   "pending_shares_per_24h": 5,
   "unaudited_users_per_24h": 5
  },
+ "profile": {
+  "pieces": {
+   "bio": {"max_characters": 80, "unit": null, "source": "TT-bio"},
+   "name": {"max_characters": 30, "unit": null, "source": "TT-name"},
+   "username": {"min_characters": 2, "max_characters": 24, "source": "TT-username"},
+   "links": {"max_count": 1, "requires": "1,000 followers or a verified business account", "source": "TT-link"},
+   "pinned": {"max_count": null, "source": "not checked"},
+   "photo": {"source": "not checked"}
+  },
+  "checked": "2026-11-24"
+ },
  "reply": null,
  "comment": null,
  "identifiers": null,

@@ -153,7 +153,7 @@ def test_a_planted_renderat_folder_differs_from_the_plain_compose_folder_by_one_
     assert changed == sorted([C.PLANTS[which][0], "pins.json"]), changed
     catalogue = _blocks.load_catalogue(str(folder))                    # every hash checked
     assert catalogue["sha256"] == C.pins_sha256(folder)
-    assert list(catalogue["engines"]) == ["ffmpeg"] and set(catalogue["engines"]["ffmpeg"]["presets"].values()) == {"oh:" + p for p in catalogue["engines"]["ffmpeg"]["presets"]}
+    assert list(catalogue["engines"]) == ["ffmpeg"] and set(catalogue["engines"]["ffmpeg"]["presets"].values()) == {"oh:" + p.replace("_", "-") for p in catalogue["engines"]["ffmpeg"]["presets"]}
     assert C.PLANTS[which][2].strip() in b[C.PLANTS[which][0]].decode()
     assert tree(K.BLOCKS)["pins.json"] and C.pins_sha256(K.BLOCKS) == K.BLOCKS_SHA256        # the committed folder is untouched
 

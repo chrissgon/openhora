@@ -70,7 +70,8 @@ IMAGES = "images_with_caption"
 SHAPES = (TEXT, VIDEO, IMAGES)
 BASE_KEYS = {"platform", "hosts", "post", "media"}
 TEXT_KEYS = {"reply", "comment", "identifiers", "notification_email"}  # required for a text post, null otherwise
-OPTIONAL_KEYS = {"video", "limits"}
+OPTIONAL_KEYS = {"video", "limits", "profile"}
+PROFILE_PIECE_KEYS = {"max_characters", "min_characters", "unit", "max_count", "requires", "source"}
 VIDEO_KEYS = {"containers", "codecs", "audio_codecs", "fps_min", "fps_max", "max_width", "min_side", "max_side",
               "min_seconds", "max_seconds", "max_bytes", "aspect", "faststart"}
 LIMIT_KEYS = {"posts_per_24h", "approximate", "pending_shares_per_24h", "unaudited_users_per_24h"}
@@ -167,7 +168,7 @@ def check_text_post(d: dict) -> None:
 def check_caption_post(d: dict) -> None:
     """The keys of a video or image post: the caption keys, the formats and options, null where a text post has a value."""
     shape, post = shape_of(d), d["post"]
-    assert set(d) == BASE_KEYS | TEXT_KEYS | {"limits"} | ({"video"} if shape == VIDEO else set())
+    assert set(d) - {"profile"} == BASE_KEYS | TEXT_KEYS | {"limits"} | ({"video"} if shape == VIDEO else set())
     assert all(d[key] is None for key in TEXT_KEYS), "comments, replies and notification mail are those of a text post"
     assert post["first_comment"] is None and post["url"] is None
     assert post["requires_text"] is None or isinstance(post["requires_text"], bool)
@@ -187,6 +188,31 @@ def check_caption_post(d: dict) -> None:
         check_video(d["video"], d["media"])
 
 
+def check_profile(name: str, profile: dict) -> None:
+    """The profile key: pieces with known keys, each source a tag of the reference's Sources or `not checked`."""
+    assert set(profile) == {"pieces", "checked"} and re.fullmatch(r"\d{4}-\d{2}-\d{2}", profile["checked"])
+    text = read(f"shared/references/platforms/{name}.md")
+    sources = set(re.findall(r"^- \[([A-Za-z-]+)\]", section(text, "## Sources"), re.M))
+    assert profile["pieces"], "a profile key names at least one piece"
+    for piece, spec in profile["pieces"].items():
+        assert re.fullmatch(r"[a-z]+", piece), piece
+        assert set(spec) <= PROFILE_PIECE_KEYS and "source" in spec, piece
+        assert spec["source"] == "not checked" or spec["source"] in sources, (piece, spec["source"])
+        assert spec["unit"] in (None, "utf-16", "characters") if "unit" in spec else True
+        for key in ("max_characters", "min_characters", "max_count"):
+            assert int_or_null(spec.get(key)), (piece, key)
+        if spec["source"] == "not checked":
+            assert all(spec.get(k) is None for k in ("max_characters", "min_characters", "max_count")), \
+                "a value with no source is null"
+    assert "## A profile" in text
+    prose = section(text, "## A profile")
+    for piece, spec in profile["pieces"].items():
+        for key in ("max_characters", "min_characters", "max_count"):
+            if spec.get(key) is not None:
+                assert has_number(prose, spec[key]), (piece, key, "the prose says the number of the data file")
+    assert "`profile`" in read("shared/references/platforms/README.md")
+
+
 @pytest.mark.parametrize("path", DATA_FILES, ids=lambda p: p.name)
 def test_a_data_file_has_a_reference_and_the_keys_the_readme_names(path):
     d = json.loads(path.read_text(encoding="utf-8"))
@@ -201,6 +227,8 @@ def test_a_data_file_has_a_reference_and_the_keys_the_readme_names(path):
         assert f"| `{key}` |" in readme, f"the README's table does not describe `{key}`"
     for key in d["post"]:
         assert f"`{key}`" in readme, f"the README does not name `post.{key}`"
+    if "profile" in d:
+        check_profile(path.stem, d["profile"])
     if shape == TEXT:
         check_media(d["media"])
         check_text_post(d)

@@ -34,7 +34,7 @@ PORTS = {
     "lt-mask-reveal": ("quote", "lt-mask-reveal", "7f348ec3124e211f7ec8e7241f21220134504ab713143e3f9dc10e016892e2e3"),
 }
 NOT_ADMITTED: set = set()      # every port has a determinism record since PF-a4e (the repaint of `seek_admitted`); before it count-up, testimonial-card (PF-a4d) and spring-pop (PF-a4b) failed the reverse run
-DEFAULTS = {"aside": "oh:aside", "caption": "hf:caption-highlight", "cutaway": "oh:cutaway", "keyword": "hf:spring-pop", "list": "oh:list", "mark": "oh:mark", "nametag": "oh:nametag", "number": "hf:count-up",
+DEFAULTS = {"aside": "oh:aside", "caption": "hf:caption-highlight", "cutaway": "oh:cutaway", "focus_card": "oh:focus-card", "keyword": "hf:spring-pop", "list": "oh:list", "mark": "oh:mark", "nametag": "oh:nametag", "number": "hf:count-up",
             "quote": "hf:testimonial-card", "sticker": "oh:sticker"}
 CAPTION_PORTS = [n for n, (preset, _, _) in PORTS.items() if preset == "caption"]
 MAKER = "hey" + "gen"            # the registry's maker may be named in NOTICE.md and the licence file only (V0 section 8): this test never spells it out

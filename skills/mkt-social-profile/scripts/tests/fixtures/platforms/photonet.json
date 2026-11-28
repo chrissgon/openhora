@@ -1,0 +1,14 @@
+{
+ "platform": "photonet",
+ "post": {"max_characters": 100},
+ "profile": {
+  "pieces": {
+   "bio": {"max_characters": 150, "unit": null, "source": "PN-bio"},
+   "name": {"max_characters": null, "unit": null, "source": "not checked"},
+   "username": {"min_characters": 3, "max_characters": 30, "source": "PN-user"},
+   "links": {"max_count": 2, "source": "PN-links"},
+   "photo": {"source": "not checked"}
+  },
+  "checked": "2030-01-01"
+ }
+}

@@ -438,6 +438,70 @@
    "use_when": "the picture should show what is spoken about instead of the speaker"
   },
   {
+   "band": "frame",
+   "engines": [
+    "ffmpeg"
+   ],
+   "kind": "layout",
+   "license": [
+    "MIT"
+   ],
+   "may_cross_face": true,
+   "name": "oh:focus-card",
+   "namespace": "oh",
+   "natural_duration": 1.5,
+   "params": {
+    "asset": {
+     "required": true,
+     "type": "image"
+    },
+    "backdrop": {
+     "default": "blur",
+     "type": "choice",
+     "values": [
+      "blur",
+      "solid",
+      "none"
+     ]
+    },
+    "label": {
+     "max": 40,
+     "type": "text"
+    },
+    "stamp": {
+     "default": "none",
+     "type": "choice",
+     "values": [
+      "none",
+      "x",
+      "check"
+     ]
+    }
+   },
+   "preset": "focus_card",
+   "runtimes": [
+    "renderat"
+   ],
+   "samples": [
+    {
+     "asset": "slot-1"
+    },
+    {
+     "asset": "slot-1",
+     "label": "The wrong way",
+     "stamp": "x"
+    },
+    {
+     "asset": "slot-1",
+     "backdrop": "solid",
+     "label": "A small picture",
+     "stamp": "check"
+    }
+   ],
+   "source": "openhora",
+   "use_when": "a picture of the speaker's is shown as a card while the speaker's own shot stays behind it, blurred"
+  },
+  {
    "band": "card",
    "engines": [
     "ffmpeg"
@@ -955,13 +1019,14 @@
    "use_when": "a drawn symbol pops beside the speaker's point"
   }
  ],
- "blocks_sha256": "521d20ef4ec035d4dbbdb3f6222e79757c8679eb18109b624e9dc220296841da",
+ "blocks_sha256": "0daff9f2bcbe699694b8cbefb6273f6b2fffc6765c1145b474b4dea7ef503a91",
  "engines": {
   "ffmpeg": {
    "presets": {
     "aside": "oh:aside",
     "caption": "hf:caption-highlight",
     "cutaway": "oh:cutaway",
+    "focus_card": "oh:focus-card",
     "keyword": "hf:spring-pop",
     "list": "oh:list",
     "mark": "oh:mark",

@@ -1,0 +1,107 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-preset" content="focus_card">
+<meta name="pv-params" content="asset,label,stamp,backdrop">
+<meta name="pv-looks" content="width_frac,radius_px,max_height,push,enter_seconds,enter_from,exit_seconds,stamp_delay,stamp_seconds,stamp_from,stamp_size,stamp_stroke,stamp_tilt,stamp_x_color,stamp_check_color">
+<style>
+:root { --c-bg:#0B0F14; --c-text:#FFFFFF; --c-muted:#A8B0BC; --c-accent:#FFC93C; --c-chip_fill:#1B1F2A; --c-chip_text:#FFE08A; --c-chip_border:#FFC93C;
+        --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
+        --weight-display:800; --weight-text:500; --weight-mono:500; }
+html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
+#stage { position:absolute; left:0; top:0; width:1080px; height:1920px; overflow:hidden; background:transparent; }
+#card { position:absolute; overflow:hidden; background:#000000; box-shadow:0 18px 64px rgba(0, 0, 0, 0.55); transform-origin:50% 50%; }
+#card > img { position:absolute; left:0; top:0; width:100%; height:100%; }
+#chip { position:absolute; left:65px; padding:14px 28px; border-radius:16px; border:4px solid var(--c-chip_border);
+        background:var(--c-chip_fill); color:var(--c-chip_text); font-family:var(--font-mono); font-weight:var(--weight-mono); font-size:38px; letter-spacing:0.03em; }
+#st { position:absolute; left:0; top:0; width:1080px; height:1920px; overflow:visible; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+'use strict';
+function clamp(x) { return Math.max(0, Math.min(1, x)); }
+function seg(t, a, b) { return clamp((t - a) / (b - a)); }
+function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+function easeOutBack(x, c1) { const c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+
+const FRAME_W = 1080, FRAME_H = 1920, MAX_SCALE = 2, SVGNS = 'http://www.w3.org/2000/svg';
+
+// One stroke of the stamp: a dark halo path under a coloured one, drawn from its start to `shown` (0 to 1) by the dash offset.
+function stroke(svg, d, color, width, shown, len) {
+  const mk = function (c, w) {
+    const p = document.createElementNS(SVGNS, 'path');
+    p.setAttribute('d', d); p.setAttribute('fill', 'none'); p.setAttribute('stroke', c); p.setAttribute('stroke-width', String(w));
+    p.setAttribute('stroke-linecap', 'round'); p.setAttribute('stroke-linejoin', 'round');
+    p.setAttribute('stroke-dasharray', String(len)); p.setAttribute('stroke-dashoffset', String(len * (1 - shown)));
+    return p;
+  };
+  if (shown > 0) { svg.appendChild(mk('rgba(0,0,0,0.55)', width + 16)); svg.appendChild(mk(color, width)); }
+}
+
+// The picture card (P4b): the picture whole as a rounded card with a shadow, centred, `width_frac` of the frame wide and no taller than `max_height`, with a slow
+// push-in over the beat. It fades and scales in over `enter_seconds` and fades out over the last `exit_seconds`. A stamp (an X of two strokes, or a check of one)
+// is drawn over the card's centre: it pops in at `stamp_delay` and its strokes are drawn over `stamp_seconds`. `backdrop`: `solid` paints the theme's background
+// under the card; `blur` and `none` leave the page transparent (the compose draws the speaker's shot blurred, or sharp, under it). A pure function of t.
+window.renderAt = function (t, data) {
+  const P = data.params;
+  const L = data.look;
+  const stage = document.getElementById('stage');
+  const backdrop = P.backdrop === undefined ? 'blur' : P.backdrop;
+  const stamp = P.stamp === undefined ? 'none' : P.stamp;
+  stage.style.background = backdrop === 'solid' ? 'var(--c-bg)' : 'transparent';
+  const img = window.__imgs[P.asset];          // decoded by the driver before frame 0
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const fs = w > 0 && h > 0 ? Math.min(L.width_frac * FRAME_W / w, L.max_height / h, MAX_SCALE) : 1;
+  const cw = Math.round(w * fs), ch = Math.round(h * fs);
+  const cx = Math.round((FRAME_W - cw) / 2), cy = Math.round((FRAME_H - ch) / 2);
+  const inn = easeOutCubic(seg(t, 0, L.enter_seconds));
+  const out = 1 - seg(t, data.duration - L.exit_seconds, data.duration);
+  const card = document.createElement('div');
+  card.id = 'card';
+  card.style.left = cx + 'px';
+  card.style.top = cy + 'px';
+  card.style.width = cw + 'px';
+  card.style.height = ch + 'px';
+  card.style.borderRadius = L.radius_px + 'px';
+  card.style.opacity = (inn * out).toFixed(3);
+  card.style.transform = 'scale(' + ((1 - L.enter_from * (1 - inn)) * (1 + L.push * clamp(t / data.duration))).toFixed(4) + ')';
+  img.style.objectFit = 'fill';
+  card.appendChild(img);
+  window.__box = { x: cx, y: cy, w: cw, h: ch };
+  stage.replaceChildren(card);
+  if (P.label) {
+    const chip = document.createElement('div');
+    chip.id = 'chip';
+    chip.textContent = P.label;
+    chip.style.top = Math.max(140, cy - 110) + 'px';
+    chip.style.opacity = (inn * out).toFixed(3);
+    stage.appendChild(chip);
+  }
+  const k = clamp((t - L.stamp_delay) / L.stamp_seconds);
+  if ((stamp === 'x' || stamp === 'check') && k > 0) {
+    const svg = document.createElementNS(SVGNS, 'svg');
+    svg.id = 'st';
+    svg.setAttribute('width', '1080'); svg.setAttribute('height', '1920'); svg.setAttribute('viewBox', '0 0 1080 1920');
+    const u = Math.min(cw, ch) * L.stamp_size;          // the stamp's half-size
+    const sc = L.stamp_from + (1 - L.stamp_from) * easeOutBack(clamp(k * 1.6), 1.7);
+    const g = document.createElementNS(SVGNS, 'g');
+    g.setAttribute('transform', 'translate(' + (cx + cw / 2) + ' ' + (cy + ch / 2) + ') rotate(' + L.stamp_tilt + ') scale(' + sc.toFixed(4) + ')');
+    if (stamp === 'x') {
+      const len = Math.round(u * 2 * 1.4143);
+      stroke(g, 'M ' + (-u) + ' ' + (-u) + ' L ' + u + ' ' + u, L.stamp_x_color, L.stamp_stroke, seg(k, 0, 0.5), len);
+      stroke(g, 'M ' + u + ' ' + (-u) + ' L ' + (-u) + ' ' + u, L.stamp_x_color, L.stamp_stroke, seg(k, 0.5, 1), len);
+    } else {
+      const d = 'M ' + (-u) + ' ' + (0.05 * u) + ' L ' + (-0.3 * u) + ' ' + (0.7 * u) + ' L ' + u + ' ' + (-0.75 * u);
+      stroke(g, d, L.stamp_check_color, L.stamp_stroke, seg(k, 0, 1), Math.round(u * 3.4));
+    }
+    svg.appendChild(g);
+    svg.style.opacity = (inn * out).toFixed(3);
+    stage.appendChild(svg);
+  }
+};
+</script>
+</body>
+</html>

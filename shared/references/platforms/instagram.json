@@ -47,6 +47,19 @@
   "pending_shares_per_24h": null,
   "unaudited_users_per_24h": null
  },
+ "profile": {
+  "pieces": {
+   "bio": {"max_characters": 150, "unit": null, "source": "IG-bio"},
+   "name": {"max_characters": null, "unit": null, "source": "not checked"},
+   "username": {"min_characters": null, "max_characters": null, "source": "not checked"},
+   "links": {"max_count": 5, "source": "IG-links"},
+   "pinned": {"max_count": 3, "source": "IG-pin"},
+   "highlights": {"max_count": null, "source": "IG-highlights"},
+   "photo": {"source": "not checked"},
+   "category": {"source": "IG-search"}
+  },
+  "checked": "2026-11-24"
+ },
  "reply": null,
  "comment": null,
  "identifiers": null,

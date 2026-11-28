@@ -847,6 +847,53 @@ def transition_stage(cur: str, rows: list, fps, total: int, size: tuple) -> tupl
     return g, "tr_out"
 
 
+def blur_filter(src: str, p: dict, color: str, out: str) -> str:
+    """The text of the blurred shot (P4b): `[src]gblur=sigma=<sigma>:steps=3,colorchannelmixer=<matrix>,lutrgb=<darken toward color>[out]`, every number a
+    constant, on a planar RGB picture. The matrix is the linear mix of the identity and the mono matrix at `saturation` (1 keeps the colour, 0 is fully
+    grey) and is left out at 1. The darken is the `blur_to_card` formula (`val*(1-d)+channel*d` for each channel of `color`, the theme's `bg`), so at
+    saturation 1 the text is the blur_to_card frame text at intensity 1.0 for the same numbers."""
+    parts = ["[%s]gblur=sigma=%s:steps=3" % (src, _g(p["sigma"]))]
+    s = p["saturation"]
+    if s != 1:
+        mono = (.2126, .7152, .0722)
+        parts.append("colorchannelmixer=" + ":".join("%s%s=%s" % (c, d, _g((1 - s) * mono[j] + (s if i == j else 0)))
+                                                     for i, c in enumerate("rgb") for j, d in enumerate("rgb")))
+    d = p["darken"]
+    bg = color.lstrip("#")
+    chans = [int(bg[k:k + 2], 16) for k in (0, 2, 4)]
+    parts.append("lutrgb=" + ":".join("%s='val*%s+%s'" % (c, _g(1 - d), _g(v * d)) for c, v in zip("rgb", chans)))
+    return ",".join(parts) + "[%s]" % out
+
+
+def blur_stage(cur: str, rows: list, fps, total: int) -> tuple:
+    """([filter strings], the label) of the blurred shot under the beats (P4b), drawn on the speaker's picture `cur` (a label without brackets, planar RGB) at
+    [base], so every card, picture and caption is drawn over it, sharp. The picture is split in as many branches as there are segments, in output-frame
+    order: a plain run is `trim`med as it is, each blurred span is one segment drawn by `blur_filter`, and a `concat` joins them and retimes once on the
+    frame grid (`settb`, then the frame number: the retime of R3-11). No frame is added or removed. `rows` are the plan's blurs ({start_frame, end_frame,
+    params, color}; frames sorted, never overlapping); constants and segments only (no `enable` and no time expression); every label starts with `bk_`."""
+    segs, pos = [], 0
+    for r in sorted(rows, key=lambda r: r["start_frame"]):
+        if r["start_frame"] > pos:
+            segs.append((pos, r["start_frame"], None))
+        segs.append((r["start_frame"], r["end_frame"], r))
+        pos = r["end_frame"]
+    if pos < total:
+        segs.append((pos, total, None))
+    m = len(segs)
+    g = ["[%s]split=%d%s" % (cur, m, "".join("[bk_s%d]" % k for k in range(m)))]
+    outs = []
+    for k, (a, b, r) in enumerate(segs):
+        cut = "[bk_s%d]trim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS" % (k, a, b)
+        if r is None:
+            g.append("%s[bk_p%d]" % (cut, k))
+        else:
+            g.append("%s[bk_t%d]" % (cut, k))
+            g.append(blur_filter("bk_t%d" % k, dict(r["params"]), r["color"], "bk_p%d" % k))
+        outs.append("[bk_p%d]" % k)
+    g.append("%sconcat=n=%d:v=1:a=0,settb=1/%s,setpts=N[bk_out]" % ("".join(outs), m, fps))
+    return g, "bk_out"
+
+
 def compose_argv(ffmpeg: str, plan: dict) -> list:
     """The whole render as one ffmpeg command, built as a list. `plan` holds:
 
@@ -914,11 +961,15 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
     g.append("[cv]settb=1/%s,setpts=N[cvt]" % fps)
 
     transitions = plan.get("transitions") or []
-    if not idx and not pips and not clips and not splits and not transitions:
+    blurs = plan.get("blurs") or []
+    if not idx and not pips and not clips and not splits and not transitions and not blurs:
         g.append("[cvt]%s[vout]" % TAGS)
     else:
         g.append("[cvt]scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=gbrp[base]" % SWS)
         cur = "base"
+        if blurs:      # the speaker's shot under a beat whose backdrop is `blur` (P4b): at [base], so everything drawn after it is sharp over it
+            more, cur = blur_stage(cur, blurs, fps, plan["out_frames"])
+            g += more
         for i, s in enumerate(splits):
             # A split: the picture is split in two branches, a crop of one (the speaker, centred on the face by `_layout.split_geometry`) is
             # masked to the beat's frames and laid over the other at the speaker half's origin; the page draws the picture's half on top.
