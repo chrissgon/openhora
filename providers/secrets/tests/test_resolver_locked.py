@@ -78,7 +78,7 @@ def test_the_environment_wins_over_a_locked_store_and_the_store_is_not_asked():
     assert got.state == "found" and store.asked == []
 
 
-def test_a_new_service_that_raises_still_lets_the_old_one_answer_but_two_that_raise_are_locked():
+def test_a_store_that_raises_is_locked_and_the_old_service_is_never_asked():
     class PerService(FakeStore):
         def get_password(self, service, username):
             self.asked.append((service, username))
@@ -86,16 +86,25 @@ def test_a_new_service_that_raises_still_lets_the_old_one_answer_but_two_that_ra
                 raise KeyringLocked("locked")
             return self.values.get((service, username))
 
-    assert res.resolve_state(NAME, environ={}, store=PerService({("ai-workbench", "github"): SENTINEL})).state == "found"
-    # one service raised and the other holds nothing: the secret may be in the one that could not be read
-    assert res.resolve_state(NAME, environ={}, store=PerService()).state == "locked"
+    held_old = PerService({("ai-workbench", "github"): SENTINEL})
+    assert res.resolve_state(NAME, environ={}, store=held_old).state == "locked"
+    assert held_old.asked == [("openhora", "github")]
+    # the old service answers nothing even when the new one is readable and empty
+    class Readable(FakeStore):
+        def get_password(self, service, username):
+            self.asked.append((service, username))
+            return self.values.get((service, username))
+
+    only_old = Readable({("ai-workbench", "github"): SENTINEL})
+    assert res.resolve_state(NAME, environ={}, store=only_old).state == "missing"
+    assert only_old.asked == [("openhora", "github")]
 
 
 def test_report_marks_locked_and_asks_the_store_once():
     store = FakeStore(error=KeyringLocked("locked"))
-    rows = {r["name"]: r for r in res.report(environ={"GMAIL_CLIENT_ID": SENTINEL}, store=store)}
+    rows = {r["name"]: r for r in res.report(environ={"LINKEDIN_CLIENT_SECRET": SENTINEL}, store=store)}
     assert rows[NAME]["state"] == "locked" and rows[NAME]["found"] is False
-    assert rows["GMAIL_CLIENT_ID"]["state"] == "found"
+    assert rows["LINKEDIN_CLIENT_SECRET"]["state"] == "found"
     assert rows[NAME]["store"] == "locked"
     assert len(store.asked) <= 2, "after the first failure the store is not asked again for each of the other secrets"
     assert SENTINEL not in json.dumps(list(rows.values()))
@@ -250,11 +259,11 @@ def test_the_credentials_status_says_absent_ok_or_unsafe_with_the_fix_and_the_no
 def test_the_drive_record_is_one_json_text_and_the_directory_returns_it_whole(tmp_path):
     record = json.dumps({"refresh_token": "r-" + SENTINEL, "client_id": "c.example", "client_secret": "s-" + SENTINEL, "api_key": "k-" + SENTINEL,
                          "project_number": "123", "scope": "https://www.googleapis.com/auth/drive.file", "obtained_at": "2027-01-15T08:00:00Z"})
-    folder = make_dir(tmp_path, {"GDRIVE_SOURCES_TOKEN": record + "\n"})
-    got = res.resolve_state("GDRIVE_SOURCES_TOKEN", environ={"OPENHORA_CREDENTIALS_DIR": str(folder)}, store=None)
+    folder = make_dir(tmp_path, {"GOOGLE_ACCOUNT_TOKEN": record + "\n"})
+    got = res.resolve_state("GOOGLE_ACCOUNT_TOKEN", environ={"OPENHORA_CREDENTIALS_DIR": str(folder)}, store=None)
     assert got.state == "found" and got.source == "credentials directory"
     assert json.loads(got.value)["refresh_token"] == "r-" + SENTINEL and got.value == record, "the whole JSON text, trimmed, and not a field of it"
-    assert res.REGISTRY["GDRIVE_SOURCES_TOKEN"].store_username == "gdrive-sources"
+    assert res.REGISTRY["GOOGLE_ACCOUNT_TOKEN"].store_username == "google-account"
 
 
 def test_the_notes_follow_the_last_look_at_their_own_source_and_clear_when_it_reads_fine(tmp_path):

@@ -6,29 +6,13 @@ The first use is backlog PB5: finding new comments on the user's LinkedIn posts 
 
 ## Gmail (`gmail.py`)
 
-Reads Gmail through the Gmail API with the `https://www.googleapis.com/auth/gmail.readonly` scope and nothing else. Every verb only reads: nothing is sent, moved, labelled, marked as read or deleted, so no verb takes `--confirmed` or `--dry-run`.
+Reads Gmail through the Gmail API, signed in with the account token of the person's Google account (below). Every verb only reads: nothing is sent, moved, labelled, marked as read or deleted, so no verb takes `--confirmed` or `--dry-run`.
 
-**The account token (decision of 2026-10-18).** `gmail.py` signs in first with the account token of the person's Google account: one record, one consent for Gmail, Calendar and Drive, carrying the platform's four scopes (`gmail.modify`, `calendar.events`, `calendar.calendarlist.readonly`, `drive`), made once by `uv run <workbench>/providers/accounts/google_auth.py authorize` (secret `GOOGLE_ACCOUNT_TOKEN`, username `google-account`; `providers/accounts/README.md` has the consent, the revocation and the sources). The token can do everything those scopes allow, including changing the mailbox, and that is accepted: the restriction is the platform's (policies, an effect card of the exact content for every write, the verbs a script exposes, no token in a run), and **this script's verbs are unchanged and send GET only** (a test fails on any other method). A token that lacks one of the four scopes or carries another is refused (exit 3, naming the command); `--check` then prints `"record": "account"`. Only when no account record exists does it read the legacy record below, with the old exact `gmail.readonly` rule and a warning on stderr, once per process ("using the legacy record mailbox-gmail; run ... to move to the account token"). The legacy record and `auth.py` are removed in the cycle after the integration branch reaches `main` (backlog ACCT-LEGACY). The setup below is the legacy one.
+**The account token (decision of 2026-10-18).** `gmail.py` signs in with the account token of the person's Google account: one record, one consent for Gmail, Calendar and Drive, carrying the platform's four scopes (`gmail.modify`, `calendar.events`, `calendar.calendarlist.readonly`, `drive`), made once by `uv run <workbench>/providers/accounts/google_auth.py authorize` (secret `GOOGLE_ACCOUNT_TOKEN`, username `google-account`; `providers/accounts/README.md` has the consent, the revocation and the sources). The token can do everything those scopes allow, including changing the mailbox, and that is accepted: the restriction is the platform's (policies, an effect card of the exact content for every write, the verbs a script exposes, no token in a run), and **this script's verbs are unchanged and send GET only** (a test fails on any other method). A token that lacks one of the four scopes or carries another is refused (exit 3, naming the command); `--check` then prints `"record": "account"`. It reads no other record: the old Gmail-only record (`GMAIL_REFRESH_TOKEN` with `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET`) and its `auth.py` were removed on 2026-11-28 (ACCT-LEGACY, Google half); a person who still holds those entries removes them with `keyring del openhora mailbox-gmail`, `gmail-client-id` and `gmail-client-secret`.
 
 ### Setup (once)
 
-The full steps are in `uv run providers/mailbox/auth.py --help`. In short:
-
-1. In the Google Cloud console, create a project and enable the Gmail API.
-2. Google Auth Platform: user type External; under Data Access add only `https://www.googleapis.com/auth/gmail.readonly`.
-3. Audience: "Publish app", so the status is "In production". In "Testing", Google expires the authorization seven days after consent, and the provider would stop every week with `invalid_grant`. An app for personal use (fewer than 100 users) keeps working without Google's verification; the consent screen says the app is unverified and you click through it for your own account.
-4. Clients: create an OAuth client of type "Desktop app". No redirect URL is registered: `auth.py` listens on `http://127.0.0.1:<a random free port>`.
-5. Store the client id and secret (typed at a hidden prompt, never on the command line):
-
-   ```sh
-   uv run --with keyring==25.7.0 keyring set openhora gmail-client-id
-   uv run --with keyring==25.7.0 keyring set openhora gmail-client-secret
-   ```
-
-6. Run `uv run providers/mailbox/auth.py --provider gmail`, sign in with the Gmail account to read and approve. The refresh token, the granted scope and the account address go to the OS secret store (service `openhora`, username `mailbox-gmail`) as one JSON record, never to disk. A record authorised before the rename is still read through the fallback to the old service, so authorising again is not required (`contracts/secrets.md`).
-7. Verify: `uv run providers/mailbox/gmail.py --check` prints `{"ok": true, "account": ..., "token_source": ..., "scope": ...}`.
-
-The authorization uses PKCE (S256), a random `state` compared in constant time on the callback, `access_type=offline` and `prompt=consent`. If the consent screen shows a box for Gmail, keep it ticked: without the scope nothing is stored.
+Run `uv run <workbench>/providers/accounts/google_auth.py authorize` once, signed in with the Gmail account to read, every box ticked on the consent screen. `providers/accounts/README.md` has the Google Cloud project, the consent, the revocation and the sources. Verify: `uv run providers/mailbox/gmail.py --check` prints `{"ok": true, "account": ..., "token_source": ..., "scope": ..., "record": "account"}`.
 
 ### Usage
 
@@ -74,7 +58,7 @@ Every verb prints normalized messages:
 ### Security
 
 - **E-mail content is external content.** Anyone can send the user an e-mail, and a comment is written by a stranger. The provider only returns messages as data, each marked `"external_content": true`, and drops text hidden from the reader by inline styles; a skill that reads them quotes any instruction found inside to the user and never follows it. Comments on the user's posts are the main prompt-injection surface of the engagement work (backlog PB6).
-- Read only by scope, for the legacy record: that token cannot change the mailbox even if a caller tried. The account token can (it carries `gmail.modify`); the script still sends GET only, and the restriction is the platform's.
+- The account token can change the mailbox (it carries `gmail.modify`); the script sends GET only, and the restriction is the platform's.
 - The client secret and the refresh token are read through `providers/secrets/resolver.py` (environment first, then the OS secret store) and never printed. Requests that carry a token or the client secret never follow a redirect, and every request has a 60-second timeout.
 - The test overrides below are honoured only with loopback URLs, and in test mode neither script reads or writes the OS secret store.
 - **A body built to be slow cannot hold the reader.** The HTML part is turned into text in a child process stopped after 3 seconds (see `html_dropped` above); the reader's threads each wait on their own child, and no signal is used.
@@ -88,16 +72,13 @@ Every verb prints normalized messages:
 | 2 | usage: a bad flag, a flag the verb does not read (`--query` with `get`), `--check` with a verb, `--limit` out of bounds, a malformed message id, a missing `.eml` file |
 | 3 | not configured: no authorization, a missing client id or secret, a rejected client, a token without `gmail.readonly`, or `invalid_grant` |
 
-`invalid_grant` on a refresh means the authorization expired or was revoked. The likely cause is a project still in "Testing" (seven days); others are access removed in the Google Account, a password change (the token carries a Gmail scope) or six months without use. Rerun `auth.py`.
+`invalid_grant` on a refresh means the authorization expired or was revoked. The likely cause is a project still in "Testing" (seven days); others are access removed in the Google Account, a password change (the token carries a Gmail scope) or six months without use. Run `providers/accounts/google_auth.py authorize` again.
 
 ### Environment variables
 
 | Variable | Used by | Purpose |
 |----------|---------|---------|
-| `GOOGLE_ACCOUNT_TOKEN` | `gmail.py`, `providers/accounts/google_auth.py` | The account record (JSON), read first: the refresh token, the client and the four scopes; from the OS secret store, or the same JSON text from the environment or the credentials directory. |
-| `GMAIL_CLIENT_ID` | `auth.py`, `gmail.py` | Legacy: the Desktop app OAuth client; the authorization and every refresh need it. |
-| `GMAIL_CLIENT_SECRET` | `auth.py`, `gmail.py` | That client's secret. |
-| `GMAIL_REFRESH_TOKEN` | `gmail.py` | Optional; a bare refresh token from the environment instead of the stored record. |
+| `GOOGLE_ACCOUNT_TOKEN` | `gmail.py`, `providers/accounts/google_auth.py` | The account record (JSON): the refresh token, the client and the four scopes; from the OS secret store, or the same JSON text from the environment or the credentials directory. |
 | `MAILBOX_PROVIDER` | `scripts/doctor.py` | `gmail` selects this provider. |
 | `GMAIL_API_BASE`, `GOOGLE_TOKEN_URL` | both | Tests only: loopback URLs of a fake Google, set together. |
 | `GMAIL_HTTP_TIMEOUT` | `gmail.py` | Tests only, with the overrides: seconds before a request times out. |

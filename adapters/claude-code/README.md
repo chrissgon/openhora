@@ -13,7 +13,7 @@ claude --plugin-dir adapters/claude-code/build/default  # one session only, afte
 
 Skills are invoked as `/openhora:<skill-name>` and trigger automatically from their descriptions.
 
-The plugin was called `ai-workbench` until 2026-10-09. An install run removes the old link `~/.claude/skills/ai-workbench` when it points into this checkout's `build/` folder, and says so, so that the person is not left with two plugins; a link of that name that points elsewhere is left alone, and `--uninstall` removes either link. This compatibility stage is removed with the next change of the lab models (backlog T23).
+The plugin was called `ai-workbench` until 2026-10-09. The installer no longer removes a link of that name: an old link `~/.claude/skills/ai-workbench` is the person's to remove (an install made before 2026-10-09 left it, and it loads a second plugin until it goes).
 
 ## The skill-listing budget
 
@@ -55,7 +55,7 @@ WB="$PWD" S="$(mktemp -d)" OUT="$(mktemp -d)" && mkdir -p "$S/home" "$S/proj" \
 ## Limitations
 
 - Symlinks are created at build time, so the filesystem running the build must support them (macOS, Linux; Windows needs developer mode). Nothing symlinked is committed.
-- The linked folder under `~/.claude/skills/` is picked up as the plugin `openhora@skills-dir`: confirmed on 2026-10-02 with CLI 2.1.283 in a scratch home, under the old name `ai-workbench` (the folder's name decides it; not measured again under the new name), without a model call (`claude plugin list --json` reads `enabled: true`; `claude plugin details ai-workbench@skills-dir` lists the 48 skills and the 4 agents). The manifest must not carry an `agents` key: with `"agents": "./agents"` the same CLI refused the folder ("invalid manifest file ... agents: Invalid input") and loaded nothing; the `agents/` folder of the build is found by its default place. When a later version does not pick the link up, the fallback is `claude --plugin-dir adapters/claude-code/build/<pack>`, which `install.sh` prints with the build's path.
+- The linked folder under `~/.claude/skills/` is picked up as the plugin `openhora@skills-dir`: confirmed on 2026-10-02 with CLI 2.1.283 in a scratch home, under the name the plugin had then, `ai-workbench` (the folder's name decides it; not measured again under the new name), without a model call (`claude plugin list --json` reads `enabled: true`; `claude plugin details ai-workbench@skills-dir` lists the 48 skills and the 4 agents). The manifest must not carry an `agents` key: with `"agents": "./agents"` the same CLI refused the folder ("invalid manifest file ... agents: Invalid input") and loaded nothing; the `agents/` folder of the build is found by its default place. When a later version does not pick the link up, the fallback is `claude --plugin-dir adapters/claude-code/build/<pack>`, which `install.sh` prints with the build's path.
 - The shared references are in the build, at `build/<pack>/shared/references`, so a skill's `../../shared/references/<file>` resolves by the installed path.
 - One pack is installed at a time: an install removes the builds of other packs, and `--uninstall` removes the link and every build.
 

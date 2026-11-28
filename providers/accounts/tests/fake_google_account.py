@@ -6,9 +6,8 @@ method other than GET (and the token POST), so a provider that wrote would be se
   fake = FakeGoogleAccount()                 # starts on a free loopback port in a daemon thread; fake.close() stops it
   fake.record_json(**over)                   # a GOOGLE_ACCOUNT_TOKEN value this fake accepts
   fake.gmail_env(), calendar_env(), drive_env(), auth_env()    # the test overrides of each script (both URLs, set together)
-  fake.legacy_gmail_env(), legacy_calendar_env(), legacy_drive_env()   # the old records the three readers still read for one cycle
   fake.refresh_scope = None                  # the refresh response omits `scope`; a string replaces it; "auto" (default) is what the token's
-                                             # consent was: the platform set for the account record, each legacy scope for its legacy one
+                                             # consent was: the platform set for the account record
   fake.consent_scope                         # what an authorization code grants (a string, or None to omit)
   fake.expected_challenge                    # when set, the code exchange must present a verifier that hashes to it (S256)
 
@@ -30,10 +29,8 @@ CLIENT_SECRET = "fake-client-secret-not-real-4f2a"
 REFRESH_TOKEN = "fake-refresh-token-not-real-9b1c"
 ACCESS_TOKEN = "fake-access-token-not-real-7d3e"
 CODE = "fake-code-not-real-5a6f"
-LEGACY_GMAIL_REFRESH = "fake-legacy-gmail-refresh-not-real-2c8d"
-LEGACY_CALENDAR_REFRESH = "fake-legacy-calendar-refresh-not-real-3e9a"
-LEGACY_DRIVE_REFRESH = "fake-legacy-drive-refresh-not-real-6b0f"
-SECRETS = (CLIENT_SECRET, REFRESH_TOKEN, ACCESS_TOKEN, CODE, LEGACY_GMAIL_REFRESH, LEGACY_CALENDAR_REFRESH, LEGACY_DRIVE_REFRESH)
+LEGACY_REFRESHES = ("fake-legacy-gmail-refresh-not-real-2c8d", "fake-legacy-calendar-refresh-not-real-3e9a", "fake-legacy-drive-refresh-not-real-6b0f")   # the retired records: never printed, never sent
+SECRETS = (CLIENT_SECRET, REFRESH_TOKEN, ACCESS_TOKEN, CODE, *LEGACY_REFRESHES)
 
 GMAIL_MODIFY = "https://www.googleapis.com/auth/gmail.modify"
 CALENDAR_EVENTS = "https://www.googleapis.com/auth/calendar.events"
@@ -52,10 +49,8 @@ DOC_TEXT = "# Weekly notes\n\nThe stand-in text of a document.\n"
 DOC_MODIFIED = "2026-10-17T09:00:00.000Z"
 EVENT_START, EVENT_END = "2026-10-20T13:00:00-03:00", "2026-10-20T14:00:00-03:00"
 
-# The scope a refresh token was granted, when the fake answers a refresh with "auto": the account token carries the platform's set, a legacy
-# record only what its own authorization asked.
-GRANTED = {REFRESH_TOKEN: " ".join(PLATFORM_SET), LEGACY_GMAIL_REFRESH: GMAIL_READONLY,
-           LEGACY_CALENDAR_REFRESH: f"{CALENDAR_EVENTS_READONLY} {CALENDAR_LIST}", LEGACY_DRIVE_REFRESH: DRIVE_FILE}
+# The scope a refresh token was granted, when the fake answers a refresh with "auto": the account token carries the platform's set.
+GRANTED = {REFRESH_TOKEN: " ".join(PLATFORM_SET)}
 
 
 def raw_message() -> str:
@@ -186,23 +181,6 @@ class FakeGoogleAccount:
                   "scope": " ".join(PLATFORM_SET), "account": ACCOUNT, "obtained_at": "2026-10-18T09:00:00Z"}
         record.update(over)
         return json.dumps({k: v for k, v in record.items() if v is not None})
-
-    def legacy_gmail_env(self, **over) -> dict:
-        env = {"GMAIL_REFRESH_TOKEN": LEGACY_GMAIL_REFRESH, "GMAIL_CLIENT_ID": CLIENT_ID, "GMAIL_CLIENT_SECRET": CLIENT_SECRET}
-        env.update(over)
-        return env
-
-    def legacy_calendar_env(self, **over) -> dict:
-        record = {"refresh_token": LEGACY_CALENDAR_REFRESH, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
-                  "scope": f"{CALENDAR_EVENTS_READONLY} {CALENDAR_LIST}", "account": ACCOUNT, "obtained_at": "2026-10-17T09:00:00Z"}
-        record.update(over)
-        return {"GOOGLE_CALENDAR_TOKEN": json.dumps(record)}
-
-    def legacy_drive_env(self, **over) -> dict:
-        record = {"refresh_token": LEGACY_DRIVE_REFRESH, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "scope": DRIVE_FILE,
-                  "obtained_at": "2026-10-16T09:00:00Z"}
-        record.update(over)
-        return {"GDRIVE_SOURCES_TOKEN": json.dumps(record)}
 
     def gmail_env(self) -> dict:
         return {"GMAIL_API_BASE": self.base, "GOOGLE_TOKEN_URL": self.token_url}

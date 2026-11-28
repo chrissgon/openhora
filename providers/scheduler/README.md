@@ -103,9 +103,9 @@ Command file:
 }
 ```
 
-A provider reads its credential through `providers/secrets/resolver.py`; the job runs a copy of the provider from its own folder, so the resolver goes into the snapshot too, and the copy finds it next to itself. A job scheduled without it fails at run time with a message that names the snapshot. A job scheduled before the workbench was renamed to openhora carries a resolver that reads the OS secret store under the service `ai-workbench` only: do not delete the old entries (`keyring delete ai-workbench <username>`) until those jobs have run or have been scheduled again, after which the snapshot holds the resolver that reads `openhora` first (`contracts/secrets.md`). Jobs scheduled before 2026-09-28 hold a copy of the provider from before the resolver and run as they are.
+A provider reads its credential through `providers/secrets/resolver.py`; the job runs a copy of the provider from its own folder, so the resolver goes into the snapshot too, and the copy finds it next to itself. A job scheduled without it fails at run time with a message that names the snapshot. A job scheduled before the workbench was renamed to openhora carries a resolver that reads the OS secret store under the service `ai-workbench` only, and the current resolver reads `openhora` only: such a job is cancelled and scheduled again (`scripts/rename_move.py` refuses to move the old folders while one is scheduled). Jobs scheduled before 2026-09-28 hold a copy of the provider from before the resolver and run as they are.
 
-Jobs live in `~/Library/Application Support/ai-workbench/scheduler/<id>/`, agents in `~/Library/LaunchAgents/dev.ai-workbench.scheduler.<id>.plist`.
+Jobs live in `~/Library/Application Support/openhora/scheduler/<id>/`, agents in `~/Library/LaunchAgents/dev.openhora.scheduler.<id>.plist`.
 
 ### Pinning the interpreter of `uv run`
 
@@ -137,11 +137,11 @@ The same verbs, command file and guarantees as `launchd.py`, on the user's syste
 
 ### What it writes
 
-- `~/.config/systemd/user/dev.ai-workbench.scheduler.<id>.service` (or under `$XDG_CONFIG_HOME`; override `SCHEDULER_UNITS_DIR`): `Type=oneshot`, `ExecStart=` the runner copy with `run --id <id>`, `Environment=` with `PATH`, `SCHEDULER_HOME` and `SCHEDULER_UNITS_DIR`, `UMask=0077`, and stdout and stderr appended to `systemd.out.log` and `systemd.err.log` in the job folder (created 0600 first).
-- `dev.ai-workbench.scheduler.<id>.timer` next to it, with `Unit=` the service, `AccuracySec=1s` (the default is 1 minute) and `WantedBy=timers.target`, plus:
+- `~/.config/systemd/user/dev.openhora.scheduler.<id>.service` (or under `$XDG_CONFIG_HOME`; override `SCHEDULER_UNITS_DIR`): `Type=oneshot`, `ExecStart=` the runner copy with `run --id <id>`, `Environment=` with `PATH`, `SCHEDULER_HOME` and `SCHEDULER_UNITS_DIR`, `UMask=0077`, and stdout and stderr appended to `systemd.out.log` and `systemd.err.log` in the job folder (created 0600 first).
+- `dev.openhora.scheduler.<id>.timer` next to it, with `Unit=` the service, `AccuracySec=1s` (the default is 1 minute) and `WantedBy=timers.target`, plus:
   - one-shot (`--at`): `OnCalendar=YYYY-MM-DD HH:MM:SS UTC` and `Persistent=true`;
   - recurring (`--every N`): `OnActiveSec=Nmin` and `OnUnitActiveSec=Nmin`.
-- Job folders in `$XDG_DATA_HOME/ai-workbench/scheduler/<id>/` (default `~/.local/share/ai-workbench/scheduler/<id>/`; override `SCHEDULER_HOME`). The folder's path is written into the service unquoted (`append:`), so a path with spaces, quotes, backslashes, `%` or `$` is refused.
+- Job folders in `$XDG_DATA_HOME/openhora/scheduler/<id>/` (default `~/.local/share/openhora/scheduler/<id>/`; override `SCHEDULER_HOME`). The folder's path is written into the service unquoted (`append:`), so a path with spaces, quotes, backslashes, `%` or `$` is refused.
 
 Scheduling runs `systemctl --user daemon-reload` and `systemctl --user enable --now <timer>`; if either fails or times out (30 s), the job is `failed` and the unit files are removed. When a one-shot job finishes, or a recurring firing is refused, the runner runs `disable --now <timer>`, for a one-shot timer `clean --what=state <timer>` (the `Persistent=` timestamp), removes both files and runs `daemon-reload`. It never stops its own service. `cancel` does the same plus `stop <service>`, which ends a firing in progress: the runner receives SIGTERM, kills the command's process group and records the firing as `failed`, and systemd's default `KillMode=control-group` then kills anything left in the service's control group, including processes that left the process group.
 

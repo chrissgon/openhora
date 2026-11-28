@@ -186,7 +186,7 @@ def open_session(expected: str) -> Session:
     """The session of the account token, only when the token belongs to the account the document names (`--account`): a token of another account writes
     nothing (exit 1)."""
     base, token_url, test_mode = endpoints()
-    loaded = _google.load_account_record(secret_resolver(), test_mode, legacy=None, error=WriterError)
+    loaded = _google.load_account_record(secret_resolver(), test_mode, error=WriterError)
     mine = loaded.record.get("account")
     if not isinstance(mine, str) or mine.casefold() != expected.casefold():
         raise WriterError("the account token belongs to another account than the one the document names: nothing was written", EXIT_REFUSED)
@@ -414,7 +414,7 @@ def result_of(meta: dict, replayed: bool, **more) -> dict:
 
 def cmd_check(a) -> int:
     _, token_url, test_mode = endpoints()
-    loaded = _google.load_account_record(secret_resolver(), test_mode, legacy=None, error=WriterError)
+    loaded = _google.load_account_record(secret_resolver(), test_mode, error=WriterError)
     _google.refresh_access_token(token_url, loaded.record, WriterError)
     return emit({"ok": True, "account": loaded.record.get("account"), "record": "account", "scope": sorted(_google.PREVIOUS_SCOPES),
                  "implementation": IMPLEMENTATION})

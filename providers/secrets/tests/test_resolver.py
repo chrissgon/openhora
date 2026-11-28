@@ -61,40 +61,32 @@ class ServiceStore:
         return self.values.get((service, username))
 
 
-def test_the_service_is_openhora_and_the_legacy_service_is_the_old_name():
-    assert res.SERVICE == "openhora" and res.LEGACY_SERVICE == "ai-workbench"
+def test_the_service_is_openhora_and_no_legacy_service_exists():
+    assert res.SERVICE == "openhora"
+    assert not hasattr(res, "LEGACY_SERVICE") and not hasattr(res, "LEGACY_LABEL")
 
 
 def test_a_secret_found_under_the_new_service_is_read_from_it_alone():
     store = ServiceStore({("openhora", "github"): "new-value"})
     assert res.resolve("VCS_GITHUB_TOKEN", environ={}, store=store) == ("new-value", "secret store")
-    assert store.asked == [("openhora", "github")], "the old service is not asked when the new one answers"
+    assert store.asked == [("openhora", "github")]
     assert res.resolve_detail("VCS_GITHUB_TOKEN", environ={}, store=store) == ("new-value", "secret store", "openhora")
 
 
-def test_a_secret_found_only_under_the_old_service_is_read_and_says_legacy():
+def test_a_secret_held_only_under_the_old_service_is_missing_and_the_store_is_asked_for_openhora_only():
     store = ServiceStore({("ai-workbench", "github"): "old-value"})
-    assert res.resolve("VCS_GITHUB_TOKEN", environ={}, store=store) == ("old-value", "secret store")
-    assert store.asked == [("openhora", "github"), ("ai-workbench", "github")]
-    got = res.resolve_detail("VCS_GITHUB_TOKEN", environ={}, store=store)
-    assert got == ("old-value", "secret store", "ai-workbench (legacy)")
+    assert res.resolve("VCS_GITHUB_TOKEN", environ={}, store=store) is None
+    assert store.asked == [("openhora", "github")]
+    assert res.resolve_detail("VCS_GITHUB_TOKEN", environ={}, store=store) is None
 
 
-def test_the_new_service_wins_when_both_hold_the_secret():
-    store = ServiceStore({("openhora", "github"): "new-value", ("ai-workbench", "github"): "old-value"})
-    assert res.resolve("VCS_GITHUB_TOKEN", environ={}, store=store)[0] == "new-value"
-    assert ("ai-workbench", "github") not in store.asked
-
-
-def test_a_value_that_is_blank_under_the_new_service_falls_to_the_old_one():
+def test_a_value_that_is_blank_under_the_new_service_is_missing():
     store = ServiceStore({("openhora", "github"): "   ", ("ai-workbench", "github"): "old-value"})
-    assert res.resolve_detail("VCS_GITHUB_TOKEN", environ={}, store=store)[2] == "ai-workbench (legacy)"
+    assert res.resolve_detail("VCS_GITHUB_TOKEN", environ={}, store=store) is None
 
 
-def test_a_locked_new_service_still_lets_the_old_one_answer_and_a_locked_store_is_not_found():
-    store = ServiceStore({("ai-workbench", "github"): "old-value"}, fail_for={"openhora"})
-    assert res.resolve("VCS_GITHUB_TOKEN", environ={}, store=store)[0] == "old-value"
-    locked = ServiceStore({("ai-workbench", "github"): "old-value"}, fail_for={"openhora", "ai-workbench"})
+def test_a_locked_store_is_not_found():
+    locked = ServiceStore({("openhora", "github"): "value"}, fail_for={"openhora"})
     assert res.resolve("VCS_GITHUB_TOKEN", environ={}, store=locked) is None
     assert res.resolve_detail("VCS_GITHUB_TOKEN", environ={}, store=ServiceStore()) is None
 
@@ -108,32 +100,31 @@ def test_the_environment_answer_has_no_service():
 
 def test_report_says_which_service_answered_and_never_carries_a_value():
     store = ServiceStore({("ai-workbench", "github"): SENTINEL, ("openhora", "notion"): SENTINEL})
-    rows = {r["name"]: r for r in res.report(environ={"GMAIL_CLIENT_ID": SENTINEL}, store=store)}
-    assert rows["VCS_GITHUB_TOKEN"]["found"] and rows["VCS_GITHUB_TOKEN"]["service"] == "ai-workbench (legacy)"
+    rows = {r["name"]: r for r in res.report(environ={"LINKEDIN_CLIENT_SECRET": SENTINEL}, store=store)}
+    assert rows["VCS_GITHUB_TOKEN"]["found"] is False and rows["VCS_GITHUB_TOKEN"]["service"] is None
     assert rows["NOTION_TOKEN"]["found"] and rows["NOTION_TOKEN"]["service"] == "openhora"
-    assert rows["GMAIL_CLIENT_ID"]["found"] and rows["GMAIL_CLIENT_ID"]["service"] is None
+    assert rows["LINKEDIN_CLIENT_SECRET"]["found"] and rows["LINKEDIN_CLIENT_SECRET"]["service"] is None
     assert rows["LINKEDIN_CLIENT_ID"]["found"] is False and rows["LINKEDIN_CLIENT_ID"]["service"] is None
     assert SENTINEL not in json.dumps(list(rows.values()))
 
 
-def test_cli_check_and_list_name_the_legacy_service(monkeypatch, capsys):
+def test_cli_check_and_list_never_say_legacy(monkeypatch, capsys):
     store = ServiceStore({("ai-workbench", "github"): SENTINEL, ("openhora", "notion"): SENTINEL})
     monkeypatch.setattr(res, "_keyring", lambda: store)
     monkeypatch.setattr(res, "REGISTRY", dict(res.REGISTRY))
     for name in res.REGISTRY:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    assert res.main(["--check", "VCS_GITHUB_TOKEN"]) == 0
-    out = json.loads(capsys.readouterr().out)
-    assert out == {"name": "VCS_GITHUB_TOKEN", "found": True, "source": "secret store", "service": "ai-workbench (legacy)"}
+    assert res.main(["--check", "VCS_GITHUB_TOKEN"]) == 3
+    capsys.readouterr()
     assert res.main(["--check", "NOTION_TOKEN"]) == 0
     assert json.loads(capsys.readouterr().out)["service"] == "openhora"
     assert res.main(["--list", "--json"]) == 0
     listed = {r["name"]: r for r in json.loads(capsys.readouterr().out)}
-    assert listed["VCS_GITHUB_TOKEN"]["service"] == "ai-workbench (legacy)" and listed["NOTION_TOKEN"]["service"] == "openhora"
+    assert listed["VCS_GITHUB_TOKEN"]["found"] is False and listed["NOTION_TOKEN"]["service"] == "openhora"
     assert res.main(["--list"]) == 0
     text = capsys.readouterr().out
-    assert "ai-workbench (legacy)" in text and SENTINEL not in text
+    assert "(legacy)" not in text and SENTINEL not in text
 
 
 def test_the_command_that_stores_a_secret_names_the_new_service_only():
@@ -143,11 +134,11 @@ def test_the_command_that_stores_a_secret_names_the_new_service_only():
 
 
 def test_store_is_skipped_when_not_allowed_or_unavailable():
-    store = FakeStore({"gmail-client-id": "x"})
-    assert res.resolve("GMAIL_CLIENT_ID", allow_store=False, environ={}, store=store) is None
+    store = FakeStore({"linkedin-client-secret": "x"})
+    assert res.resolve("LINKEDIN_CLIENT_SECRET", allow_store=False, environ={}, store=store) is None
     assert store.asked == []
-    assert res.resolve("GMAIL_CLIENT_ID", environ={}, store=None) is None
-    assert res.resolve("GMAIL_CLIENT_ID", environ={}, store=FakeStore(fail=True)) is None
+    assert res.resolve("LINKEDIN_CLIENT_SECRET", environ={}, store=None) is None
+    assert res.resolve("LINKEDIN_CLIENT_SECRET", environ={}, store=FakeStore(fail=True)) is None
 
 
 def test_unregistered_names_are_refused():
@@ -176,9 +167,9 @@ def run(*args, env=None):
 
 
 def test_cli_check_and_list_print_no_value():
-    found = run("--check", "GMAIL_CLIENT_ID", env={"GMAIL_CLIENT_ID": SENTINEL})
+    found = run("--check", "LINKEDIN_CLIENT_SECRET", env={"LINKEDIN_CLIENT_SECRET": SENTINEL})
     assert found.returncode == 0 and SENTINEL not in found.stdout + found.stderr
-    assert json.loads(found.stdout)["source"] == "environment (GMAIL_CLIENT_ID)"
+    assert json.loads(found.stdout)["source"] == "environment (LINKEDIN_CLIENT_SECRET)"
     listed = run("--list", env={name: SENTINEL for name in res.REGISTRY})
     assert listed.returncode == 0 and SENTINEL not in listed.stdout + listed.stderr
     assert run("--check", "NOT_A_SECRET").returncode == 2
@@ -256,8 +247,8 @@ def test_a_name_registered_twice_joins_its_readers_and_must_agree_on_the_lookup(
     with pytest.raises(ValueError, match="already registered"):
         res.register([{**DEMO, "store_username": "elsewhere"}])
     with pytest.raises(ValueError, match="already registered"):
-        res.register([{**DEMO, "name": "GMAIL_CLIENT_ID"}])  # a core secret cannot be pointed at another store entry
-    assert registry["GMAIL_CLIENT_ID"].store_username == "gmail-client-id"
+        res.register([{**DEMO, "name": "LINKEDIN_CLIENT_SECRET"}])  # a core secret cannot be pointed at another store entry
+    assert registry["LINKEDIN_CLIENT_SECRET"].store_username == "linkedin-client-secret"
 
 
 @pytest.mark.parametrize("entries", [
@@ -319,7 +310,7 @@ def test_the_subprocess_helper_never_reaches_a_mapping_under_the_real_home(tmp_p
     home = tmp_path / "home"
     (home / ".config" / "openhora").mkdir(parents=True)
     mapping = home / ".config" / "openhora" / "password-manager.json"
-    names = ("VCS_GITHUB_TOKEN", "NOTION_TOKEN", "GMAIL_CLIENT_ID", "LINKEDIN_CLIENT_ID")
+    names = ("VCS_GITHUB_TOKEN", "NOTION_TOKEN", "LINKEDIN_CLIENT_SECRET", "LINKEDIN_CLIENT_ID")
     mapping.write_text(json.dumps({"backend": "1password", "references": {n: "op://Example Vault/item/credential" for n in names}}),
                        encoding="utf-8")
     mapping.chmod(0o600)

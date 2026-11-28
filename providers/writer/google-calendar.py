@@ -205,7 +205,7 @@ def secret_resolver():
 def open_session():
     """(the API base, an access token) from the account record: the whole platform set, or exit 3. There is no legacy record for a writer."""
     base, token_url, test_mode = endpoints()
-    loaded = _google.load_account_record(secret_resolver(), test_mode, legacy=None, error=ProviderError)
+    loaded = _google.load_account_record(secret_resolver(), test_mode, error=ProviderError)
     _google.hold(*(loaded.record[k] for k in _google.RECORD_TEXTS))
     data = _google.refresh_access_token(token_url, loaded.record, ProviderError)
     _SECRET_VALUES.append(data["access_token"])

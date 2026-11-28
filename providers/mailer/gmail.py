@@ -154,7 +154,7 @@ def secret_resolver():
 def open_session() -> tuple:
     """(API base, an access token, the account record) from the account record: the whole platform set, or exit 3. There is no legacy record for a mailer."""
     base, token_url, test_mode = endpoints()
-    loaded = _google.load_account_record(secret_resolver(), test_mode, legacy=None, error=ProviderError)
+    loaded = _google.load_account_record(secret_resolver(), test_mode, error=ProviderError)
     data = _google.refresh_access_token(token_url, loaded.record, ProviderError)
     _mail.hold(data["access_token"])
     return base, data["access_token"], loaded.record

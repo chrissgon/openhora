@@ -50,12 +50,10 @@ class Resolver:
 
 @pytest.fixture(autouse=True)
 def fresh_process_state():
-    """The module keeps two process-wide lists (what it must scrub, which legacy warnings it printed): start every test from empty ones."""
+    """The module keeps one process-wide list (what it must scrub): start every test from an empty one."""
     google._SECRET_VALUES.clear()
-    google._WARNED.clear()
     yield
     google._SECRET_VALUES.clear()
-    google._WARNED.clear()
 
 
 def record_text(**over):
@@ -168,52 +166,34 @@ def test_a_credential_the_module_held_is_scrubbed_from_any_text():
 def test_the_account_record_is_read_first_through_the_resolver_and_the_store_is_allowed_outside_test_mode():
     resolver = Resolver({"GOOGLE_ACCOUNT_TOKEN": (record_text(), "secret store")})
     loaded = google.load_account_record(resolver, False, error=Boom)
-    assert loaded.legacy is None and loaded.source == "secret store" and loaded.record["refresh_token"] == fga.REFRESH_TOKEN
+    assert loaded.source == "secret store" and loaded.record["refresh_token"] == fga.REFRESH_TOKEN
     assert resolver.asked == [("GOOGLE_ACCOUNT_TOKEN", True)]
     google.load_account_record(resolver, True, error=Boom)
     assert resolver.asked[-1] == ("GOOGLE_ACCOUNT_TOKEN", False), "test mode never reads the OS secret store"
 
 
-def test_the_account_record_wins_over_a_legacy_one_and_the_legacy_loader_is_not_even_called(capsys):
-    resolver = Resolver({"GOOGLE_ACCOUNT_TOKEN": (record_text(), "environment (GOOGLE_ACCOUNT_TOKEN)")})
-    called = []
-    loaded = google.load_account_record(resolver, True, legacy=("mailbox-gmail", lambda: called.append(1), "old command"), error=Boom)
-    assert loaded.legacy is None and called == []
+def test_the_loader_takes_no_legacy_record_and_the_module_keeps_no_legacy_warning():
+    with pytest.raises(TypeError):
+        google.load_account_record(Resolver(), True, legacy=("calendar-google", lambda: None, "old"), error=Boom)
+    assert not hasattr(google, "legacy_warning") and not hasattr(google, "_WARNED")
+    assert google.Loaded._fields == ("record", "source")
+
+
+def test_nothing_found_names_the_authorize_command_and_the_secret_and_no_other_record(capsys):
+    with pytest.raises(Boom) as refused:
+        google.load_account_record(Resolver(), True, error=Boom)
+    assert refused.value.code == 3 and COMMAND in str(refused.value) and "GOOGLE_ACCOUNT_TOKEN" in str(refused.value)
+    assert "legacy" not in str(refused.value) and "older record" not in str(refused.value)
     assert capsys.readouterr().err == ""
 
 
-def test_a_legacy_record_serves_when_there_is_no_account_record_with_one_warning_per_process_and_username(capsys):
-    legacy = {"refresh_token": "fake-legacy-refresh-not-real", "client_id": "id", "client_secret": "fake-legacy-client-secret-not-real"}
-    spec = ("calendar-google", lambda: (legacy, "environment (GOOGLE_CALENDAR_TOKEN)"), "uv run old/google_auth.py authorize")
-    first = google.load_account_record(Resolver(), True, legacy=spec, error=Boom)
-    second = google.load_account_record(Resolver(), True, legacy=spec, error=Boom)
-    other = google.load_account_record(Resolver(), True, legacy=("gdrive-sources", spec[1], spec[2]), error=Boom)
-    assert first.legacy == second.legacy == "calendar-google" and other.legacy == "gdrive-sources"
-    assert first.record is legacy and first.source == "environment (GOOGLE_CALENDAR_TOKEN)"
-    err = capsys.readouterr().err
-    assert err.count("legacy record calendar-google") == 1 and err.count("legacy record gdrive-sources") == 1
-    assert COMMAND in err and "move to the account token" in err
-    assert "fake-legacy-refresh-not-real" not in err and google.scrub("fake-legacy-client-secret-not-real") == "<hidden>", "its secrets are held for the scrub"
-
-
-def test_nothing_found_names_the_new_command_and_the_legacy_one():
-    with pytest.raises(Boom) as refused:
-        google.load_account_record(Resolver(), True, legacy=("gdrive-sources", lambda: None, "uv run old/gdrive_auth.py authorize"), error=Boom)
-    assert refused.value.code == 3 and COMMAND in str(refused.value) and "old/gdrive_auth.py authorize" in str(refused.value)
-    assert "GOOGLE_ACCOUNT_TOKEN" in str(refused.value)
-    with pytest.raises(Boom) as no_legacy:
-        google.load_account_record(Resolver(), True, error=Boom)
-    assert no_legacy.value.code == 3 and COMMAND in str(no_legacy.value)
-
-
-def test_an_unreadable_account_record_is_an_error_and_never_a_reason_to_fall_back(capsys):
+def test_an_unreadable_account_record_is_an_error(capsys):
     resolver = Resolver({"GOOGLE_ACCOUNT_TOKEN": ("{broken", "secret store")})
-    legacy = ("mailbox-gmail", lambda: ({"refresh_token": "r", "client_id": "i", "client_secret": "s"}, "x"), "old")
     with pytest.raises(Boom) as refused:
-        google.load_account_record(resolver, False, legacy=legacy, error=Boom)
+        google.load_account_record(resolver, False, error=Boom)
     assert refused.value.code == 3 and "unreadable or incomplete" in str(refused.value)
     assert "GOOGLE_ACCOUNT_TOKEN" in str(refused.value) and "google-account" in str(refused.value), "the message names the record"
-    assert capsys.readouterr().err == "", "no legacy warning: the legacy record was not used"
+    assert capsys.readouterr().err == ""
 
 
 def test_only_the_slot_main_is_looked_up():

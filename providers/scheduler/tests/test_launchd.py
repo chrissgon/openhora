@@ -136,8 +136,8 @@ def test_schedule_snapshots_files_and_loads_agent(env, tmp_path):
     copy = Path(data["files"][str(post)]["copy"])
     assert copy.read_text() == "hello"
     assert str(copy) in data["argv"] and str(post) not in data["argv"]
-    plist = plistlib.loads((Path(env["SCHEDULER_AGENTS_DIR"]) / "dev.ai-workbench.scheduler.post-1.plist").read_bytes())
-    assert plist["Label"] == "dev.ai-workbench.scheduler.post-1"
+    plist = plistlib.loads((Path(env["SCHEDULER_AGENTS_DIR"]) / "dev.openhora.scheduler.post-1.plist").read_bytes())
+    assert plist["Label"] == "dev.openhora.scheduler.post-1"
     calls = Path(env["_calls"]).read_text()
     assert f"bootstrap gui/{os.getuid()}" in calls
 
@@ -151,7 +151,7 @@ def test_editing_the_original_after_scheduling_does_not_change_the_run(env, tmp_
     data = job(env)
     assert data["status"] == "done"
     assert data["post_url"] == "https://example.test/post"
-    assert not (Path(env["SCHEDULER_AGENTS_DIR"]) / "dev.ai-workbench.scheduler.post-1.plist").exists()
+    assert not (Path(env["SCHEDULER_AGENTS_DIR"]) / "dev.openhora.scheduler.post-1.plist").exists()
 
 
 def test_run_refuses_a_changed_copy(env, tmp_path):
@@ -336,7 +336,7 @@ def test_launchd_calls_the_runner_copy_and_a_changed_runner_is_refused(env, tmp_
     # M05: the runner script was not hashed; launchd called it in the repository.
     _, _, marker = schedule(env, tmp_path, datetime.now(timezone.utc) + timedelta(minutes=1))
     data = job(env)
-    plist = plistlib.loads((Path(env["SCHEDULER_AGENTS_DIR"]) / "dev.ai-workbench.scheduler.post-1.plist").read_bytes())
+    plist = plistlib.loads((Path(env["SCHEDULER_AGENTS_DIR"]) / "dev.openhora.scheduler.post-1.plist").read_bytes())
     runner_copy = Path(plist["ProgramArguments"][1])
     assert runner_copy == Path(data["runner"]["copy"])
     assert runner_copy.parent.parent == Path(env["SCHEDULER_HOME"]) / "post-1"
@@ -366,13 +366,13 @@ def test_files_and_folders_are_private(env, tmp_path):
         assert mode(folder / f) == 0o600, f
     assert mode(next((folder / "files").iterdir())) == 0o400
     assert not any(p.stat().st_mode & 0o077 for p in folder.rglob("*"))
-    plist = Path(env["SCHEDULER_AGENTS_DIR"]) / "dev.ai-workbench.scheduler.post-1.plist"
+    plist = Path(env["SCHEDULER_AGENTS_DIR"]) / "dev.openhora.scheduler.post-1.plist"
     assert not plist.exists()  # removed after the run; its mode is checked below
 
 
 def test_plist_is_private(env, tmp_path):
     schedule(env, tmp_path, datetime.now(timezone.utc) + timedelta(days=1))
-    plist = Path(env["SCHEDULER_AGENTS_DIR"]) / "dev.ai-workbench.scheduler.post-1.plist"
+    plist = Path(env["SCHEDULER_AGENTS_DIR"]) / "dev.openhora.scheduler.post-1.plist"
     assert stat.S_IMODE(plist.stat().st_mode) == 0o600
 
 
@@ -468,3 +468,30 @@ def test_check_exits_3_when_launchctl_cannot_be_started(env):
     result = run(env, "--check")
     assert result.returncode == 3 and "Traceback" not in result.stderr
     assert "could not be started" in result.stderr
+
+
+def load_launchd(monkeypatch, env):
+    for key in ("SCHEDULER_HOME", "SCHEDULER_AGENTS_DIR", "SCHEDULER_LAUNCHCTL", "SCHEDULER_NOTIFY", "SCHEDULER_TEST"):
+        monkeypatch.setenv(key, env[key])
+    spec = importlib.util.spec_from_file_location("launchd_under_test", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_label_prefix_and_the_default_home_are_named_openhora(env, tmp_path, monkeypatch):
+    module = load_launchd(monkeypatch, env)
+    assert module.LABEL_PREFIX == "dev.openhora.scheduler."
+    monkeypatch.delenv("SCHEDULER_HOME")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert module.home() == tmp_path / "home" / "Library" / "Application Support" / "openhora" / "scheduler"
+    assert module.home().parts[-2:] == ("openhora", "scheduler")
+
+
+def test_a_job_digest_does_not_contain_the_label(env, tmp_path, monkeypatch):
+    module = load_launchd(monkeypatch, env)
+    path, _, _ = command_file(tmp_path)
+    plan = module.plan_job("post-1", datetime.now(timezone.utc) + timedelta(days=1), json.loads(path.read_text()))
+    other = {**plan, "label": "dev.somewhere-else.scheduler.post-1"}
+    assert plan["label"] == "dev.openhora.scheduler.post-1"
+    assert module.approval_digest(plan) == module.approval_digest(other)

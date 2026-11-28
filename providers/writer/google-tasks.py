@@ -176,7 +176,7 @@ def open_session(account=None):
     """(the API base, an access token, the record) from the account record: the whole five-scope set, or exit 3; and, when `account` is given, only when the token belongs to it
     (the address the document names), or exit 1 with nothing read or changed. There is no legacy record for a writer."""
     base, token_url, test_mode = endpoints()
-    loaded = _google.load_account_record(secret_resolver(), test_mode, legacy=None, error=ProviderError)
+    loaded = _google.load_account_record(secret_resolver(), test_mode, error=ProviderError)
     _google.hold(*(loaded.record[k] for k in _google.RECORD_TEXTS))
     if account is not None:
         mine = loaded.record.get("account")

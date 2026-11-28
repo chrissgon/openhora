@@ -1,11 +1,11 @@
 """Tests of the follow-ups of the review of package ACCT-G, against the stand-in service (fake_google_account.py):
 
 - an account record that is there and cannot be read now (the credentials directory or its file is unsafe, the OS secret store is locked) is
-  not absent: exit 3 with the lookup's own detail, and no legacy record takes its place;
+  not absent: exit 3 with the lookup's own detail (there is no older record to fall back to);
 - authorize stores nothing when the Gmail profile gives no usable address;
 - limit L58, the readers' part, as a static test of the code: every call that sends a request has the literal "GET", or "POST" to token_url, as
   its method (a variable method, or a POST to another address, is a finding; the two mutations a reviewer made are tested);
-- the Picker says it is not needed when only the account record exists.
+- the readers hold no legacy record: only the account record is read, and the Drive provider has no Picker.
 
 Run: uv run --with pytest==9.1.1 pytest providers/accounts/tests/test_account_google_state.py
 """
@@ -81,25 +81,21 @@ class WithStore:
         return resolver.resolve_state(name, allow_store=allow_store, environ={}, store=self.store)
 
 
-def test_a_locked_store_is_an_error_naming_the_record_and_the_legacy_loader_is_never_asked():
-    asked = []
-    legacy = ("calendar-google", lambda: asked.append(1) or ({"refresh_token": "r", "client_id": "i", "client_secret": "s"}, "x"), "old")
+def test_a_locked_store_is_an_error_naming_the_record():
     with pytest.raises(Boom) as locked:
-        google.load_account_record(WithStore(LockedStore()), False, legacy=legacy, error=Boom)
+        google.load_account_record(WithStore(LockedStore()), False, error=Boom)
     message = str(locked.value)
     assert locked.value.code == 3 and "GOOGLE_ACCOUNT_TOKEN" in message and "google-account" in message and "(locked)" in message
-    assert "unlock it" in message and "no older record takes its place" in message
-    assert asked == [], "a record that is there and cannot be read is not a reason to read an older one"
+    assert "unlock it" in message and "older record" not in message
 
 
-def test_a_store_that_answers_nothing_is_absent_and_the_legacy_record_serves(capsys):
+def test_a_store_that_answers_nothing_is_absent_and_nothing_takes_its_place():
     class Empty:
         def get_password(self, service, username):
             return None
-    loaded = google.load_account_record(WithStore(Empty()), False, legacy=("calendar-google", lambda: ({"refresh_token": "r1", "client_id": "i1",
-                                                                                                       "client_secret": "s1"}, "x"), "old"), error=Boom)
-    assert loaded.legacy == "calendar-google"
-    assert "legacy record calendar-google" in capsys.readouterr().err
+    with pytest.raises(Boom) as absent:
+        google.load_account_record(WithStore(Empty()), False, error=Boom)
+    assert absent.value.code == 3 and "no Google account authorization" in str(absent.value)
 
 
 def readers():
@@ -108,20 +104,19 @@ def readers():
 
 
 @pytest.mark.parametrize("name, script, endpoints, args", readers(), ids=["gmail", "calendar", "drive"])
-def test_an_account_file_in_the_credentials_directory_that_others_can_read_is_unsafe_and_no_legacy_record_takes_its_place(
+def test_an_account_file_in_the_credentials_directory_that_others_can_read_is_unsafe(
         fake, tmp_path, name, script, endpoints, args):
     folder = tmp_path / "creds"
     folder.mkdir(mode=0o700)
     os.chmod(folder, 0o700)
     record = folder / "GOOGLE_ACCOUNT_TOKEN"
     record.write_text(fake.record_json())
-    env = {**clean_env(), **endpoints(fake), "OPENHORA_CREDENTIALS_DIR": str(folder),
-           **fake.legacy_gmail_env(), **fake.legacy_calendar_env(), **fake.legacy_drive_env()}
+    env = {**clean_env(), **endpoints(fake), "OPENHORA_CREDENTIALS_DIR": str(folder)}
     os.chmod(record, 0o644)
     unsafe = subprocess.run([sys.executable, str(script), *args], env=env, capture_output=True, text=True, timeout=60)
     assert unsafe.returncode == 3, unsafe.stderr
-    assert "GOOGLE_ACCOUNT_TOKEN" in unsafe.stderr and "unsafe" in unsafe.stderr and "no older record takes its place" in unsafe.stderr
-    assert "using the legacy record" not in unsafe.stderr and fake.requests == [], "nothing was read with an older record"
+    assert "GOOGLE_ACCOUNT_TOKEN" in unsafe.stderr and "unsafe" in unsafe.stderr
+    assert fake.requests == [], "nothing was read"
     for secret in fga.SECRETS:
         assert secret not in unsafe.stdout + unsafe.stderr
     os.chmod(record, 0o600)       # the same file made safe: the account record serves
@@ -194,7 +189,7 @@ def test_limit_58_every_request_of_a_reader_is_a_literal_get_or_a_post_to_the_to
     source = script.read_text(encoding="utf-8")
     assert method_findings(source) == [], script.name
     senders = [n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Call) and getattr(n.func, "id", getattr(n.func, "attr", None)) in SENDERS]
-    assert len(senders) >= 2, "the check saw the calls it is meant to see"
+    assert len(senders) >= (2 if script == SHARED else 1), "the check saw the calls it is meant to see"
 
 
 def mutated(path: Path, old: str, new: str) -> str:
@@ -206,8 +201,8 @@ def mutated(path: Path, old: str, new: str) -> str:
 def test_limit_58_the_two_mutations_a_reviewer_made_are_findings():
     variable = mutated(GMAIL, 'http("GET", url,', "http(verb, url,")
     assert [m for _, m in method_findings(variable)] == ["http() is not given the literal GET or POST"]
-    elsewhere = mutated(GMAIL, 'http("POST", token_url,', 'http("POST", url,')
-    assert [m for _, m in method_findings(elsewhere)] == ["http() sends a POST to something other than token_url"]
+    elsewhere = mutated(SHARED, '_send("POST", token_url,', '_send("POST", url,')
+    assert [m for _, m in method_findings(elsewhere)] == ["_send() sends a POST to something other than token_url"]
     put = mutated(CALENDAR, 'http("GET", url,', 'http("PUT", url,')
     assert method_findings(put)
     shared = mutated(SHARED, '_send("GET", url,', "_send(method, url,")
@@ -217,15 +212,13 @@ def test_limit_58_the_two_mutations_a_reviewer_made_are_findings():
     assert method_findings(GMAIL.read_text(encoding="utf-8")) == []
 
 
-# --- the Picker with only the account record -------------------------------------------------------------------------------
+# --- the readers hold no legacy record and no Picker -----------------------------------------------------------------------
 
 
-def test_the_picker_says_it_is_not_needed_when_only_the_account_record_exists(fake):
-    env = {**clean_env(), **fake.drive_env(), "GOOGLE_ACCOUNT_TOKEN": fake.record_json()}
+def test_the_drive_provider_has_no_pick_verb_and_the_old_authorize_scripts_are_gone():
+    env = {**clean_env()}
     done = subprocess.run([sys.executable, str(DRIVE), "pick", "--no-browser"], env=env, capture_output=True, text=True, timeout=60)
     assert done.returncode == 2
-    assert "Picker is not needed" in done.stderr and "source-drive --file-id" in done.stderr and "gdrive_auth.py authorize" not in done.stderr
-    assert fake.requests == []
-    nothing = subprocess.run([sys.executable, str(DRIVE), "pick", "--no-browser"], env={**clean_env(), **fake.drive_env()}, capture_output=True,
-                             text=True, timeout=60)
-    assert nothing.returncode == 3 and "gdrive_auth.py authorize" in nothing.stderr, "with no record at all the old advice stands"
+    for gone in ("providers/documents/gdrive_auth.py", "providers/documents/gdrive_picker.py", "providers/mailbox/auth.py",
+                 "providers/calendar/google_auth.py"):
+        assert not (REPO / gone).exists(), gone

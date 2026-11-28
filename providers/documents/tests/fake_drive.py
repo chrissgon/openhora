@@ -1,5 +1,5 @@
 """A stand-in for the Google Drive API and the Google token endpoint on 127.0.0.1, for the offline tests of
-providers/documents/gdrive.py and gdrive_auth.py. Not a test file, and never a copy of the live service: it serves exactly the
+providers/documents/gdrive.py. Not a test file, and never a copy of the live service: it serves exactly the
 calls the provider's docstring names, keeps a few fictional files in memory, and refuses what the reference says the service
 refuses (a missing or wrong bearer token, a file the app was not given, an export format a Google type does not offer, an
 export over 10 MB). No real account, key or file is ever involved: the credentials of a test are made-up strings.
@@ -10,7 +10,7 @@ posted to the token endpoint) and `methods` (every HTTP method the API saw: the 
 Usage (from a test):
   fake = fake_drive.FakeDrive()          # starts on a free loopback port in a daemon thread
   fake.base, fake.token_url              what the provider's environment names
-  fake.record_json()                     a GDRIVE_SOURCES_TOKEN value that this fake accepts
+  fake.record_json()                     a GOOGLE_ACCOUNT_TOKEN value that this fake accepts
   fake.add("doc1...", "Weekly notes", fake_drive.DOC, exports={"text/markdown": b"# Notes\\n"})
   fake.edit(id, content=...)             a person's edit: the version moves
   fake.close()
@@ -30,7 +30,10 @@ DRAWING = GOOGLE + "drawing"
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 EXPORT_LIMIT = 10 * 1024 * 1024
-SCOPE = "https://www.googleapis.com/auth/drive.file"
+SCOPE = "https://www.googleapis.com/auth/drive.file"   # the scope of the retired Drive-only record: the account token's refresh is refused with it
+PREVIOUS_SET = " ".join(("https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/calendar.events",
+                         "https://www.googleapis.com/auth/calendar.calendarlist.readonly", "https://www.googleapis.com/auth/drive"))
+PLATFORM_SET = PREVIOUS_SET + " https://www.googleapis.com/auth/tasks"   # the account token's scope set (providers/_google.py)
 CLIENT_ID = "123456789012-fakeclientid.apps.example"
 CLIENT_SECRET = "fake-client-secret-not-real"
 REFRESH_TOKEN = "fake-refresh-token-not-real"
@@ -43,7 +46,7 @@ class FakeDrive:
     def __init__(self):
         self.files = {}
         self.requests, self.token_forms, self.methods = [], [], []
-        self.scope_granted = SCOPE          # what the token endpoint says it granted
+        self.scope_granted = PLATFORM_SET   # what the token endpoint says it granted
         self.omit_scope = False             # answer a token with no scope field at all
         self.token_status = 200             # set 400 and token_error to answer an OAuth error
         self.token_error = {"error": "invalid_grant", "error_description": "Token has been expired or revoked."}
@@ -215,8 +218,8 @@ class FakeDrive:
         f["modifiedTime"] = f"2026-10-15T09:{f['version']:02d}:00.000Z"
 
     def record(self, **over):
-        record = {"refresh_token": REFRESH_TOKEN, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "api_key": API_KEY,
-                  "project_number": CLIENT_ID.split("-")[0], "scope": SCOPE, "obtained_at": "2026-10-15T08:00:00Z"}
+        record = {"slot": "main", "refresh_token": REFRESH_TOKEN, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
+                  "scope": PLATFORM_SET, "account": "alex.sample@example.com", "obtained_at": "2026-10-15T08:00:00Z"}
         record.update(over)
         return record
 
@@ -226,7 +229,7 @@ class FakeDrive:
     def env(self, **over):
         """What the provider's process needs to talk to this fake and find its authorization in the environment."""
         return {"INTEGRATION_DOCUMENTS_GDRIVE_API_BASE": self.base, "INTEGRATION_DOCUMENTS_GDRIVE_TOKEN_URL": self.token_url,
-                "GDRIVE_SOURCES_TOKEN": self.record_json(**over)}
+                "GOOGLE_ACCOUNT_TOKEN": self.record_json(**over)}
 
     def api_requests(self):
         return [r for r in self.requests if r[1].startswith("/drive/")]

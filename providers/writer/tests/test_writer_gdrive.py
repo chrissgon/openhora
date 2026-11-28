@@ -118,7 +118,6 @@ def test_a_redirect_at_the_token_endpoint_is_never_followed(fake, home):
 
 def test_no_account_record_is_exit_3_and_no_legacy_record_is_read(fake, home):
     env = {k: v for k, v in fake.env().items() if k != "GOOGLE_ACCOUNT_TOKEN"}
-    env["GDRIVE_SOURCES_TOKEN"] = json.dumps({"refresh_token": fdw.REFRESH_TOKEN, "client_id": fdw.CLIENT_ID, "client_secret": fdw.CLIENT_SECRET})
     done = subprocess.run([sys.executable, str(WRITER), *create_args(TEXT, home), "--account", fdw.ACCOUNT], env={**base_env(home), **env}, capture_output=True, text=True, timeout=60)
     assert done.returncode == 3 and "google_auth.py authorize" in done.stderr
     assert fake.requests == [] and fake.token_forms == []

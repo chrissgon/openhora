@@ -28,7 +28,7 @@ from them.
 Content hash: sha256 over the files of the skill folder (sorted relative paths and their bytes), leaving out
 all of evals/ (the cases, the evidence, the version file, the old record), everything under scripts/tests/,
 caches (__pycache__, .pytest_cache, *.pyc, .DS_Store) and the marker file an installer writes into a copied
-skill folder (.installed-by-openhora, and the name before the rename, .installed-by-ai-workbench). A change to SKILL.md, a reference, an asset or a script changes it;
+skill folder (.installed-by-openhora). A change to SKILL.md, a reference, an asset or a script changes it;
 a case, an evidence file, a test and files outside the folder do not: none of them is read by a model that
 uses the skill, and none is copied into an eval run. Each case has a hash of its own (`hash --skill <name>`
 prints both): over the whole case object as it stands in the case file and the bytes of its fixture files,
@@ -383,8 +383,7 @@ def _interpreter_status():
 EVIDENCE_REL = EVIDENCE_LINES.EVIDENCE_REL
 CACHE_DIRS = ("__pycache__", ".pytest_cache")
 INSTALL_MARKER = ".installed-by-openhora"  # what an installer writes into a skill folder it copied
-LEGACY_INSTALL_MARKER = ".installed-by-ai-workbench"  # T23: what an installer wrote before the rename; a copy made then keeps its hash
-INSTALL_MARKERS = (INSTALL_MARKER, LEGACY_INSTALL_MARKER)
+INSTALL_MARKERS = (INSTALL_MARKER,)
 BEGIN, END = "<!-- eval-status:begin -->", "<!-- eval-status:end -->"
 INVENTORY_REL = os.path.join("docs", "inventory.md")
 GATE_REL = os.path.join("evals", "eval-gate.json")

@@ -35,11 +35,11 @@ LEGACY = ("GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GOOG
           "OUTLOOK_CALENDAR_TOKEN", "ONEDRIVE_SOURCES_TOKEN")
 # (class, implementation, the secrets the runtime hands that provider, from the module that hands them)
 PROVIDERS = [
-    ("reader:email", "gmail", lambda: sources_mail.SECRETS[("reader:email", "gmail")], (GOOGLE, "GMAIL_REFRESH_TOKEN", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET")),
+    ("reader:email", "gmail", lambda: sources_mail.SECRETS[("reader:email", "gmail")], (GOOGLE,)),
     ("reader:email", "outlook", lambda: sources_mail.SECRETS[("reader:email", "outlook")], (MICROSOFT, "OUTLOOK_MAIL_TOKEN")),
-    ("integration:calendar", "google", lambda: sources_mail.SECRETS[("integration:calendar", "google")], (GOOGLE, "GOOGLE_CALENDAR_TOKEN")),
+    ("integration:calendar", "google", lambda: sources_mail.SECRETS[("integration:calendar", "google")], (GOOGLE,)),
     ("integration:calendar", "outlook", lambda: sources_mail.SECRETS[("integration:calendar", "outlook")], (MICROSOFT, "OUTLOOK_CALENDAR_TOKEN")),
-    ("integration:documents", "gdrive", lambda: sources.DRIVE_SECRETS, (GOOGLE, "GDRIVE_SOURCES_TOKEN")),
+    ("integration:documents", "gdrive", lambda: sources.DRIVE_SECRETS, (GOOGLE,)),
     ("integration:documents", "onedrive", lambda: sources_onedrive.ONEDRIVE_SECRETS, (MICROSOFT, "ONEDRIVE_SOURCES_TOKEN")),
 ]
 
@@ -52,7 +52,7 @@ def cfg():
 @pytest.mark.parametrize("cls, implementation, handed, expected", PROVIDERS, ids=[f"{c}-{i}" for c, i, _, _ in PROVIDERS])
 def test_limit_59_a_provider_is_handed_its_services_account_token_and_its_legacy_record_and_no_other_secret(cfg, monkeypatch, cls, implementation,
                                                                                                          handed, expected):
-    assert tuple(handed()) == expected, "the account token first, then the legacy record(s) of the same purpose"
+    assert tuple(handed()) == expected, "the account token first, then (Microsoft only, until its half of ACCT-LEGACY) the old record of the same purpose"
     everything = (GOOGLE, MICROSOFT) + LEGACY + ("OPENROUTER_API_KEY", "VCS_GITHUB_TOKEN", "NOTION_TOKEN", "NOTION_SOURCES_TOKEN")
     for name in everything:
         monkeypatch.setenv(name, f"value-of-{name}")
@@ -129,8 +129,8 @@ def test_limit_59_the_real_drive_call_hands_the_provider_the_google_account_toke
     sources.drive_call(cfg, "stat", ["--id", "x", "--as-source"])
     env = seen["kwargs"]["env"]
     assert (seen["cls"], seen["kwargs"]["implementation"]) == ("integration:documents", "gdrive")
-    assert {GOOGLE, "GDRIVE_SOURCES_TOKEN"} <= set(env) and MICROSOFT not in env
-    assert set(env) <= set(resolve.ENV_MINIMUM) | {GOOGLE, "GDRIVE_SOURCES_TOKEN"}, sorted(set(env) - set(resolve.ENV_MINIMUM))
+    assert GOOGLE in env and MICROSOFT not in env and "GDRIVE_SOURCES_TOKEN" not in env
+    assert set(env) <= set(resolve.ENV_MINIMUM) | {GOOGLE}, sorted(set(env) - set(resolve.ENV_MINIMUM))
 
 
 def test_limit_59_the_real_onedrive_call_hands_the_provider_the_microsoft_account_token_and_its_legacy_record_and_nothing_else(cfg, monkeypatch):
@@ -143,19 +143,11 @@ def test_limit_59_the_real_onedrive_call_hands_the_provider_the_microsoft_accoun
     assert set(env) <= set(resolve.ENV_MINIMUM) | {MICROSOFT, "ONEDRIVE_SOURCES_TOKEN"}, sorted(set(env) - set(resolve.ENV_MINIMUM))
 
 
-def test_limit_59_the_picker_is_handed_the_legacy_record_it_reads_and_never_the_account_token(cfg, monkeypatch):
-    set_everything(monkeypatch)
-    capture_resolver(monkeypatch)
-    seen = {}
-
-    def run(argv, env, timeout):
-        seen.update(argv=argv, env=env)
-        return 0, json.dumps({"picked": [], "cancelled": True})
-    sources.pick_drive(cfg, run=run)
-    assert seen["argv"] == ["pick"]
-    assert seen["env"]["GDRIVE_SOURCES_TOKEN"] == "value-of-GDRIVE_SOURCES_TOKEN"
-    assert GOOGLE not in seen["env"] and MICROSOFT not in seen["env"], "the Picker reads the legacy record alone"
-    assert set(seen["env"]) <= set(resolve.ENV_MINIMUM) | {"GDRIVE_SOURCES_TOKEN"}
+def test_limit_59_the_runtime_has_no_picker_and_hands_no_legacy_google_record(cfg):
+    assert not hasattr(sources, "pick_drive") and not hasattr(sources, "DRIVE_SECRET") and not hasattr(sources, "DRIVE_PICK_TIMEOUT")
+    assert sources.DRIVE_SECRETS == (GOOGLE,)
+    for key in (("reader:email", "gmail"), ("integration:calendar", "google")):
+        assert sources_mail.SECRETS[key] == (GOOGLE,)
 
 
 # --- the credential scan of the runtime knows the account tokens' formats (limit L6) ------------------------------------------------
