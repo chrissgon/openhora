@@ -31,8 +31,9 @@ What a job guarantees:
   program and the runner are hashed again and the command is refused if any differs.
   Every firing also recomputes the approval digest from job.json, exactly as the dry run
   computed it, and refuses when it differs from the recorded approved, when approved is
-  missing, or when a copy is not where it was scheduled: an edited job record never runs as it
-  now reads.
+  missing, or when a copy is not where it was scheduled: a job record edited without a new digest never
+  runs as it now reads. The digest is a hash, not a signature: anyone who can write the record can compute
+  a new one.
 - When UV_PYTHON names an absolute interpreter, the job records its real path and hash (part of the
   digest, checked at every firing) and the command starts with UV_PYTHON set to it, so every
   uv run in the job uses the interpreter that was approved.
@@ -1112,7 +1113,11 @@ def run_recurring(job: dict) -> int:
 
 
 def cmd_run(args) -> int:
-    job = read_job(validate_id(args.id))
+    job_id = validate_id(args.id)
+    job = read_job(job_id)
+    if job.get("id") != job_id:  # a record that names another job was edited or copied: it fails the digest check
+        job["approved"] = "0" * 64
+    job["id"] = job_id  # the id the unit names is the anchor: nothing below reads, locks or writes another folder
     for name in ("launchd.out.log", "launchd.err.log"):
         trim_in_place(job_dir(job["id"]) / name)
     if job.get("kind") == "recurring":
@@ -1125,7 +1130,10 @@ def cmd_run(args) -> int:
     # From here to the recorded outcome the runner holds the lock, as cancel and resolve do: none of them writes
     # over another. Unloading at the end may stop this process; the kernel then drops the lock.
     try:
-        job = read_job(job["id"])  # again, now that no other runner can change it
+        job = read_job(job_id)  # again, now that no other runner can change it
+        if job.get("id") != job_id:
+            job["approved"] = "0" * 64
+        job["id"] = job_id
         if job["status"] != "scheduled":
             log(f"job {job['id']} is {job['status']}; nothing to run")
             unload(job["id"])
@@ -1148,8 +1156,6 @@ def cmd_run(args) -> int:
             current = now()
         if current > at + timedelta(minutes=job["grace_minutes"]):
             return finish(job, "missed", reason=f"fired at {iso(current)}, after the {job['grace_minutes']}-minute grace")
-        if "program" not in job or "runner" not in job:
-            return finish(job, "refused", reason="the job was scheduled without program and runner hashes; schedule it again")
         reason = changed_since_approval(job)
         if reason:
             return finish(job, "refused", reason=reason)

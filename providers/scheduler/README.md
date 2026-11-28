@@ -27,7 +27,7 @@ Runs a command as a launchd user agent, once at a set time (`--at`) or every N m
 - **Bounded files.** `run.stdout.log` and `run.stderr.log` keep at most the last MiB of what the command printed (the full output is still read for `post_url`), and `launchd.out.log` and `launchd.err.log` are cut to their last MiB at each firing, in place; a file that was cut starts with a line saying how many bytes were dropped. `runs.jsonl` moves to `runs.1.jsonl` past 4 MB.
 - **Bounded waits.** Every `launchctl` call times out after 30 seconds; a bootstrap that times out records the job as `failed`.
 
-**Jobs scheduled before 2026-11 (T44).** Each job runs the copy of the runner made when it was scheduled, so a job scheduled before the digest was checked at firing keeps the old runner and does not get this check. Cancel it and schedule it again (dry run, gate, `--confirmed --approved`) to get it; nothing else changes for it.
+**Jobs scheduled before this change (T44).** Each job runs the copy of the runner made when it was scheduled, so a job scheduled before the digest was checked at firing keeps the old runner and does not get this check. Cancel it and schedule it again (dry run, gate, `--confirmed --approved`) to get it; nothing else changes for it.
 
 ### Recurring jobs (`--every`)
 

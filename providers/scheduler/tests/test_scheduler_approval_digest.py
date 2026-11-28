@@ -475,3 +475,65 @@ def test_both_providers_name_the_same_mismatch_for_the_same_record(builder, monk
         second = systemd.record_changed_since_approval(copylib.deepcopy(mutated))
         assert first is not None, name
         assert first == second, name
+
+
+# --- 7. the job id the unit names is the anchor -----------------------------------------------
+
+
+def new_calls(s, before) -> str:
+    return (s.calls.read_text() if s.calls.exists() else "")[len(before):]
+
+
+def test_an_edited_id_does_not_rerun_another_job(s):
+    command = s.command_file()
+    s.schedule(command, "post-a")
+    s.schedule(command, "post-b")
+    assert s.fire("post-b").returncode == 0 and s.marker.read_text() == "hello"
+    s.marker.unlink()
+    s.edit("post-b", lambda d: d.update(status="scheduled"))  # B is armed again by hand
+    s.edit("post-a", lambda d: d.update(id="post-b"))  # and A's record claims to be B
+    b_before = s.job_path("post-b").read_bytes()
+    before = s.calls.read_text() if s.calls.exists() else ""
+    fired = s.fire("post-a")
+    assert "Traceback" not in fired.stderr and fired.returncode == 1
+    assert not s.marker.exists()  # B's command did not run a second time
+    refused = s.job("post-a")
+    assert refused["status"] == "refused" and CHANGED in refused["reason"], refused
+    assert s.job_path("post-b").read_bytes() == b_before  # B's record is untouched
+    assert "post-b" not in new_calls(s, before)  # and so is its unit or plist
+    assert not (s.job_path("post-b").parent / "run.lock").exists() or s.job("post-b")["status"] == "scheduled"
+
+
+@pytest.mark.parametrize("kind", ["one-shot", "recurring"])
+def test_another_jobs_record_copied_into_a_folder_is_refused(s, kind):
+    every = None if kind == "one-shot" else 15
+    command = s.command_file()
+    s.schedule(command, "post-a", every=every)
+    s.schedule(command, "post-b", every=30 if every else None)
+    b_before = s.job_path("post-b").read_bytes()
+    s.job_path("post-a").write_bytes(b_before)
+    os.chmod(s.job_path("post-a"), 0o600)
+    before = s.calls.read_text() if s.calls.exists() else ""
+    fired = s.fire("post-a")
+    assert "Traceback" not in fired.stderr and fired.returncode == 1
+    assert not s.marker.exists()
+    assert s.job_path("post-b").read_bytes() == b_before
+    assert "post-b" not in new_calls(s, before)
+    if kind == "one-shot":
+        assert s.job("post-a")["status"] == "refused" and CHANGED in s.job("post-a")["reason"]
+    else:
+        last = s.firings("post-a")[-1]
+        assert last["status"] == "refused" and CHANGED in last["reason"], last
+        assert s.job("post-a")["status"] == "refused"
+
+
+@pytest.mark.parametrize("kind", ["one-shot", "recurring"])
+def test_a_record_without_program_and_runner_hashes_is_a_recorded_refusal(s, kind):
+    job_id, every = ("post-1", None) if kind == "one-shot" else ("tick", 15)
+    s.schedule(s.command_file(), job_id, every=every)
+    s.edit(job_id, lambda d: (d.pop("program"), d.pop("runner")))
+    s.last = s.fire(job_id)
+    if kind == "one-shot":
+        s.assert_refused_one_shot(BROKEN)
+    else:
+        s.assert_refused_recurring(BROKEN)

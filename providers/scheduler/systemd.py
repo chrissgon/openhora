@@ -55,8 +55,9 @@ What a job guarantees (as in launchd.py):
   hashes the copies, the program and the runner again and refuses on any difference.
   Every firing also recomputes the approval digest from job.json, exactly as the dry run
   computed it, and refuses when it differs from the recorded approved, when approved is
-  missing, or when a copy is not where it was scheduled: an edited job record never runs as it
-  now reads.
+  missing, or when a copy is not where it was scheduled: a job record edited without a new digest never
+  runs as it now reads. The digest is a hash, not a signature: anyone who can write the record can compute
+  a new one.
 - A one-shot job runs at most once (run.lock) and a firing later than grace_minutes is recorded as missed.
   It always ends: its command runs in its own process group for at most timeout_minutes (10 when the
   command file gives none), its output is kept as bytes, and an error in the runner records the job as
@@ -1233,7 +1234,11 @@ def run_recurring(job: dict) -> int:
 
 
 def cmd_run(args) -> int:
-    job = read_job(validate_id(args.id))
+    job_id = validate_id(args.id)
+    job = read_job(job_id)
+    if job.get("id") != job_id:  # a record that names another job was edited or copied: it fails the digest check
+        job["approved"] = "0" * 64
+    job["id"] = job_id  # the id the unit names is the anchor: nothing below reads, locks or writes another folder
     for name in ("systemd.out.log", "systemd.err.log"):
         trim_in_place(job_dir(job["id"]) / name)
     if job.get("kind") == "recurring":
@@ -1246,7 +1251,10 @@ def cmd_run(args) -> int:
     # From here to the recorded outcome the runner holds the lock, as cancel and resolve do: none of them writes
     # over another. Unloading at the end may stop this process; the kernel then drops the lock.
     try:
-        job = read_job(job["id"])  # again, now that no other runner can change it
+        job = read_job(job_id)  # again, now that no other runner can change it
+        if job.get("id") != job_id:
+            job["approved"] = "0" * 64
+        job["id"] = job_id
         if job["status"] != "scheduled":
             log(f"job {job['id']} is {job['status']}; nothing to run")
             unload(job)

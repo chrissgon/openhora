@@ -398,6 +398,15 @@ def test_a_missed_or_refused_one_shot_is_recorded_under_the_lock(s, monkeypatch)
     assert seen == [("missed", True)]
 
 
+def test_a_refused_one_shot_is_recorded_under_the_lock(s, monkeypatch):
+    assert s.schedule(s.command_file())[0].returncode == 0
+    module = s.module(monkeypatch)
+    s.set_job(grace_minutes=60)  # an edit without a new digest
+    seen = watch_writes(s, module, monkeypatch)
+    assert module.main(["run", "--id", "post-1"]) == 1
+    assert seen == [("refused", True)]
+
+
 def test_cancel_and_resolve_write_under_the_lock(s, monkeypatch):
     assert s.schedule(s.command_file())[0].returncode == 0
     module = s.module(monkeypatch)
